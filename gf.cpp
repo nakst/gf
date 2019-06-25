@@ -24,6 +24,9 @@
 #include <wx/notebook.h>
 #include <spawn.h>
 
+// Implementations are not required to declare this variable.
+extern "C" char **environ;
+
 class MyApp : public wxApp {
 	public:
 		virtual bool OnInit();
@@ -126,7 +129,7 @@ class MyFrame : public wxFrame {
 		void Break		(wxCommandEvent &event) { kill(gdbPID, SIGINT); }
 
 		void RemoveItem				(wxCommandEvent &event);
-		void AddBreakpoint			(wxCommandEvent &event);
+		void AddBreakpointH			(wxCommandEvent &event);
 		void RestartGDB				(wxCommandEvent &event);
 		void BreakAtFunction			(wxCommandEvent &event);
 
@@ -500,7 +503,7 @@ wxBEGIN_EVENT_TABLE(MyFrame, wxFrame)
 	EVT_MENU(		ID_Run,			MyFrame::Run)
 	EVT_MENU(		ID_RunPaused,		MyFrame::RunPaused)
 	EVT_MENU(		ID_FocusInput,		MyFrame::FocusInput)
-	EVT_MENU(		ID_AddBreakpoint,	MyFrame::AddBreakpoint)
+	EVT_MENU(		ID_AddBreakpoint,	MyFrame::AddBreakpointH)
 	EVT_MENU(		ID_RestartGDB,		MyFrame::RestartGDB)
 	EVT_MENU(		ID_BreakAtFunction,	MyFrame::BreakAtFunction)
 	EVT_MENU(		wxID_DELETE,		MyFrame::RemoveItem)
@@ -1345,7 +1348,7 @@ void MyFrame::OnSelectFrame(wxListEvent &event) {
 	SendToGDB(sendBuffer);
 }
 
-void MyFrame::AddBreakpoint(wxCommandEvent &event) {
+void MyFrame::AddBreakpointH(wxCommandEvent &event) {
 	wxTextEntryDialog dialog(frame, wxT("Enter the function or line to break on:"), wxT("Add Breakpoint"));
 	int result = dialog.ShowModal();
 	if (result == wxID_CANCEL) return;
