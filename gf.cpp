@@ -231,7 +231,7 @@ class DataView : public wxControl {
 					dc.SetPen(wxNullPen);
 					if (entry->valueChanged) dc.DrawRectangle(x + 1, yp + 1, width - 2, 16);
 					dc.DrawText(entry->name, x + 8, yp);
-					dc.DrawText(entry->value, x + width / 2, yp);
+					dc.DrawText(entry->value, x + width / 3, yp);
 				}
 
 				if (entry->address && entry->isContainer) {
