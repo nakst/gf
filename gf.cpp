@@ -99,6 +99,7 @@ class MyFrame : public wxFrame {
 	public:
 		MyFrame(const wxString &title, const wxPoint &position, const wxSize &size);
 		void SendToGDB(const char *string, bool echo = true);
+		void SyncWithVim();
 
 		wxStyledTextCtrl *console = nullptr;
 		struct CodeDisplay *display = nullptr;
@@ -118,6 +119,7 @@ class MyFrame : public wxFrame {
 		void OnSelectFunction(wxListEvent &event);
 
 		void FocusInput		(wxCommandEvent &event) { consoleInput->SetFocus(); }
+		void _SyncWithVim	(wxCommandEvent &event) { SyncWithVim(); }
 
 		void StepIn		(wxCommandEvent &event) { SendToGDB("s"); }
 		void StepOver		(wxCommandEvent &event) { SendToGDB("n"); }
@@ -126,6 +128,7 @@ class MyFrame : public wxFrame {
 		void Connect		(wxCommandEvent &event) { SendToGDB("target remote :1234"); }
 		void Run		(wxCommandEvent &event) { SendToGDB("r"); }
 		void RunPaused		(wxCommandEvent &event) { SendToGDB("start"); }
+		void Kill		(wxCommandEvent &event) { SendToGDB("kill"); }
 		void Break		(wxCommandEvent &event) { kill(gdbPID, SIGINT); }
 
 		void RemoveItem				(wxCommandEvent &event);
@@ -470,6 +473,7 @@ enum {
 	ID_RestartGDB		= 15,
 	ID_FunctionList		= 16,
 	ID_BreakAtFunction	= 17,
+	ID_Kill			= 18,
 
 	ID_StepIn 		= 101,
 	ID_StepOver 		= 102,
@@ -479,6 +483,7 @@ enum {
 	ID_Run			= 106,
 	ID_RunPaused		= 107,
 	ID_Connect 		= 108,
+	ID_SyncWithVim 		= 109,
 };
 
 wxDEFINE_EVENT(RECEIVE_GDB_DATA, wxCommandEvent);
@@ -494,19 +499,21 @@ wxBEGIN_EVENT_TABLE(MyFrame, wxFrame)
 	EVT_LIST_ITEM_RIGHT_CLICK(ID_FunctionList, MyFrame::OnFunctionListRightClick)
 	EVT_LIST_ITEM_SELECTED(ID_FunctionList, MyFrame::OnSelectFunction)
 
-	EVT_MENU(		ID_StepIn,		MyFrame::StepIn)
-	EVT_MENU(		ID_StepOver,		MyFrame::StepOver)
-	EVT_MENU(		ID_StepOut,		MyFrame::StepOut)
-	EVT_MENU(		ID_Continue,		MyFrame::Continue)
-	EVT_MENU(		ID_Connect,		MyFrame::Connect)
-	EVT_MENU(		ID_Break,		MyFrame::Break)
-	EVT_MENU(		ID_Run,			MyFrame::Run)
-	EVT_MENU(		ID_RunPaused,		MyFrame::RunPaused)
-	EVT_MENU(		ID_FocusInput,		MyFrame::FocusInput)
-	EVT_MENU(		ID_AddBreakpoint,	MyFrame::AddBreakpointH)
-	EVT_MENU(		ID_RestartGDB,		MyFrame::RestartGDB)
-	EVT_MENU(		ID_BreakAtFunction,	MyFrame::BreakAtFunction)
-	EVT_MENU(		wxID_DELETE,		MyFrame::RemoveItem)
+	EVT_MENU(ID_StepIn,		MyFrame::StepIn)
+	EVT_MENU(ID_StepOver,		MyFrame::StepOver)
+	EVT_MENU(ID_StepOut,		MyFrame::StepOut)
+	EVT_MENU(ID_Continue,		MyFrame::Continue)
+	EVT_MENU(ID_Connect,		MyFrame::Connect)
+	EVT_MENU(ID_Break,		MyFrame::Break)
+	EVT_MENU(ID_Run,		MyFrame::Run)
+	EVT_MENU(ID_RunPaused,		MyFrame::RunPaused)
+	EVT_MENU(ID_FocusInput,		MyFrame::FocusInput)
+	EVT_MENU(ID_AddBreakpoint,	MyFrame::AddBreakpointH)
+	EVT_MENU(ID_RestartGDB,		MyFrame::RestartGDB)
+	EVT_MENU(ID_BreakAtFunction,	MyFrame::BreakAtFunction)
+	EVT_MENU(ID_SyncWithVim, 	MyFrame::_SyncWithVim)
+	EVT_MENU(ID_Kill,		MyFrame::Kill)
+	EVT_MENU(wxID_DELETE,		MyFrame::RemoveItem)
 wxEND_EVENT_TABLE()
 
 wxBEGIN_EVENT_TABLE(MyTextCtrl, wxTextCtrl)
@@ -710,6 +717,8 @@ MyFrame::MyFrame(const wxString &title, const wxPoint &position, const wxSize &s
 	wxMenu *menuProcess = new wxMenu;
 	menuProcess->Append(ID_Run, 		"&Run\tShift+F5");
 	menuProcess->Append(ID_RunPaused,	"Run &paused\tCtrl+F5");
+	menuProcess->AppendSeparator();
+	menuProcess->Append(ID_Kill,		"&Kill\tF3");
 
 	wxMenu *menuEdit = new wxMenu;
 	menuEdit->Append(wxID_CUT);
@@ -736,6 +745,7 @@ MyFrame::MyFrame(const wxString &title, const wxPoint &position, const wxSize &s
 	menuView->Append(ID_ViewCallStack, 	"&Call stack\tCtrl+Alt+C");
 	menuView->Append(ID_ViewWatch, 		"&Watch expressions\tCtrl+Alt+W");
 	menuView->Append(ID_FocusInput, 	"Focus &input\tCtrl+I");
+	menuView->Append(ID_SyncWithVim, 	"&Sync source with gvim\tF2");
 
 	wxMenuBar *menuBar = new wxMenuBar;
 	menuBar->Append(menuProcess, "&Process");
@@ -905,6 +915,34 @@ void MyFrame::RemoveBreakpoint(int index) {
 
 int wxCALLBACK SortFunctions(wxIntPtr item1, wxIntPtr item2, wxIntPtr sortData) {
 	return strcmp((char *) item1, (char *) item2);
+}
+
+void MyFrame::SyncWithVim() {
+	if (!system("vim --servername GVIM --remote-expr \"execute(\\\"ls\\\")\" | grep % > current_file_open_in_vim.txt")) {
+		char buffer[1024];
+		FILE *file = fopen("current_file_open_in_vim.txt", "r");
+
+		if (file) {
+			buffer[fread(buffer, 1, 1023, file)] = 0;
+			fclose(file);
+
+			{
+				char *name = strchr(buffer, '"');
+				if (!name) goto done;
+				char *nameEnd = strchr(++name, '"');
+				if (!nameEnd) goto done;
+				*nameEnd = 0;
+				if (!LoadFile(strdup(name)) && strcmp(name, currentFile)) goto done;
+				char *line = strstr(nameEnd + 1, "line ");
+				if (!line) goto done;
+				int lineNumber = atoi(line + 5);
+				SetLine(lineNumber);
+			}
+
+			done:;
+			unlink("current_file_open_in_vim.txt");
+		}
+	}
 }
 
 void MyFrame::OnReceiveData(wxCommandEvent &event) {
@@ -1276,31 +1314,7 @@ void MyFrame::OnReceiveData(wxCommandEvent &event) {
 	if (!gotFirstFile) {
 		gotFirstFile = true;
 
-		if (!system("vim --servername GVIM --remote-expr \"execute(\\\"ls\\\")\" | grep % > current_file_open_in_vim.txt")) {
-			char buffer[1024];
-			FILE *file = fopen("current_file_open_in_vim.txt", "r");
-
-			if (file) {
-				buffer[fread(buffer, 1, 1023, file)] = 0;
-				fclose(file);
-
-				{
-					char *name = strchr(buffer, '"');
-					if (!name) goto done;
-					char *nameEnd = strchr(++name, '"');
-					if (!nameEnd) goto done;
-					*nameEnd = 0;
-					if (!LoadFile(strdup(name))) goto done;
-					char *line = strstr(nameEnd + 1, "line ");
-					if (!line) goto done;
-					int lineNumber = atoi(line + 5);
-					SetLine(lineNumber);
-				}
-
-				done:;
-				     unlink("current_file_open_in_vim.txt");
-			}
-		}
+		SyncWithVim();
 	}
 
 	// Update the list of breakpoints.
