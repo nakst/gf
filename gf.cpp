@@ -1363,10 +1363,26 @@ void MyFrame::OnSelectFrame(wxListEvent &event) {
 }
 
 void MyFrame::AddBreakpointH(wxCommandEvent &event) {
+#if 0
 	wxTextEntryDialog dialog(frame, wxT("Enter the function or line to break on:"), wxT("Add Breakpoint"));
 	int result = dialog.ShowModal();
 	if (result == wxID_CANCEL) return;
 	sprintf(sendBuffer, "b %s", (const char *) dialog.GetValue().mb_str());
+	SendToGDB(sendBuffer);
+#endif
+
+	int line = display->LineFromPosition(display->GetSelectionStart()) + 1;
+	display->SetCaretLineVisible(true);
+
+	for (int i = 0; i < breakpointCount; i++) {
+		if (line == breakpoints[i].line && 0 == strcmp(breakpoints[i].filename, currentFile)) {
+			sprintf(sendBuffer, "clear %s:%d", currentFile, line);
+			SendToGDB(sendBuffer, false);
+			return;
+		}
+	}
+
+	sprintf(sendBuffer, "b %s:%d", currentFile, line);
 	SendToGDB(sendBuffer);
 }
 
