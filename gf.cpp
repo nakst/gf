@@ -2,8 +2,6 @@
 //
 // Bugs:
 // 	- Watch expressions with inline structures/unions confuse the parser.
-// 	- Sometimes it can't find the source file.
-// 	- Relying on wxWidgets 3 is bad; most Linux distributions don't support it.
 //
 // Future extensions: 
 // 	- Watch window.
@@ -50,6 +48,7 @@ class CodeDisplay : public wxStyledTextCtrl {
 		void OnLeftUp(wxMouseEvent &event);
 		void OnRunToLine(wxCommandEvent &event);
 		void OnJumpToLine(wxCommandEvent &event);
+		void OnKillFocus(wxFocusEvent &event);
 		wxDECLARE_EVENT_TABLE();
 };
 
@@ -81,8 +80,8 @@ struct DataNode {
 	int visibleButtons;
 };
 
-wxFont font(14, wxFONTFAMILY_MODERN, wxFONTSTYLE_NORMAL, wxFONTWEIGHT_NORMAL);
-wxFont font2(11, wxFONTFAMILY_MODERN, wxFONTSTYLE_NORMAL, wxFONTWEIGHT_NORMAL);
+wxFont font;
+wxFont font2;
 // wxPen connectionPen(*wxGREEN, 3);
 wxPen connectionPenUnlocked(*wxYELLOW, 3);
 
@@ -118,7 +117,7 @@ class MyFrame : public wxFrame {
 		void OnFunctionListRightClick(wxListEvent &event);
 		void OnSelectFunction(wxListEvent &event);
 
-		void FocusInput		(wxCommandEvent &event) { consoleInput->SetFocus(); }
+		void FocusInput		(wxCommandEvent &event) { display->SetFocus(); consoleInput->SetFocus(); }
 		void _SyncWithVim	(wxCommandEvent &event) { SyncWithVim(); }
 
 		void StepIn		(wxCommandEvent &event) { SendToGDB("s"); }
@@ -136,7 +135,7 @@ class MyFrame : public wxFrame {
 		void RestartGDB				(wxCommandEvent &event);
 		void BreakAtFunction			(wxCommandEvent &event);
 
-		bool LoadFile(char *newFile);
+		bool LoadFile(char *newFile, bool search = false);
 		void SetLine(int line);
 		void AddBreakpoint(int index);
 		void RemoveBreakpoint(int index);
@@ -524,6 +523,7 @@ wxBEGIN_EVENT_TABLE(CodeDisplay, wxStyledTextCtrl)
 	EVT_LEFT_UP(CodeDisplay::OnLeftUp)
 	EVT_COMMAND(wxID_ANY, RUN_TO_LINE, CodeDisplay::OnRunToLine)
 	EVT_COMMAND(wxID_ANY, JUMP_TO_LINE, CodeDisplay::OnJumpToLine)
+	EVT_KILL_FOCUS(CodeDisplay::OnKillFocus)
 wxEND_EVENT_TABLE()
 
 wxIMPLEMENT_APP(MyApp);
@@ -606,6 +606,8 @@ void CodeDisplay::OnLeftUp(wxMouseEvent &event) {
 }
 
 MyFrame::MyFrame(const wxString &title, const wxPoint &position, const wxSize &size) : wxFrame(nullptr, wxID_ANY, title, position, size) {
+	font = wxFont(14, wxFONTFAMILY_MODERN, wxFONTSTYLE_NORMAL, wxFONTWEIGHT_NORMAL);
+	font2 = wxFont(11, wxFONTFAMILY_MODERN, wxFONTSTYLE_NORMAL, wxFONTWEIGHT_NORMAL);
 	currentFile = strdup("");
 
 	wxPanel *panel = new wxPanel(this, wxID_ANY);
@@ -640,9 +642,10 @@ MyFrame::MyFrame(const wxString &title, const wxPoint &position, const wxSize &s
 	display->SetMarginSensitive(1, true);
 	display->SetYCaretPolicy(wxSTC_CARET_STRICT | wxSTC_CARET_EVEN, 0);
 	display->SetCaretLineBackground(backgroundLight);
-	display->SetCaretLineVisibleAlways(true);
+	// display->SetCaretLineVisibleAlways(true);
 	display->SetLexer(wxSTC_LEX_CPP);
 	display->SetProperty("lexer.cpp.track.preprocessor", "0");
+	display->SetFocus();
 
 	for (int i = 0; i < wxSTC_STYLE_MAX; i++) {
 		if (i != wxSTC_STYLE_LINENUMBER && i != wxSTC_STYLE_DEFAULT) display->StyleSetFont(i, font);
@@ -841,8 +844,18 @@ void MyFrame::OnEnterInput(wxCommandEvent &event) {
 	consoleInput->Clear();
 }
 
-bool MyFrame::LoadFile(char *newFile) {
-	// printf("> load file: %s\n", newFile);
+bool MyFrame::LoadFile(char *newFile, bool search) {
+	if (search) {
+		sprintf(sendBuffer, "info source");
+		QueryGDB();
+		printf("> got: %s\n", receiveBuffer);
+		char *path = strstr(receiveBuffer, "\nLocated in /");
+		if (!path) return false;
+		char *end = strchr(path + 12, '\n');
+		if (end) *end = 0;
+		newFile = strdup(path + 12); // TODO Memory leaks.
+	}
+	printf("> load file: %s\n", newFile);
 	struct stat s = {};
 	if (stat(newFile, &s)) return false;
 	if (!strcmp(newFile, currentFile) && currentFileModified == s.st_mtime) return false;
@@ -861,6 +874,8 @@ bool MyFrame::LoadFile(char *newFile) {
 	display->ClearAll();
 	display->InsertText(0, wxString(data, fileLength));
 	display->SetReadOnly(true);
+	display->SetFocus();
+	consoleInput->SetFocus();
 	free(currentFile);
 	currentFile = newFile;
 
@@ -1175,6 +1190,8 @@ void MyFrame::OnReceiveData(wxCommandEvent &event) {
 
 	// Parse the name of the file.
 
+	char *newFile = nullptr;
+
 	{
 		const char *file = data;
 
@@ -1186,10 +1203,9 @@ void MyFrame::OnReceiveData(wxCommandEvent &event) {
 			const char *end = strchr(file, ':');
 
 			if (end && isdigit(end[1])) {
-				char *newFile = (char *) malloc(end - file + 1);
+				newFile = (char *) malloc(end - file + 1);
 				memcpy(newFile, file, end - file);
 				newFile[end - file] = 0;
-				if (!LoadFile(newFile)) free(newFile);
 			}
 		}
 	}
@@ -1197,6 +1213,7 @@ void MyFrame::OnReceiveData(wxCommandEvent &event) {
 	// Parse the current line.
 
 	bool lineChanged = false;
+	int newLine = 0;
 
 	{
 		const char *line = data;
@@ -1218,7 +1235,7 @@ void MyFrame::OnReceiveData(wxCommandEvent &event) {
 
 				if (number) {
 					lineChanged = true;
-					SetLine(number);
+					newLine = number;
 				}
 
 				tryNext:;
@@ -1235,6 +1252,18 @@ void MyFrame::OnReceiveData(wxCommandEvent &event) {
 	console->InsertText(console->GetTextLength(), wxString(data));
 	console->ScrollToEnd();
 	console->SetReadOnly(true);
+
+	// Load the new file and line.
+
+	if (newFile) {
+		if (!LoadFile(newFile, true)) {
+			free(newFile);
+		}
+	}
+
+	if (lineChanged) {
+		SetLine(newLine);
+	}
 
 	// Clear the until line.
 	
@@ -1346,6 +1375,13 @@ void CodeDisplay::OnRunToLine(wxCommandEvent &event) {
 	MarginSetStyle(line - 1, wxSTC_STYLE_MAX - 2);
 	untilLine = line;
 	frame->SendToGDB(sendBuffer);
+}
+
+void CodeDisplay::OnKillFocus(wxFocusEvent &event) {
+	// HACK
+	// To avoid relying on the newest versions of wxWidgets,
+	// we don't tell the wxStyledTextCtrl about losing focus,
+	// so we don't need SetCaretLineVisibleAlways().
 }
 
 void CodeDisplay::OnJumpToLine(wxCommandEvent &event) {
