@@ -627,6 +627,8 @@ MyFrame::MyFrame(const wxString &title, const wxPoint &position, const wxSize &s
 				   wxColor(245, 221, 209), wxColor(255, 255, 255), wxColor(245, 221, 209), wxColor(180, 180, 180),
 				   wxColor(255, 255, 255), wxColor(180, 180, 180), wxColor(180, 180, 180), wxColor(255, 255, 255), };
 
+	const char *keyContinue = "F5", *keyBreak = "Ctrl+Shift+C", *keyStepOver = "F10", *keyStepIn = "F11", *keyStepOut = "Shift+F11", *keyToggleBreakpoint = "F9";
+
 	if (file) {
 		fseek(file, 0, SEEK_END);
 		size_t bytes = ftell(file);
@@ -669,6 +671,18 @@ MyFrame::MyFrame(const wxString &title, const wxPoint &position, const wxSize &s
 					background = wxColor(SwapColorChannels(entry.integer));
 				} else if (0 == strcmp(entry.key, "background2") && entry.type == MT_INTEGER) {
 					backgroundLight = wxColor(SwapColorChannels(entry.integer));
+				} else if (0 == strcmp(entry.key, "keyContinue") && entry.type == MT_DATA) {
+					keyContinue = (const char *) entry.data;
+				} else if (0 == strcmp(entry.key, "keyBreak") && entry.type == MT_DATA) {
+					keyBreak = (const char *) entry.data;
+				} else if (0 == strcmp(entry.key, "keyStepOver") && entry.type == MT_DATA) {
+					keyStepOver = (const char *) entry.data;
+				} else if (0 == strcmp(entry.key, "keyStepIn") && entry.type == MT_DATA) {
+					keyStepIn = (const char *) entry.data;
+				} else if (0 == strcmp(entry.key, "keyStepOut") && entry.type == MT_DATA) {
+					keyStepOut = (const char *) entry.data;
+				} else if (0 == strcmp(entry.key, "keyToggleBreakpoint") && entry.type == MT_DATA) {
+					keyToggleBreakpoint = (const char *) entry.data;
 				} else {
 					printf("Unrecognised configuration value '%s'.\n", entry.key);
 				}
@@ -680,8 +694,6 @@ MyFrame::MyFrame(const wxString &title, const wxPoint &position, const wxSize &s
 
 			MTBufferedDestroyStream(&stream);
 		}
-
-		free(buffer);
 	}
 
 	font = wxFont(sourceCodeAndConsoleTextSize, wxFONTFAMILY_MODERN, wxFONTSTYLE_NORMAL, wxFONTWEIGHT_NORMAL);
@@ -805,14 +817,14 @@ MyFrame::MyFrame(const wxString &title, const wxPoint &position, const wxSize &s
 	menuDebug->Append(ID_RestartGDB, 	"&Restart GDB\tCtrl+R");
 	menuDebug->AppendSeparator();
 	menuDebug->Append(ID_Connect, 		"Connec&t\tF4");
-	menuDebug->Append(ID_Continue, 		"&Continue\tF5");
-	menuDebug->Append(ID_StepOver, 		"Step &over\tF10");
-	menuDebug->Append(ID_StepIn, 		"Step &in\tF11");
-	menuDebug->Append(ID_StepOut, 		"Step &out\tShift+F11");
-	menuDebug->Append(ID_Break, 		"&Break\tCtrl+Shift+C");
+	menuDebug->Append(ID_Continue, 		wxString::Format("&Continue\t%s", keyContinue));
+	menuDebug->Append(ID_StepOver, 		wxString::Format("Step &over\t%s", keyStepOver));
+	menuDebug->Append(ID_StepIn, 		wxString::Format("Step &in\t%s", keyStepIn));
+	menuDebug->Append(ID_StepOut, 		wxString::Format("Step &out\t%s", keyStepOut));
+	menuDebug->Append(ID_Break, 		wxString::Format("&Break\t%s", keyBreak));
 	menuDebug->AppendSeparator();
 	menuDebug->Append(ID_AddWatchExpression,"Add &watch expression\tF8");
-	menuDebug->Append(ID_AddBreakpoint,	"&Add breakpoint\tF9");
+	menuDebug->Append(ID_AddBreakpoint,	wxString::Format("&Add breakpoint\t%s", keyToggleBreakpoint));
 
 	wxMenu *menuView = new wxMenu;
 	menuView->Append(ID_ViewBreakpoints, 	"&Breakpoints\tCtrl+Alt+B");

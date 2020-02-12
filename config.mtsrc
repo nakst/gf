@@ -3,6 +3,13 @@
 	dataViewTextSize = 11;
 	nodeWidth = 400;
 
+	keyContinue = "F5";
+	keyBreak = "Ctrl+Shift+C";
+	keyStepOver = "F10";
+	keyStepIn = "F11";
+	keyStepOut = "Shift+F11";
+	keyToggleBreakpoint = "F9";
+
 	# Light theme
 	# color1 = 0x121215;
 	# color2 = 0x404041;
