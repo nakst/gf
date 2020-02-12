@@ -22,6 +22,11 @@
 #include <wx/notebook.h>
 #include <spawn.h>
 
+#define MT_IMPLEMENTATION
+#define MT_BUFFERED
+#define MT_ASSERT assert
+#include "mt.h"
+
 // Implementations are not required to declare this variable.
 extern "C" char **environ;
 
@@ -93,6 +98,8 @@ struct MyApp *myApp;
 volatile int pipeToGDB;
 volatile pid_t gdbPID;
 volatile pthread_t gdbThread;
+
+int nodeWidth = 400;
 
 class MyFrame : public wxFrame {
 	public:
@@ -168,8 +175,6 @@ class DataView : public wxControl {
 			return wxSize(200, 300);
 		}
 
-#define NODE_WIDTH (400)
-
 		DataNode *AddNode() {
 			nodes = (DataNode *) realloc(nodes, ++nodeCount * sizeof(DataNode));
 			DataNode *newNode = nodes + nodeCount - 1;
@@ -181,7 +186,7 @@ class DataView : public wxControl {
 
 		void DrawNode(wxDC &dc, DataNode *node) {
 			int x = node->x, y = node->y, 
-			    width = NODE_WIDTH, height = 32 + 16 * node->entryCount; // NOTE Duplicated in UpdateNodes().
+			    width = nodeWidth, height = 32 + 16 * node->entryCount; // NOTE Duplicated in UpdateNodes().
 			int parentWidth, parentHeight;
 			GetClientSize(&parentWidth, &parentHeight);
 			bool visible = true;
@@ -268,7 +273,7 @@ class DataView : public wxControl {
 
 				for (int i = 0; i < 3; i++) {
 					if (node->visibleButtons & (1 << i)) {
-						int left = node->x + NODE_WIDTH - 52 + 17 * i, right = left + 16,
+						int left = node->x + nodeWidth - 52 + 17 * i, right = left + 16,
 						    top = node->y + 2, bottom = top + 16;
 
 						if (mx > left && mx < right && my > top && my < bottom) {
@@ -293,7 +298,7 @@ class DataView : public wxControl {
 					}
 				}
 
-				if (my >= node->y && my <= node->y + 20 && mx > node->x && mx < node->x + NODE_WIDTH) {
+				if (my >= node->y && my <= node->y + 20 && mx > node->x && mx < node->x + nodeWidth) {
 					DataNode _node = *node;
 					memmove(nodes + nodeIndex, nodes + nodeIndex + 1, (nodeCount - nodeIndex - 1) * sizeof(DataNode));
 					nodes[nodeCount - 1] = _node;
@@ -306,13 +311,13 @@ class DataView : public wxControl {
 					DataNodeEntry *entry = node->entries + i;
 
 					if (entry->isContainer) {
-						int left = node->x, right = node->x + NODE_WIDTH,
+						int left = node->x, right = node->x + nodeWidth,
 						    top = node->y + 24 + i * 16, bottom = node->y + 24 + (i + 1) * 16;
 
 						if (mx > left && mx < right && my > top && my < bottom) {
 							DataNode *newNode = AddNode();
 							node = nodes + nodeIndex;
-							newNode->x = node->x + NODE_WIDTH + 32, newNode->y = node->y;
+							newNode->x = node->x + nodeWidth + 32, newNode->y = node->y;
 							newNode->type = DATA_NODE_STRUCT;
 							newNode->isPointer = entry->isPointer;
 							newNode->visibleButtons = DATA_NODE_BUTTON_LOCK_ADDRESS | DATA_NODE_BUTTON_CLOSE;
@@ -605,9 +610,82 @@ void CodeDisplay::OnLeftUp(wxMouseEvent &event) {
 	event.Skip();
 }
 
+uint32_t SwapColorChannels(uint32_t color) {
+	return ((color & 0xFF) << 16) | ((color & 0xFF0000) >> 16) | (color & 0xFF00);
+}
+
 MyFrame::MyFrame(const wxString &title, const wxPoint &position, const wxSize &size) : wxFrame(nullptr, wxID_ANY, title, position, size) {
-	font = wxFont(14, wxFONTFAMILY_MODERN, wxFONTSTYLE_NORMAL, wxFONTWEIGHT_NORMAL);
-	font2 = wxFont(11, wxFONTFAMILY_MODERN, wxFONTSTYLE_NORMAL, wxFONTWEIGHT_NORMAL);
+	FILE *file = fopen("config.mtsrc", "rb");
+
+	int sourceCodeAndConsoleTextSize = 14;
+	int dataViewTextSize = 11;
+
+	wxColor background = wxColor(40, 40, 45), backgroundLight = wxColor(80, 80, 85);
+	wxColor textColors[32] = { wxColor(255, 255, 255), wxColor(180, 180, 180), wxColor(180, 180, 180), wxColor(180, 180, 180), 
+				   wxColor(209, 245, 221), wxColor(255, 255, 255), wxColor(245, 221, 209), wxColor(245, 221, 209),
+				   wxColor(245, 221, 209), wxColor(245, 243, 209), wxColor(245, 243, 209), wxColor(255, 255, 255),
+				   wxColor(245, 221, 209), wxColor(255, 255, 255), wxColor(245, 221, 209), wxColor(180, 180, 180),
+				   wxColor(255, 255, 255), wxColor(180, 180, 180), wxColor(180, 180, 180), wxColor(255, 255, 255), };
+
+	if (file) {
+		fseek(file, 0, SEEK_END);
+		size_t bytes = ftell(file);
+		fseek(file, 0, SEEK_SET);
+		char *buffer = (char *) malloc(bytes + 1);
+		buffer[bytes] = 0;
+		fread(buffer, 1, bytes, file);
+		fclose(file);
+
+		MTStream stream = MTBufferedCreateWriteStream();
+
+		if (!MTParse(&stream, buffer, nullptr)) {
+			printf("Could not parse 'config.mtsrc': L%d - %s.\n", stream.line, MTErrorMessage(&stream));
+		} else {
+			MTBufferedStartReading(&stream);
+
+			MTReadFormat(&stream, "{");
+
+			while (true) {
+				MTEntry entry = MTRead(&stream);
+				if (entry.type == MT_CLOSE) break;
+
+				if (0 == strcmp(entry.key, "sourceCodeAndConsoleTextSize") && entry.type == MT_INTEGER) {
+					sourceCodeAndConsoleTextSize = entry.integer;
+				} else if (0 == strcmp(entry.key, "dataViewTextSize") && entry.type == MT_INTEGER) {
+					dataViewTextSize = entry.integer;
+				} else if (0 == strcmp(entry.key, "nodeWidth") && entry.type == MT_INTEGER) {
+					nodeWidth = entry.integer;
+				} else if (0 == strcmp(entry.key, "color1") && entry.type == MT_INTEGER) {
+					textColors[0] = textColors[5] = textColors[11] = textColors[13] = textColors[16] = textColors[19] = wxColor(SwapColorChannels(entry.integer));
+				} else if (0 == strcmp(entry.key, "color2") && entry.type == MT_INTEGER) {
+					textColors[1] = textColors[2] = textColors[3] = textColors[15] = textColors[17] = textColors[18] = wxColor(SwapColorChannels(entry.integer));
+				} else if (0 == strcmp(entry.key, "color3") && entry.type == MT_INTEGER) {
+					textColors[4] = wxColor(SwapColorChannels(entry.integer));
+				} else if (0 == strcmp(entry.key, "color4") && entry.type == MT_INTEGER) {
+					textColors[6] = textColors[7] = textColors[8] = textColors[12] = textColors[14] = wxColor(SwapColorChannels(entry.integer));
+				} else if (0 == strcmp(entry.key, "color5") && entry.type == MT_INTEGER) {
+					textColors[9] = textColors[10] = wxColor(SwapColorChannels(entry.integer));
+				} else if (0 == strcmp(entry.key, "background1") && entry.type == MT_INTEGER) {
+					background = wxColor(SwapColorChannels(entry.integer));
+				} else if (0 == strcmp(entry.key, "background2") && entry.type == MT_INTEGER) {
+					backgroundLight = wxColor(SwapColorChannels(entry.integer));
+				} else {
+					printf("Unrecognised configuration value '%s'.\n", entry.key);
+				}
+			}
+
+			if (stream.error) {
+				printf("The config.mtsrc file was invalid; some settings may not have been loaded.\n");
+			}
+
+			MTBufferedDestroyStream(&stream);
+		}
+
+		free(buffer);
+	}
+
+	font = wxFont(sourceCodeAndConsoleTextSize, wxFONTFAMILY_MODERN, wxFONTSTYLE_NORMAL, wxFONTWEIGHT_NORMAL);
+	font2 = wxFont(dataViewTextSize, wxFONTFAMILY_MODERN, wxFONTSTYLE_NORMAL, wxFONTWEIGHT_NORMAL);
 	currentFile = strdup("");
 
 	wxPanel *panel = new wxPanel(this, wxID_ANY);
@@ -625,13 +703,6 @@ MyFrame::MyFrame(const wxString &title, const wxPoint &position, const wxSize &s
 	panel2->SetSizer(sizer2);
 
 	display = new CodeDisplay(splitter2, ID_SourceDisplay);
-
-	wxColor background = wxColor(40, 40, 45), backgroundLight = wxColor(80, 80, 85);
-	wxColor textColors[32] = { wxColor(255, 255, 255), wxColor(180, 180, 180), wxColor(180, 180, 180), wxColor(180, 180, 180), 
-				   wxColor(209, 245, 221), wxColor(255, 255, 255), wxColor(245, 221, 209), wxColor(245, 221, 209),
-				   wxColor(245, 221, 209), wxColor(245, 243, 209), wxColor(245, 243, 209), wxColor(255, 255, 255),
-				   wxColor(245, 221, 209), wxColor(255, 255, 255), wxColor(245, 221, 209), wxColor(180, 180, 180),
-				   wxColor(255, 255, 255), wxColor(180, 180, 180), wxColor(180, 180, 180), wxColor(255, 255, 255), };
 
 	display->SetTabWidth(8);
 	display->SetReadOnly(true);
@@ -680,7 +751,7 @@ MyFrame::MyFrame(const wxString &title, const wxPoint &position, const wxSize &s
 	console->SetMarginWidth(1, 0);
 	console->SetCaretWidth(0);
 	console->StyleSetBackground(0, background);
-	console->StyleSetForeground(0, *wxWHITE);
+	console->StyleSetForeground(0, textColors[0]);
 	console->StyleSetBackground(wxSTC_STYLE_DEFAULT, background);
 
 	consoleInput = new MyTextCtrl(panel2, ID_ConsoleInput);
@@ -848,14 +919,14 @@ bool MyFrame::LoadFile(char *newFile, bool search) {
 	if (search) {
 		sprintf(sendBuffer, "info source");
 		QueryGDB();
-		printf("> got: %s\n", receiveBuffer);
+		// printf("> got: %s\n", receiveBuffer);
 		char *path = strstr(receiveBuffer, "\nLocated in /");
 		if (!path) return false;
 		char *end = strchr(path + 12, '\n');
 		if (end) *end = 0;
 		newFile = strdup(path + 12); // TODO Memory leaks.
 	}
-	printf("> load file: %s\n", newFile);
+	// printf("> load file: %s\n", newFile);
 	struct stat s = {};
 	if (stat(newFile, &s)) return false;
 	if (!strcmp(newFile, currentFile) && currentFileModified == s.st_mtime) return false;
@@ -1472,7 +1543,7 @@ void DataView::UpdateNodes(bool newlyVisibleOnly) {
 	for (uintptr_t i = 0; i < nodeCount; i++) {
 		DataNode *node = nodes + i;
 		int x = node->x, y = node->y, 
-		    width = NODE_WIDTH, height = 32 + 16 * node->entryCount;
+		    width = nodeWidth, height = 32 + 16 * node->entryCount;
 
 		if (x + width < 0 || y + height < 0 || x > parentWidth || y > parentHeight) {
 			for (uintptr_t i = 0; i < node->entryCount; i++) {
