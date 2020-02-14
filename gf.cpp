@@ -928,7 +928,8 @@ void MyFrame::OnEnterInput(wxCommandEvent &event) {
 }
 
 bool MyFrame::LoadFile(char *newFile, bool search) {
-	if (search) {
+	struct stat s = {};
+	if (stat(newFile, &s) && search) {
 		sprintf(sendBuffer, "info source");
 		QueryGDB();
 		// printf("> got: %s\n", receiveBuffer);
@@ -938,8 +939,8 @@ bool MyFrame::LoadFile(char *newFile, bool search) {
 		if (end) *end = 0;
 		newFile = strdup(path + 12); // TODO Memory leaks.
 	}
+	if (newFile[0] == '.' && newFile[1] == '/') newFile += 2;
 	// printf("> load file: %s\n", newFile);
-	struct stat s = {};
 	if (stat(newFile, &s)) return false;
 	if (!strcmp(newFile, currentFile) && currentFileModified == s.st_mtime) return false;
 	currentFileModified = s.st_mtime;
@@ -959,7 +960,7 @@ bool MyFrame::LoadFile(char *newFile, bool search) {
 	display->SetReadOnly(true);
 	display->SetFocus();
 	consoleInput->SetFocus();
-	free(currentFile);
+	// free(currentFile); TODO Memory leaks.
 	currentFile = newFile;
 
 	for (int i = 0; i < breakpointCount; i++) {
@@ -1111,6 +1112,7 @@ void MyFrame::OnReceiveData(wxCommandEvent &event) {
 				const char *end = strchr(file, ':');
 
 				if (end && isdigit(end[1])) {
+					if (file[0] == '.' && file[1] == '/') file += 2;
 					memcpy(breakpoint.filename, file, end - file);
 					breakpoint.filename[end - file] = 0;
 					breakpoint.line = atoi(end + 1);
