@@ -2788,7 +2788,6 @@ void _UIWindowGetScreenPosition(UIWindow *window, int *_x, int *_y) {
 	XGetWindowAttributes(ui.display, window->window, &attributes);
 	*_x = x - attributes.x; 
 	*_y = y - attributes.y;
-	printf("screen: %d, %d\n", *_x, *_y);
 }
 
 void UIMenuShow(UIMenu *menu) {
