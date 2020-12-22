@@ -1,0 +1,745 @@
+// Build with: g++ gf2.cpp -lX11 -Wall -Wextra -Wno-unused-parameter -Wno-missing-field-initializers -Wno-format-truncation -o gf2 -g -pthread
+
+// Future extensions: 
+// 	- Find dialog.
+// 	- Watch window.
+// 	- Memory window.
+// 	- Disassembly window.
+// 	- Hover to view value.
+// 	- Automatically show results from previous line.
+// 	- Thread selection.
+// 	- Data breakpoint viewer.
+// 	- More reliable way to get the exact source file and line?
+// 	- Automatically restoring breakpoints and symbols files after restarting gdb.
+
+#define STB_DS_IMPLEMENTATION
+#include "stb_ds.h"
+
+#define UI_LINUX
+#define UI_IMPLEMENTATION
+#define UI_DEBUG
+#include "luigi.h"
+
+#define MSG_RECEIVED_DATA ((UIMessage) (UI_MSG_USER + 1))
+
+#include <pthread.h>
+#include <unistd.h>
+#include <signal.h>
+#include <spawn.h>
+#include <stdio.h>
+#include <ctype.h>
+
+// Current file and line:
+
+char currentFile[4096];
+int currentLine;
+
+// User interface:
+
+UIWindow *window;
+UICode *displayCode;
+UICode *displayOutput;
+UITable *tableBreakpoints;
+UITable *tableStack;
+UITextbox *textboxInput;
+UIButton *buttonCommandMenu;
+UISpacer *trafficLight;
+
+// Call stack:
+
+struct StackEntry {
+	char function[64];
+	char location[64];
+	uint64_t address;
+	int id;
+};
+
+StackEntry *stack;
+int stackSelected;
+bool stackJustSelected;
+
+// Breakpoints:
+
+struct Breakpoint {
+	char file[64];
+	int line;
+};
+
+Breakpoint *breakpoints;
+
+// Command history:
+
+char **commandHistory;
+int commandHistoryIndex;
+
+// GDB process:
+
+#define RECEIVE_BUFFER_SIZE (4194304)
+char receiveBuffer[RECEIVE_BUFFER_SIZE];
+size_t receiveBufferPosition;
+volatile int pipeToGDB;
+volatile pid_t gdbPID;
+volatile pthread_t gdbThread;
+pthread_cond_t evaluateEvent;
+pthread_mutex_t evaluateMutex;
+char *evaluateResult;
+bool evaluateMode;
+bool programRunning;
+
+void *DebuggerThread(void *) {
+	int outputPipe[2], inputPipe[2];
+	pipe(outputPipe);
+	pipe(inputPipe);
+
+	char *const argv[] = { (char *) "gdb", nullptr };
+	posix_spawn_file_actions_t actions = {};
+	posix_spawn_file_actions_adddup2(&actions, inputPipe[0],  0);
+	posix_spawn_file_actions_adddup2(&actions, outputPipe[1], 1);
+	posix_spawn_file_actions_adddup2(&actions, outputPipe[1], 2);
+	posix_spawnp((pid_t *) &gdbPID, "gdb", &actions, nullptr, argv, environ);
+
+	pipeToGDB = inputPipe[1];
+
+	while (true) {
+		char buffer[512 + 1];
+		int count = read(outputPipe[0], buffer, 512);
+		buffer[count] = 0;
+		if (!count) break;
+		receiveBufferPosition += snprintf(receiveBuffer + receiveBufferPosition, 
+			RECEIVE_BUFFER_SIZE - receiveBufferPosition, "%s", buffer);
+		if (!strstr(buffer, "(gdb) ")) continue;
+
+		receiveBuffer[receiveBufferPosition] = 0;
+		char *copy = strdup(receiveBuffer);
+
+		// printf("got (%d) {%s}\n", evaluateMode, copy);
+
+		// Notify the main thread we have data.
+
+		if (evaluateMode) {
+			free(evaluateResult);
+			evaluateResult = copy;
+			evaluateMode = false;
+			pthread_mutex_lock(&evaluateMutex);
+			pthread_cond_signal(&evaluateEvent);
+			pthread_mutex_unlock(&evaluateMutex);
+		} else {
+			UIWindowPostMessage(window, MSG_RECEIVED_DATA, copy);
+		}
+
+		receiveBufferPosition = 0;
+	}
+
+	return NULL;
+}
+
+void StartGDBThread() {
+	pthread_t debuggerThread;
+	pthread_attr_t attributes;
+	pthread_attr_init(&attributes);
+	pthread_create(&debuggerThread, &attributes, DebuggerThread, NULL);
+	gdbThread = debuggerThread;
+}
+
+void SendToGDB(const char *string, bool echo) {
+	if (programRunning) {
+		kill(gdbPID, SIGINT);
+	}
+
+	programRunning = true;
+	UIElementRepaint(&trafficLight->e, NULL);
+
+	// printf("sending: %s\n", string);
+
+	char newline = '\n';
+
+	if (echo) {
+		UICodeInsertContent(displayOutput, string, -1, false);
+		UIElementRefresh(&displayOutput->e);
+	}
+
+	write(pipeToGDB, string, strlen(string));
+	write(pipeToGDB, &newline, 1);
+}
+
+void EvaluateCommand(const char *command) {
+	if (programRunning) {
+		kill(gdbPID, SIGINT);
+		usleep(1000 * 1000);
+		programRunning = false;
+	}
+
+	evaluateMode = true;
+	pthread_mutex_lock(&evaluateMutex);
+	SendToGDB(command, false);
+	pthread_cond_wait(&evaluateEvent, &evaluateMutex);
+	pthread_mutex_unlock(&evaluateMutex);
+	programRunning = false;
+	UIElementRepaint(&trafficLight->e, NULL);
+}
+
+void SetPosition(const char *file, int line) {
+	char buffer[4096];
+
+	if (file && file[0] == '~') {
+		snprintf(buffer, sizeof(buffer), "%s/%s", getenv("HOME"), 1 + file);
+		file = buffer;
+	}
+
+	if (file && strcmp(currentFile, file)) {
+		currentLine = 0;
+		snprintf(currentFile, 4096, "%s", file);
+
+		printf("attempting to load '%s'\n", file);
+
+		FILE *f = fopen(file, "rb");
+
+		if (!f) {
+			char buffer2[4096];
+			snprintf(buffer2, 4096, "The file '%s' could not be loaded.", file);
+			UICodeInsertContent(displayCode, buffer2, -1, true);
+		} else {
+			fseek(f, 0, SEEK_END);
+			size_t bytes = ftell(f);
+			fseek(f, 0, SEEK_SET);
+			char *buffer2 = (char *) malloc(bytes + 1);
+			buffer2[bytes] = 0;
+			fread(buffer2, 1, bytes, f);
+			fclose(f);
+			UICodeInsertContent(displayCode, buffer2, bytes, true);
+		}
+	}
+
+	if (line != -1 && currentLine != line) {
+		currentLine = line;
+		UICodeFocusLine(displayCode, line); 
+	}
+
+	UIElementRefresh(&displayCode->e);
+}
+
+void CommandSendToGDB(void *_string) {
+	SendToGDB((const char *) _string, true);
+}
+
+void CommandDeleteBreakpoint(void *_index) {
+	int index = (int) (intptr_t) _index;
+	Breakpoint *breakpoint = breakpoints + index;
+	char buffer[1024];
+	snprintf(buffer, 1024, "clear %s:%d", breakpoint->file, breakpoint->line);
+	SendToGDB(buffer, true);
+}
+
+void CommandRestartGDB(void *) {
+	kill(gdbPID, SIGKILL);
+	pthread_cancel(gdbThread); // TODO Is there a nicer way to do this?
+	receiveBufferPosition = 0;
+	StartGDBThread();
+}
+
+void CommandPause(void *) {
+	kill(gdbPID, SIGINT);
+}
+
+void CommandSyncWithGvim(void *) {
+	if (system("vim --servername GVIM --remote-expr \"execute(\\\"ls\\\")\" | grep % > current_file_open_in_vim.txt")) {
+		return;
+	}
+
+	char buffer[1024];
+	FILE *file = fopen("current_file_open_in_vim.txt", "r");
+
+	if (file) {
+		buffer[fread(buffer, 1, 1023, file)] = 0;
+		fclose(file);
+
+		{
+			char *name = strchr(buffer, '"');
+			if (!name) goto done;
+			char *nameEnd = strchr(++name, '"');
+			if (!nameEnd) goto done;
+			*nameEnd = 0;
+			char *line = strstr(nameEnd + 1, "line ");
+			if (!line) goto done;
+			int lineNumber = atoi(line + 5);
+			SetPosition(name, lineNumber);
+		}
+
+		done:;
+		unlink("current_file_open_in_vim.txt");
+	}
+}
+
+void CommandToggleBreakpoint(void *_line) {
+	int line = (int) (intptr_t) _line;
+
+	if (!line) {
+		line = currentLine;
+	}
+
+	for (int i = 0; i < arrlen(breakpoints); i++) {
+		if (breakpoints[i].line == line && 0 == strcmp(breakpoints[i].file, currentFile)) {
+			char buffer[1024];
+			snprintf(buffer, 1024, "clear %s:%d", currentFile, line);
+			SendToGDB(buffer, true);
+			return;
+		}
+	}
+
+	char buffer[1024];
+	snprintf(buffer, 1024, "b %s:%d", currentFile, line);
+	SendToGDB(buffer, true);
+}
+
+void CommandFind(void *) {
+}
+
+void ShowCommandMenu(void *) {
+	UIMenu *menu = UIMenuCreate(&buttonCommandMenu->e, UI_MENU_PLACE_ABOVE);
+	UIMenuAddItem(menu, 0, "Run\tShift+F5", -1, CommandSendToGDB, (void *) "r");
+	UIMenuAddItem(menu, 0, "Run paused\tCtrl+F5", -1, CommandSendToGDB, (void *) "start");
+	UIMenuAddItem(menu, 0, "Kill\tF3", -1, CommandSendToGDB, (void *) "kill");
+	UIMenuAddItem(menu, 0, "Restart GDB\tCtrl+R", -1, CommandRestartGDB, NULL);
+	UIMenuAddItem(menu, 0, "Connect\tF4", -1, CommandSendToGDB, (void *) "target remote :1234");
+	UIMenuAddItem(menu, 0, "Continue\tF5", -1, CommandSendToGDB, (void *) "c");
+	UIMenuAddItem(menu, 0, "Step over\tF10", -1, CommandSendToGDB, (void *) "n");
+	UIMenuAddItem(menu, 0, "Step in\tF11", -1, CommandSendToGDB, (void *) "s");
+	UIMenuAddItem(menu, 0, "Step out\tShift+F11", -1, CommandSendToGDB, (void *) "finish");
+	UIMenuAddItem(menu, 0, "Pause\tF8", -1, CommandPause, NULL);
+	UIMenuAddItem(menu, 0, "Toggle breakpoint\tF9", -1, CommandToggleBreakpoint, NULL);
+	UIMenuAddItem(menu, 0, "Sync with gvim\tF2", -1, CommandSyncWithGvim, NULL);
+	UIMenuAddItem(menu, 0, "Find\tCtrl+F", -1, CommandFind, NULL);
+	UIMenuShow(menu);
+}
+
+void RegisterShortcuts() {
+	UIWindowRegisterShortcut(window, { .code = UI_KEYCODE_F5, .shift = true, .invoke = CommandSendToGDB, .cp = (void *) "r" });
+	UIWindowRegisterShortcut(window, { .code = UI_KEYCODE_F5, .ctrl = true, .invoke = CommandSendToGDB, .cp = (void *) "start" });
+	UIWindowRegisterShortcut(window, { .code = UI_KEYCODE_F3, .invoke = CommandSendToGDB, .cp = (void *) "kill" });
+	UIWindowRegisterShortcut(window, { .code = UI_KEYCODE_LETTER('R'), .ctrl = true, .invoke = CommandRestartGDB, .cp = NULL });
+	UIWindowRegisterShortcut(window, { .code = UI_KEYCODE_F4, .invoke = CommandSendToGDB, .cp = (void *) "target remote :1234" });
+	UIWindowRegisterShortcut(window, { .code = UI_KEYCODE_F5, .invoke = CommandSendToGDB, .cp = (void *) "c" });
+	UIWindowRegisterShortcut(window, { .code = UI_KEYCODE_F10, .invoke = CommandSendToGDB, .cp = (void *) "n" });
+	UIWindowRegisterShortcut(window, { .code = UI_KEYCODE_F11, .invoke = CommandSendToGDB, .cp = (void *) "s" });
+	UIWindowRegisterShortcut(window, { .code = UI_KEYCODE_F11, .shift = true, .invoke = CommandSendToGDB, .cp = (void *) "finish" });
+	UIWindowRegisterShortcut(window, { .code = UI_KEYCODE_F8, .invoke = CommandPause, .cp = NULL });
+	UIWindowRegisterShortcut(window, { .code = UI_KEYCODE_F9, .invoke = CommandToggleBreakpoint, .cp = NULL });
+	UIWindowRegisterShortcut(window, { .code = UI_KEYCODE_F2, .invoke = CommandSyncWithGvim, .cp = NULL });
+	UIWindowRegisterShortcut(window, { .code = UI_KEYCODE_LETTER('F'), .ctrl = true, .invoke = CommandFind, .cp = NULL });
+}
+
+int TextboxInputMessage(UIElement *, UIMessage message, int di, void *dp) {
+	if (message == UI_MSG_KEY_TYPED) {
+		UIKeyTyped *m = (UIKeyTyped *) dp;
+
+		static bool _lastKeyWasTab = false;
+		static int consecutiveTabCount = 0;
+		static int lastTabBytes = 0;
+		bool lastKeyWasTab = _lastKeyWasTab;
+		_lastKeyWasTab = false;
+
+		if (m->code == UI_KEYCODE_ENTER) {
+			char buffer[1024];
+			snprintf(buffer, 1024, "%.*s", (int) textboxInput->bytes, textboxInput->string);
+			SendToGDB(buffer, true);
+
+			char *string = (char *) malloc(textboxInput->bytes + 1);
+			memcpy(string, textboxInput->string, textboxInput->bytes);
+			string[textboxInput->bytes] = 0;
+			arrins(commandHistory, 0, string);
+			commandHistoryIndex = 0;
+
+			if (arrlen(commandHistory) > 100) {
+				free(arrlast(commandHistory));
+				arrpop(commandHistory);
+			}
+
+			UITextboxClear(textboxInput, false);
+			UIElementRefresh(&textboxInput->e);
+
+			return 1;
+		} else if (m->code == UI_KEYCODE_TAB) {
+			char buffer[4096];
+			snprintf(buffer, sizeof(buffer), "complete %.*s", lastKeyWasTab ? lastTabBytes : (int) textboxInput->bytes, textboxInput->string);
+			for (int i = 0; buffer[i]; i++) if (buffer[i] == '\\') buffer[i] = ' ';
+			EvaluateCommand(buffer);
+
+			const char *start = evaluateResult;
+			const char *end = strchr(evaluateResult, '\n');
+
+			if (!lastKeyWasTab) {
+				consecutiveTabCount = 0;
+				lastTabBytes = textboxInput->bytes;
+			}
+
+			while (start && end && memcmp(start, textboxInput->string, lastTabBytes)) {
+				start = end + 1;
+				end = strchr(start, '\n');
+			}
+
+			for (int i = 0; end && i < consecutiveTabCount; i++) {
+				start = end + 1;
+				end = strchr(start, '\n');
+			}
+			
+			if (!end) {
+				consecutiveTabCount = 0;
+				start = evaluateResult;
+				end = strchr(evaluateResult, '\n');
+			}
+
+			_lastKeyWasTab = true;
+			consecutiveTabCount++;
+
+			if (end) {
+				UITextboxClear(textboxInput, false);
+				UITextboxReplace(textboxInput, start, end - start, false);
+				UIElementRefresh(&textboxInput->e);
+			}
+
+			return 1;
+		} else if (m->code == UI_KEYCODE_UP) {
+			if (commandHistoryIndex < arrlen(commandHistory)) {
+				UITextboxClear(textboxInput, false);
+				UITextboxReplace(textboxInput, commandHistory[commandHistoryIndex], -1, false);
+				if (commandHistoryIndex < arrlen(commandHistory) - 1) commandHistoryIndex++;
+				UIElementRefresh(&textboxInput->e);
+			}
+		} else if (m->code == UI_KEYCODE_DOWN) {
+			UITextboxClear(textboxInput, false);
+
+			if (commandHistoryIndex > 0) {
+				--commandHistoryIndex;
+				UITextboxReplace(textboxInput, commandHistory[commandHistoryIndex], -1, false);
+			}
+
+			UIElementRefresh(&textboxInput->e);
+		}
+	}
+
+	return 0;
+}
+
+void Update(const char *data) {
+	// Parse the name of the file.
+
+	bool fileChanged = false;
+	char newFile[4096];
+
+	{
+		const char *file = data;
+
+		while (true) {
+			file = strstr(file, " at ");
+			if (!file) break;
+
+			file += 4;
+			const char *end = strchr(file, ':');
+
+			if (end && isdigit(end[1])) {
+				snprintf(newFile, sizeof(newFile), "%.*s", (int) (end - file), file);
+				fileChanged = true;
+			}
+		}
+	}
+
+	// Parse the current line.
+
+	bool lineChanged = false;
+	int newLine = 0;
+
+	{
+		const char *line = data;
+
+		while (*line) {
+			if (line[0] == '\n' || line == data) {
+				int i = line == data ? 0 : 1, number = 0;
+
+				while (true) {
+					if (line[i] == '\t') {
+						break;
+					} else if (isdigit(line[i])) {
+						number = number * 10 + line[i] - '0';
+						i++;
+					} else {
+						goto tryNext;
+					}
+				}
+
+				if (number) {
+					lineChanged = true;
+					newLine = number;
+				}
+
+				tryNext:;
+				line += i + 1;
+			} else {
+				line++;
+			}
+		}
+	}
+
+	SetPosition(fileChanged ? newFile : NULL, lineChanged ? newLine : -1);
+
+	// Get the list of breakpoints.
+
+	EvaluateCommand("info break");
+	arrfree(breakpoints);
+
+	{
+		const char *position = evaluateResult;
+
+		while (true) {
+			while (true) {
+				position = strchr(position, '\n');
+				if (!position || isdigit(position[1])) break;
+				position++;
+			}
+
+			if (!position) break;
+
+			const char *next = position;
+
+			while (true) {
+				next = strchr(next + 1, '\n');
+				if (!next || isdigit(next[1])) break;
+			}
+
+			if (!next) next = position + strlen(position);
+
+			const char *file = strstr(position, " at ");
+			if (file) file += 4;
+
+			Breakpoint breakpoint = {};
+			bool recognised = true;
+
+			if (file && file < next) {
+				const char *end = strchr(file, ':');
+
+				if (end && isdigit(end[1])) {
+					if (file[0] == '.' && file[1] == '/') file += 2;
+					snprintf(breakpoint.file, sizeof(breakpoint.file), "%.*s", (int) (end - file), file);
+					breakpoint.line = atoi(end + 1);
+				} else recognised = false;
+			} else recognised = false;
+
+			if (recognised) {
+				arrput(breakpoints, breakpoint);
+			}
+
+			position = next;
+		}
+	}
+
+	tableBreakpoints->itemCount = arrlen(breakpoints);
+	UITableResizeColumns(tableBreakpoints);
+	UIElementRefresh(&tableBreakpoints->e);
+
+	// Get the stack.
+
+	EvaluateCommand("bt 50");
+	arrfree(stack);
+	if (!stackJustSelected) stackSelected = 0;
+	stackJustSelected = false;
+
+	{
+		const char *position = evaluateResult;
+
+		while (*position == '#') {
+			const char *next = position;
+
+			while (true) {
+				next = strchr(next + 1, '\n');
+				if (!next || next[1] == '#') break;
+			}
+
+			if (!next) next = position + strlen(position);
+
+			StackEntry entry = {};
+
+			entry.id = strtoul(position + 1, (char **) &position, 0);
+
+			while (*position == ' ' && position < next) position++;
+			bool hasAddress = *position == '0';
+
+			if (hasAddress) {
+				entry.address = strtoul(position, (char **) &position, 0);
+				position += 4;
+			}
+
+			while (*position == ' ' && position < next) position++;
+			const char *functionName = position;
+			position = strchr(position, ' ');
+			if (!position || position >= next) break;
+			snprintf(entry.function, sizeof(entry.function), "%.*s", (int) (position - functionName), functionName);
+
+			const char *file = strstr(position, " at ");
+
+			if (file && file < next) {
+				file += 4;
+				const char *end = file;
+				while (*end != '\n' && end < next) end++;
+				snprintf(entry.location, sizeof(entry.location), "%.*s", (int) (end - file), file);
+			}
+
+			arrput(stack, entry);
+
+			position = next + 1;
+		}
+	}
+
+	tableStack->itemCount = arrlen(stack);
+	UITableResizeColumns(tableStack);
+	UIElementRefresh(&tableStack->e);
+}
+
+int TableStackMessage(UIElement *element, UIMessage message, int di, void *dp) {
+	if (message == UI_MSG_TABLE_GET_ITEM) {
+		UITableGetItem *m = (UITableGetItem *) dp;
+		m->isSelected = m->index == stackSelected;
+		StackEntry *entry = stack + m->index;
+
+		if (m->column == 0) {
+			return snprintf(m->buffer, m->bufferBytes, "%d", entry->id);
+		} else if (m->column == 1) {
+			return snprintf(m->buffer, m->bufferBytes, "%s", entry->function);
+		} else if (m->column == 2) {
+			return snprintf(m->buffer, m->bufferBytes, "%s", entry->location);
+		} else if (m->column == 3) {
+			return snprintf(m->buffer, m->bufferBytes, "0x%lX", entry->address);
+		}
+	} else if (message == UI_MSG_CLICKED) {
+		int index = UITableHitTest((UITable *) element, element->window->cursorX, element->window->cursorY); 
+
+		if (index != -1) {
+			char buffer[64];
+			snprintf(buffer, 64, "frame %d", index);
+			SendToGDB(buffer, false);
+			stackSelected = index;
+			stackJustSelected = true;
+			UIElementRepaint(element, NULL);
+		}
+	}
+
+	return 0;
+}
+
+int TableBreakpointsMessage(UIElement *element, UIMessage message, int di, void *dp) {
+	if (message == UI_MSG_TABLE_GET_ITEM) {
+		UITableGetItem *m = (UITableGetItem *) dp;
+		Breakpoint *entry = breakpoints + m->index;
+
+		if (m->column == 0) {
+			return snprintf(m->buffer, m->bufferBytes, "%s", entry->file);
+		} else if (m->column == 1) {
+			return snprintf(m->buffer, m->bufferBytes, "%d", entry->line);
+		}
+	} else if (message == UI_MSG_CLICKED) {
+		int index = UITableHitTest((UITable *) element, element->window->cursorX, element->window->cursorY); 
+
+		if (index != -1) {
+			UIMenu *menu = UIMenuCreate(&window->e, 0);
+			UIMenuAddItem(menu, 0, "Delete", -1, CommandDeleteBreakpoint, (void *) (intptr_t) index);
+			UIMenuShow(menu);
+		}
+	}
+
+	return 0;
+}
+
+int DisplayCodeMessage(UIElement *element, UIMessage message, int di, void *dp) {
+	if (message == UI_MSG_CLICKED) {
+		int result = UICodeHitTest((UICode *) element, element->window->cursorX, element->window->cursorY); 
+
+		if (result < 0) {
+			int line = -result;
+			CommandToggleBreakpoint((void *) (intptr_t) line);
+		} else if (result > 0) {
+			int line = result;
+
+			if (element->window->ctrl) {
+				char buffer[1024];
+				snprintf(buffer, 1024, "until %d", line);
+				SendToGDB(buffer, true);
+			} else if (element->window->alt) {
+				char buffer[1024];
+				snprintf(buffer, 1024, "tbreak %d", line);
+				EvaluateCommand(buffer);
+				snprintf(buffer, 1024, "jump %d", line);
+				SendToGDB(buffer, true);
+			}
+		}
+	} else if (message == UI_MSG_CODE_GET_MARGIN_COLOR) {
+		for (int i = 0; i < arrlen(breakpoints); i++) {
+			if (breakpoints[i].line == di && 0 == strcmp(breakpoints[i].file, currentFile)) {
+				return 0xFF0000;
+			}
+		}
+	}
+
+	return 0;
+}
+
+int TrafficLightMessage(UIElement *element, UIMessage message, int di, void *dp) {
+	if (message == UI_MSG_PAINT) {
+		UIDrawBlock((UIPainter *) dp, element->bounds, programRunning ? 0xFF0000 : 0x00FF00);
+	}
+
+	return 0;
+}
+
+int WindowMessage(UIElement *, UIMessage message, int di, void *dp) {
+	if (message == MSG_RECEIVED_DATA) {
+		programRunning = false;
+		char *input = (char *) dp;
+		Update(input);
+		// printf("%s\n", input);
+		UICodeInsertContent(displayOutput, input, -1, false);
+		UIElementRefresh(&displayOutput->e);
+		UIElementRepaint(&trafficLight->e, NULL);
+		free(input);
+	}
+
+	return 0;
+}
+
+int main(int, char **) {
+	UIInitialise();
+
+	window = UIWindowCreate(0, 0, "gf2");
+	window->e.messageUser = WindowMessage;
+	UIPanel *panel1 = UIPanelCreate(&window->e, UI_PANEL_EXPAND);
+	UISplitPane *split1 = UISplitPaneCreate(&panel1->e, UI_SPLIT_PANE_VERTICAL | UI_ELEMENT_V_FILL, 0.75f);
+	UISplitPane *split2 = UISplitPaneCreate(&split1->e, /* horizontal */ 0, 0.80f);
+	UIPanel *panel2 = UIPanelCreate(&split1->e, UI_PANEL_EXPAND);
+	displayOutput = UICodeCreate(&panel2->e, UI_CODE_NO_MARGIN | UI_ELEMENT_V_FILL);
+	UIPanel *panel3 = UIPanelCreate(&panel2->e, UI_PANEL_HORIZONTAL | UI_PANEL_EXPAND | UI_PANEL_GRAY);
+	panel3->border = UI_RECT_1(5);
+	panel3->gap = 5;
+	trafficLight = UISpacerCreate(&panel3->e, 0, 30, 30);
+	trafficLight->e.messageUser = TrafficLightMessage;
+	buttonCommandMenu = UIButtonCreate(&panel3->e, 0, "Commands", -1);
+	buttonCommandMenu->invoke = ShowCommandMenu;
+	textboxInput = UITextboxCreate(&panel3->e, UI_ELEMENT_H_FILL);
+	textboxInput->e.messageUser = TextboxInputMessage;
+	UIElementFocus(&textboxInput->e);
+	displayCode = UICodeCreate(&split2->e, 0);
+	displayCode->e.messageUser = DisplayCodeMessage;
+	UISplitPane *split3 = UISplitPaneCreate(&split2->e, UI_SPLIT_PANE_VERTICAL, 0.50f);
+	tableBreakpoints = UITableCreate(&split3->e, 0, "File\tLine");
+	tableBreakpoints->e.messageUser = TableBreakpointsMessage;
+	tableStack = UITableCreate(&split3->e, 0, "Index\tFunction\tLocation\tAddress");
+	tableStack->e.messageUser = TableStackMessage;
+
+	pthread_cond_init(&evaluateEvent, NULL);
+	pthread_mutex_init(&evaluateMutex, NULL);
+	StartGDBThread();
+
+	CommandSyncWithGvim(NULL);
+	RegisterShortcuts();
+	UIMessageLoop();
+	kill(gdbPID, SIGKILL);
+	pthread_cancel(gdbThread);
+
+	return 0;
+}

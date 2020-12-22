@@ -2,10 +2,6 @@
 
 ![Screenshot of the debugger's interface, showing the source view, breakpoints list, call stack, command prompt, and data view.](https://i.imgur.com/ic7irlc.png)
 
-## Discussion
-
-No forums are currently available.
-
 ## Building
 
 Download this project's source.
@@ -14,10 +10,6 @@ Download this project's source.
 
 And compile the program.
 
-    g++ -o gf gf.cpp `wx-config --cxxflags --libs all`
+    g++ -o gf2 gf2.cpp -lX11 -pthread
 
-You can run the program with `./gf`.
-
-## Documentation
-
-No documentation is currently available.
+You can run the program with `./gf2`.
