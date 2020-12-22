@@ -1,6 +1,6 @@
 # **gf** - A GDB Frontend
 
-![Screenshot of the debugger's interface, showing the source view, breakpoints list, call stack, command prompt, and data view.](https://i.imgur.com/ic7irlc.png)
+![Screenshot of the debugger's interface, showing the source view, breakpoints list, call stack and command prompt.](https://i.imgur.com/SglSIZx.png)
 
 ## Building
 
