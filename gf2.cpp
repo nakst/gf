@@ -17,7 +17,7 @@
 
 #define UI_LINUX
 #define UI_IMPLEMENTATION
-#define UI_DEBUG
+// #define UI_DEBUG
 #include "luigi.h"
 
 #define MSG_RECEIVED_DATA ((UIMessage) (UI_MSG_USER + 1))
