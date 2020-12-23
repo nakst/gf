@@ -474,7 +474,7 @@ UITextbox *UITextboxCreate(UIElement *parent, uint64_t flags);
 UILabel *UILabelCreate(UIElement *parent, uint64_t flags, const char *label, ptrdiff_t labelBytes);
 void UILabelSetContent(UILabel *code, const char *content, ptrdiff_t byteCount);
 
-UIWindow *UIWindowCreate(UIWindow *owner, uint64_t flags, const char *cTitle);
+UIWindow *UIWindowCreate(UIWindow *owner, uint64_t flags, const char *cTitle, int width, int height);
 void UIWindowRegisterShortcut(UIWindow *window, UIShortcut shortcut);
 void UIWindowPostMessage(UIWindow *window, UIMessage message, void *dp); // Thread-safe.
 
@@ -2271,6 +2271,7 @@ int _UITextboxMessage(UIElement *element, UIMessage message, int di, void *dp) {
 		UI_FREE(textbox->string);
 	} else if (message == UI_MSG_KEY_TYPED) {
 		UIKeyTyped *m = (UIKeyTyped *) dp;
+		bool handled = true;
 
 		if (m->code == UI_KEYCODE_BACKSPACE || m->code == UI_KEYCODE_DELETE) {
 			if (textbox->carets[0] == textbox->carets[1]) {
@@ -2284,6 +2285,7 @@ int _UITextboxMessage(UIElement *element, UIMessage message, int di, void *dp) {
 			if (!element->window->shift) {
 				textbox->carets[1] = textbox->carets[0];
 			}
+
 		} else if (m->code == UI_KEYCODE_HOME || m->code == UI_KEYCODE_END) {
 			if (m->code == UI_KEYCODE_HOME) {
 				textbox->carets[0] = 0;
@@ -2294,14 +2296,20 @@ int _UITextboxMessage(UIElement *element, UIMessage message, int di, void *dp) {
 			if (!element->window->shift) {
 				textbox->carets[1] = textbox->carets[0];
 			}
+
 		} else if (m->code == UI_KEYCODE_LETTER('A') && element->window->ctrl) {
 			textbox->carets[1] = 0;
 			textbox->carets[0] = textbox->bytes;
-		} else if (m->textBytes && !element->window->ctrl) {
+		} else if (m->textBytes && !element->window->ctrl && m->text[0] >= 0x20) {
 			UITextboxReplace(textbox, m->text, m->textBytes, true);
+		} else {
+			handled = false;
 		}
 
-		UIElementRepaint(element, NULL);
+		if (handled) {
+			UIElementRepaint(element, NULL);
+			return 1;
+		}
 	}
 
 	return 0;
@@ -2522,7 +2530,7 @@ void _UIMenuPrepare(UIMenu *menu, int *width, int *height) {
 }
 
 UIMenu *UIMenuCreate(UIElement *parent, uint64_t flags) {
-	UIWindow *window = UIWindowCreate(parent->window, UI_WINDOW_MENU, 0);
+	UIWindow *window = UIWindowCreate(parent->window, UI_WINDOW_MENU, 0, 0, 0);
 	
 	UIMenu *menu = (UIMenu *) _UIElementSetup(sizeof(UIMenu), &window->e, flags, _UIMenuMessage, "Menu");
 
@@ -2835,6 +2843,10 @@ void _UIWindowInputEvent(UIWindow *window, UIMessage message, int di, void *dp) 
 
 					element = element->parent;
 				}
+			} else {
+				if (UIElementMessage(&window->e, UI_MSG_KEY_TYPED, di, dp)) {
+					handled = true;
+				}
 			}
 
 			if (!handled && !_UIMenusOpen()) {
@@ -2943,7 +2955,7 @@ int _UIInspectorTableMessage(UIElement *element, UIMessage message, int di, void
 }
 
 void _UIInspectorCreate() {
-	ui.inspector = UIWindowCreate(0, UI_WINDOW_INSPECTOR, "Inspector");
+	ui.inspector = UIWindowCreate(0, UI_WINDOW_INSPECTOR, "Inspector", 0, 0);
 	ui.inspectorTable = UITableCreate(&ui.inspector->e, 0, "Class\tBounds\tID");
 	ui.inspectorTable->e.messageUser = _UIInspectorTableMessage;
 }
@@ -3009,7 +3021,7 @@ int _UIWindowMessage(UIElement *element, UIMessage message, int di, void *dp) {
 	return 0;
 }
 
-UIWindow *UIWindowCreate(UIWindow *owner, uint64_t flags, const char *cTitle) {
+UIWindow *UIWindowCreate(UIWindow *owner, uint64_t flags, const char *cTitle, int _width, int _height) {
 	_UICloseMenus();
 
 	UIWindow *window = (UIWindow *) _UIElementSetup(sizeof(UIWindow), NULL, flags, _UIWindowMessage, "Window");
@@ -3019,8 +3031,8 @@ UIWindow *UIWindowCreate(UIWindow *owner, uint64_t flags, const char *cTitle) {
 	window->next = ui.windows;
 	ui.windows = window;
 
-	int width = (flags & UI_WINDOW_MENU) ? 1 : 800;
-	int height = (flags & UI_WINDOW_MENU) ? 1 : 600;
+	int width = (flags & UI_WINDOW_MENU) ? 1 : _width ? _width : 800;
+	int height = (flags & UI_WINDOW_MENU) ? 1 : _height ? _height : 600;
 
 	window->window = XCreateWindow(ui.display, DefaultRootWindow(ui.display), 0, 0, width, height, 0, 0, 
 		InputOutput, CopyFromParent, 0, 0);
@@ -3486,7 +3498,7 @@ void UIMenuShow(UIMenu *menu) {
 	ShowWindow(menu->e.window->hwnd, SW_SHOWNOACTIVATE);
 }
 
-UIWindow *UIWindowCreate(UIWindow *owner, uint64_t flags, const char *cTitle) {
+UIWindow *UIWindowCreate(UIWindow *owner, uint64_t flags, const char *cTitle, int width, int height) {
 	_UICloseMenus();
 
 	UIWindow *window = (UIWindow *) _UIElementSetup(sizeof(UIWindow), NULL, flags, _UIWindowMessage, "Window");
@@ -3503,7 +3515,7 @@ UIWindow *UIWindowCreate(UIWindow *owner, uint64_t flags, const char *cTitle) {
 			0, 0, 0, 0, owner->hwnd, NULL, NULL, NULL);
 	} else {
 		window->hwnd = CreateWindow("normal", cTitle, WS_OVERLAPPEDWINDOW, 
-			CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT,  CW_USEDEFAULT,
+			CW_USEDEFAULT, CW_USEDEFAULT, width ? width : CW_USEDEFAULT, height ? height : CW_USEDEFAULT,
 			owner ? owner->hwnd : NULL, NULL, NULL, NULL);
 	}
 

@@ -1,7 +1,6 @@
 // Build with: g++ gf2.cpp -lX11 -Wall -Wextra -Wno-unused-parameter -Wno-missing-field-initializers -Wno-format-truncation -o gf2 -g -pthread
 
 // Future extensions: 
-// 	- Find dialog.
 // 	- Watch window.
 // 	- Memory window.
 // 	- Disassembly window.
@@ -44,6 +43,14 @@ UITable *tableStack;
 UITextbox *textboxInput;
 UIButton *buttonMenu;
 UISpacer *trafficLight;
+
+// Find dialog:
+
+UIWindow *findWindow;
+UITextbox *findTextbox;
+UILabel *findLabel;
+
+// Theme editor:
 
 UIWindow *themeEditorWindow;
 UIColorPicker *themeEditorColorPicker;
@@ -296,7 +303,62 @@ void CommandToggleBreakpoint(void *_line) {
 	SendToGDB(buffer, true);
 }
 
+int FindWindowMessage(UIElement *element, UIMessage message, int di, void *dp) {
+	if (message == UI_MSG_WINDOW_CLOSE) {
+		UIElementDestroy(element);
+		findWindow = NULL;
+		return 1;
+	} else if (message == UI_MSG_KEY_TYPED) {
+		UIKeyTyped *m = (UIKeyTyped *) dp;
+
+		if (m->code == UI_KEYCODE_ESCAPE) {
+			UIElementDestroy(element);
+			findWindow = NULL;
+			return 1;
+		} else if (m->code == UI_KEYCODE_ENTER) {
+			displayCode->content = (char *) UI_REALLOC(displayCode->content, displayCode->contentBytes + 1);
+			displayCode->content[displayCode->contentBytes] = 0;
+			findTextbox->string = (char *) UI_REALLOC(findTextbox->string, findTextbox->bytes + 1);
+			findTextbox->string[findTextbox->bytes] = 0;
+			const char *result = strstr(displayCode->content, findTextbox->string);
+
+			if (result) {
+				int line = 1;
+
+				for (int i = 0; i < result - displayCode->content; i++) {
+					if (displayCode->content[i] == '\n') {
+						line++;
+					}
+				}
+
+				UICodeFocusLine(displayCode, line); 
+				UIElementRefresh(&displayCode->e);
+
+				UIElementDestroy(element);
+				findWindow = NULL;
+			} else {
+				UILabelSetContent(findLabel, "Search for: (not found)", -1);
+				UIElementRefresh(&findLabel->e);
+			}
+
+			return 1;
+
+		}
+	}
+
+	return 0;
+}
+
 void CommandFind(void *) {
+	if (findWindow) return;
+	findWindow = UIWindowCreate(0, 0, "Find", 300, 70);
+	findWindow->e.messageUser = FindWindowMessage;
+	UIPanel *panel = UIPanelCreate(&findWindow->e, UI_PANEL_GRAY | UI_PANEL_EXPAND);
+	panel->border = UI_RECT_1(5);
+	panel->gap = 5;
+	findLabel = UILabelCreate(&panel->e, 0, "Search for:", -1);
+	findTextbox = UITextboxCreate(&panel->e, 0); 
+	UIElementFocus(&findTextbox->e);
 }
 
 int ThemeEditorWindowMessage(UIElement *element, UIMessage message, int di, void *dp) {
@@ -389,7 +451,7 @@ void CommandLoadDefaultColors(void *) {
 void CommandThemeEditor(void *) {
 	if (themeEditorWindow) return;
 	themeEditorSelectedColor = -1;
-	themeEditorWindow = UIWindowCreate(0, 0, "Theme Editor");
+	themeEditorWindow = UIWindowCreate(0, 0, "Theme Editor", 0, 0);
 	themeEditorWindow->e.messageUser = ThemeEditorWindowMessage;
 	UISplitPane *splitPane = UISplitPaneCreate(&themeEditorWindow->e, 0, 0.5f);
 	UIPanel *panel = UIPanelCreate(&splitPane->e, UI_PANEL_GRAY);
@@ -821,7 +883,7 @@ int main(int, char **) {
 	UIInitialise();
 	CommandLoadTheme(NULL);
 
-	window = UIWindowCreate(0, 0, "gf2");
+	window = UIWindowCreate(0, 0, "gf2", 0, 0);
 	window->e.messageUser = WindowMessage;
 	UIPanel *panel1 = UIPanelCreate(&window->e, UI_PANEL_EXPAND);
 	UISplitPane *split1 = UISplitPaneCreate(&panel1->e, UI_SPLIT_PANE_VERTICAL | UI_ELEMENT_V_FILL, 0.75f);
