@@ -42,8 +42,13 @@ UICode *displayOutput;
 UITable *tableBreakpoints;
 UITable *tableStack;
 UITextbox *textboxInput;
-UIButton *buttonCommandMenu;
+UIButton *buttonMenu;
 UISpacer *trafficLight;
+
+UIWindow *themeEditorWindow;
+UIColorPicker *themeEditorColorPicker;
+UITable *themeEditorTable;
+int themeEditorSelectedColor;
 
 // Call stack:
 
@@ -91,12 +96,12 @@ void *DebuggerThread(void *) {
 	pipe(outputPipe);
 	pipe(inputPipe);
 
-	char *const argv[] = { (char *) "gdb", nullptr };
+	char *const argv[] = { (char *) "gdb", NULL };
 	posix_spawn_file_actions_t actions = {};
 	posix_spawn_file_actions_adddup2(&actions, inputPipe[0],  0);
 	posix_spawn_file_actions_adddup2(&actions, outputPipe[1], 1);
 	posix_spawn_file_actions_adddup2(&actions, outputPipe[1], 2);
-	posix_spawnp((pid_t *) &gdbPID, "gdb", &actions, nullptr, argv, environ);
+	posix_spawnp((pid_t *) &gdbPID, "gdb", &actions, NULL, argv, environ);
 
 	pipeToGDB = inputPipe[1];
 
@@ -294,8 +299,116 @@ void CommandToggleBreakpoint(void *_line) {
 void CommandFind(void *) {
 }
 
-void ShowCommandMenu(void *) {
-	UIMenu *menu = UIMenuCreate(&buttonCommandMenu->e, UI_MENU_PLACE_ABOVE);
+int ThemeEditorWindowMessage(UIElement *element, UIMessage message, int di, void *dp) {
+	if (message == UI_MSG_WINDOW_CLOSE) {
+		UIElementDestroy(element);
+		themeEditorWindow = NULL;
+		return 1;
+	}
+
+	return 0;
+}
+
+const char *themeItems[] = {
+	"panel1", "panel2", "text", "border",
+	"buttonNormal", "buttonHovered", "buttonPressed", "buttonFocused", "textboxNormal", 
+	"textboxText", "textboxFocused", "textboxSelected", "textboxSelectedText",
+	"scrollGlyph", "scrollThumbNormal", "scrollThumbHovered", "scrollThumbPressed",
+	"codeFocused", "codeBackground", "codeDefault", "codeComment", "codeString", "codeNumber", "codeOperator", "codePreprocessor",
+	"gaugeFilled",
+	"tableSelected", "tableSelectedText", "tableHovered", "tableHoveredText",
+};
+
+int ThemeEditorTableMessage(UIElement *element, UIMessage message, int di, void *dp) {
+	if (message == UI_MSG_TABLE_GET_ITEM) {
+		UITableGetItem *m = (UITableGetItem *) dp;
+		m->isSelected = themeEditorSelectedColor == m->index;
+
+		if (m->column == 0) {
+			return snprintf(m->buffer, m->bufferBytes, "%s", themeItems[m->index]);
+		} else {
+			return snprintf(m->buffer, m->bufferBytes, "#%.6x", ui.theme.colors[m->index]);
+		}
+	} else if (message == UI_MSG_CLICKED) {
+		themeEditorSelectedColor = UITableHitTest((UITable *) element, element->window->cursorX, element->window->cursorY);
+		UIColorToHSV(ui.theme.colors[themeEditorSelectedColor], 
+			&themeEditorColorPicker->hue, &themeEditorColorPicker->saturation, &themeEditorColorPicker->value);
+		UIElementRepaint(&themeEditorColorPicker->e, NULL);
+	}
+
+	return 0;
+}
+
+int ThemeEditorColorPickerMessage(UIElement *element, UIMessage message, int di, void *dp) {
+	if (message == UI_MSG_VALUE_CHANGED && themeEditorSelectedColor >= 0) {
+		UIColorToRGB(themeEditorColorPicker->hue, themeEditorColorPicker->saturation, themeEditorColorPicker->value,
+			&ui.theme.colors[themeEditorSelectedColor]);
+		UIElementRepaint(&window->e, NULL);
+		UIElementRepaint(&element->window->e, NULL);
+	}
+
+	return 0;
+}
+
+void CommandLoadTheme(void *) {
+	char buffer[4096];
+	snprintf(buffer, 4096, "%s/.config/gf2_theme.dat", getenv("HOME"));
+	FILE *f = fopen(buffer, "rb");
+	
+	if (f) {
+		fread(&ui.theme, 1, sizeof(ui.theme), f);
+		fclose(f);
+
+		if (window) {
+			UIElementRepaint(&window->e, NULL);
+		}
+
+		if (themeEditorWindow) {
+			UIElementRepaint(&themeEditorWindow->e, NULL);
+		}
+	}
+}
+
+void CommandSaveTheme(void *) {
+	char buffer[4096];
+	snprintf(buffer, 4096, "%s/.config/gf2_theme.dat", getenv("HOME"));
+	FILE *f = fopen(buffer, "wb");
+	
+	if (f) {
+		fwrite(&ui.theme, 1, sizeof(ui.theme), f);
+		fclose(f);
+	}
+}
+
+void CommandLoadDefaultColors(void *) {
+	ui.theme = _uiThemeDefault;
+	UIElementRepaint(&window->e, NULL);
+	UIElementRepaint(&themeEditorWindow->e, NULL);
+}
+
+void CommandThemeEditor(void *) {
+	if (themeEditorWindow) return;
+	themeEditorSelectedColor = -1;
+	themeEditorWindow = UIWindowCreate(0, 0, "Theme Editor");
+	themeEditorWindow->e.messageUser = ThemeEditorWindowMessage;
+	UISplitPane *splitPane = UISplitPaneCreate(&themeEditorWindow->e, 0, 0.5f);
+	UIPanel *panel = UIPanelCreate(&splitPane->e, UI_PANEL_GRAY);
+	panel->border = UI_RECT_1(5);
+	panel->gap = 5;
+	themeEditorColorPicker = UIColorPickerCreate(&panel->e, 0);
+	themeEditorColorPicker->e.messageUser = ThemeEditorColorPickerMessage;
+	UISpacerCreate(&panel->e, 0, 10, 10);
+	UIButtonCreate(&panel->e, 0, "Save theme", -1)->invoke = CommandSaveTheme;
+	UIButtonCreate(&panel->e, 0, "Load theme", -1)->invoke = CommandLoadTheme;
+	UIButtonCreate(&panel->e, 0, "Load default colors", -1)->invoke = CommandLoadDefaultColors;
+	themeEditorTable = UITableCreate(&splitPane->e, 0, "Item\tColor");
+	themeEditorTable->itemCount = sizeof(themeItems) / sizeof(themeItems[0]);
+	themeEditorTable->e.messageUser = ThemeEditorTableMessage;
+	UITableResizeColumns(themeEditorTable);
+}
+
+void ShowMenu(void *) {
+	UIMenu *menu = UIMenuCreate(&buttonMenu->e, UI_MENU_PLACE_ABOVE);
 	UIMenuAddItem(menu, 0, "Run\tShift+F5", -1, CommandSendToGDB, (void *) "r");
 	UIMenuAddItem(menu, 0, "Run paused\tCtrl+F5", -1, CommandSendToGDB, (void *) "start");
 	UIMenuAddItem(menu, 0, "Kill\tF3", -1, CommandSendToGDB, (void *) "kill");
@@ -309,6 +422,7 @@ void ShowCommandMenu(void *) {
 	UIMenuAddItem(menu, 0, "Toggle breakpoint\tF9", -1, CommandToggleBreakpoint, NULL);
 	UIMenuAddItem(menu, 0, "Sync with gvim\tF2", -1, CommandSyncWithGvim, NULL);
 	UIMenuAddItem(menu, 0, "Find\tCtrl+F", -1, CommandFind, NULL);
+	UIMenuAddItem(menu, 0, "Theme editor", -1, CommandThemeEditor, NULL);
 	UIMenuShow(menu);
 }
 
@@ -634,7 +748,7 @@ int TableBreakpointsMessage(UIElement *element, UIMessage message, int di, void 
 		} else if (m->column == 1) {
 			return snprintf(m->buffer, m->bufferBytes, "%d", entry->line);
 		}
-	} else if (message == UI_MSG_CLICKED) {
+	} else if (message == UI_MSG_RIGHT_DOWN) {
 		int index = UITableHitTest((UITable *) element, element->window->cursorX, element->window->cursorY); 
 
 		if (index != -1) {
@@ -682,7 +796,7 @@ int DisplayCodeMessage(UIElement *element, UIMessage message, int di, void *dp) 
 
 int TrafficLightMessage(UIElement *element, UIMessage message, int di, void *dp) {
 	if (message == UI_MSG_PAINT) {
-		UIDrawBlock((UIPainter *) dp, element->bounds, programRunning ? 0xFF0000 : 0x00FF00);
+		UIDrawRectangle((UIPainter *) dp, element->bounds, programRunning ? 0xFF0000 : 0x00FF00, ui.theme.border, UI_RECT_1(1));
 	}
 
 	return 0;
@@ -705,6 +819,7 @@ int WindowMessage(UIElement *, UIMessage message, int di, void *dp) {
 
 int main(int, char **) {
 	UIInitialise();
+	CommandLoadTheme(NULL);
 
 	window = UIWindowCreate(0, 0, "gf2");
 	window->e.messageUser = WindowMessage;
@@ -718,8 +833,8 @@ int main(int, char **) {
 	panel3->gap = 5;
 	trafficLight = UISpacerCreate(&panel3->e, 0, 30, 30);
 	trafficLight->e.messageUser = TrafficLightMessage;
-	buttonCommandMenu = UIButtonCreate(&panel3->e, 0, "Commands", -1);
-	buttonCommandMenu->invoke = ShowCommandMenu;
+	buttonMenu = UIButtonCreate(&panel3->e, 0, "Menu", -1);
+	buttonMenu->invoke = ShowMenu;
 	textboxInput = UITextboxCreate(&panel3->e, UI_ELEMENT_H_FILL);
 	textboxInput->e.messageUser = TextboxInputMessage;
 	UIElementFocus(&textboxInput->e);
