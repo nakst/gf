@@ -1155,6 +1155,7 @@ int _UIPanelLayout(UIPanel *panel, UIRectangle bounds, bool measure) {
 	child = panel->e.children;
 
 	bool expand = panel->e.flags & UI_PANEL_EXPAND;
+	int scaledBorder2 = (horizontal ? panel->border.t : panel->border.l) * panel->e.window->scale;
 
 	while (child) {
 		if (~child->flags & UI_ELEMENT_HIDE) {
@@ -1162,15 +1163,15 @@ int _UIPanelLayout(UIPanel *panel, UIRectangle bounds, bool measure) {
 				int height = ((child->flags & UI_ELEMENT_V_FILL) || expand) ? vSpace : UIElementMessage(child, UI_MSG_GET_HEIGHT, 0, 0);
 				int width = (child->flags & UI_ELEMENT_H_FILL) ? perFill : UIElementMessage(child, UI_MSG_GET_WIDTH, height, 0);
 				UIRectangle relative = UI_RECT_4(position, position + width, 
-						panel->border.t + (vSpace - height) / 2, 
-						panel->border.t + (vSpace + height) / 2);
+						scaledBorder2 + (vSpace - height) / 2, 
+						scaledBorder2 + (vSpace + height) / 2);
 				if (!measure) UIElementMove(child, UIRectangleTranslate(relative, bounds), false);
 				position += width + panel->gap * scale;
 			} else {
 				int width = ((child->flags & UI_ELEMENT_H_FILL) || expand) ? hSpace : UIElementMessage(child, UI_MSG_GET_WIDTH, 0, 0);
 				int height = (child->flags & UI_ELEMENT_V_FILL) ? perFill : UIElementMessage(child, UI_MSG_GET_HEIGHT, width, 0);
-				UIRectangle relative = UI_RECT_4(panel->border.l + (hSpace - width) / 2, 
-						panel->border.l + (hSpace + width) / 2, position, position + height);
+				UIRectangle relative = UI_RECT_4(scaledBorder2 + (hSpace - width) / 2, 
+						scaledBorder2 + (hSpace + width) / 2, position, position + height);
 				if (!measure) UIElementMove(child, UIRectangleTranslate(relative, bounds), false);
 				position += height + panel->gap * scale;
 			}
@@ -1331,7 +1332,7 @@ int _UISplitterMessage(UIElement *element, UIMessage message, int di, void *dp) 
 		int cursor = vertical ? element->window->cursorY : element->window->cursorX;
 		int splitterSize = UI_SIZE_SPLITTER * element->window->scale;
 		int space = (vertical ? UI_RECT_HEIGHT(splitPane->e.bounds) : UI_RECT_WIDTH(splitPane->e.bounds)) - splitterSize;
-		splitPane->weight = (float) (cursor - splitterSize / 2) / space;
+		splitPane->weight = (float) (cursor - splitterSize / 2 - splitPane->e.bounds.l) / space;
 		if (splitPane->weight < 0.05f) splitPane->weight = 0.05f;
 		if (splitPane->weight > 0.95f) splitPane->weight = 0.95f;
 		UIElementRefresh(&splitPane->e);
@@ -1532,8 +1533,8 @@ int _UIScrollBarMessage(UIElement *element, UIMessage message, int di, void *dp)
 			int size = UI_RECT_HEIGHT(element->bounds);
 			int thumbSize = size * scrollBar->page / scrollBar->maximum;
 
-			if (thumbSize < UI_SIZE_SCROLL_MINIMUM_THUMB) {
-				thumbSize = UI_SIZE_SCROLL_MINIMUM_THUMB;
+			if (thumbSize < UI_SIZE_SCROLL_MINIMUM_THUMB * element->window->scale) {
+				thumbSize = UI_SIZE_SCROLL_MINIMUM_THUMB * element->window->scale;
 			}
 
 			if (scrollBar->position < 0) {
@@ -1577,8 +1578,9 @@ int _UIScrollUpDownMessage(UIElement *element, UIMessage message, int di, void *
 		uint32_t color = element == element->window->pressed ? ui.theme.buttonPressed 
 			: element == element->window->hovered ? ui.theme.buttonHovered : ui.theme.panel2;
 		UIDrawRectangle(painter, element->bounds, color, ui.theme.border, UI_RECT_1(0));
-		UIDrawGlyph(painter, element->bounds.l + 6, 
-			isDown ? element->bounds.b - 18 : element->bounds.t + 2, 
+		UIDrawGlyph(painter, (element->bounds.l + element->bounds.r - UI_SIZE_GLYPH_WIDTH) / 2, 
+			isDown ? (element->bounds.b - UI_SIZE_GLYPH_HEIGHT - 2 * element->window->scale) 
+				: (element->bounds.t + 2 * element->window->scale), 
 			isDown ? 25 : 24, ui.theme.scrollGlyph);
 	} else if (message == UI_MSG_UPDATE) {
 		UIElementRepaint(element, NULL);
@@ -1656,7 +1658,7 @@ bool _UICharIsAlphaOrDigitOrUnderscore(char c) {
 int UICodeHitTest(UICode *code, int x, int y) {
 	x -= code->e.bounds.l;
 
-	if (x < 0 || x >= UI_RECT_WIDTH(code->e.bounds) - UI_SIZE_SCROLL_BAR) {
+	if (x < 0 || x >= UI_RECT_WIDTH(code->e.bounds) - UI_SIZE_SCROLL_BAR * code->e.window->scale) {
 		return 0;
 	}
 
@@ -1686,14 +1688,14 @@ int _UICodeMessage(UIElement *element, UIMessage message, int di, void *dp) {
 		}
 
 		UIRectangle scrollBarBounds = element->bounds;
-		scrollBarBounds.l = scrollBarBounds.r - UI_SIZE_SCROLL_BAR;
+		scrollBarBounds.l = scrollBarBounds.r - UI_SIZE_SCROLL_BAR * code->e.window->scale;
 		code->vScroll->maximum = code->lineCount * UIMeasureStringHeight();
 		code->vScroll->page = UI_RECT_HEIGHT(element->bounds);
 		UIElementMove(&code->vScroll->e, scrollBarBounds, true);
 	} else if (message == UI_MSG_PAINT) {
 		UIPainter *painter = (UIPainter *) dp;
 		UIRectangle lineBounds = element->bounds;
-		lineBounds.r -= UI_SIZE_SCROLL_BAR;
+		lineBounds.r -= UI_SIZE_SCROLL_BAR * code->e.window->scale;
 
 		if (~code->e.flags & UI_CODE_NO_MARGIN) {
 			lineBounds.l += UI_SIZE_CODE_MARGIN + UI_SIZE_CODE_MARGIN_GAP;
@@ -1970,11 +1972,11 @@ UISlider *UISliderCreate(UIElement *parent, uint64_t flags) {
 int UITableHitTest(UITable *table, int x, int y) {
 	x -= table->e.bounds.l;
 
-	if (x < 0 || x >= UI_RECT_WIDTH(table->e.bounds) - UI_SIZE_SCROLL_BAR) {
+	if (x < 0 || x >= UI_RECT_WIDTH(table->e.bounds) - UI_SIZE_SCROLL_BAR * table->e.window->scale) {
 		return -1;
 	}
 
-	y -= (table->e.bounds.t + UI_SIZE_TABLE_HEADER) - table->vScroll->position;
+	y -= (table->e.bounds.t + UI_SIZE_TABLE_HEADER * table->e.window->scale) - table->vScroll->position;
 
 	int rowHeight = UIMeasureStringHeight();
 
@@ -1989,7 +1991,7 @@ bool UITableEnsureVisible(UITable *table, int index) {
 	int rowHeight = UIMeasureStringHeight();
 	int y = index * rowHeight;
 	y -= table->vScroll->position;
-	int height = UI_RECT_HEIGHT(table->e.bounds) - UI_SIZE_TABLE_HEADER - rowHeight;
+	int height = UI_RECT_HEIGHT(table->e.bounds) - UI_SIZE_TABLE_HEADER * table->e.window->scale - rowHeight;
 
 	if (y < 0) {
 		table->vScroll->position += y;
@@ -2056,7 +2058,7 @@ int _UITableMessage(UIElement *element, UIMessage message, int di, void *dp) {
 	if (message == UI_MSG_PAINT) {
 		UIPainter *painter = (UIPainter *) dp;
 		UIRectangle bounds = element->bounds;
-		bounds.r -= UI_SIZE_SCROLL_BAR;
+		bounds.r -= UI_SIZE_SCROLL_BAR * element->window->scale;
 		UIDrawBlock(painter, bounds, ui.theme.panel2);
 		char buffer[256];
 		UIRectangle row = bounds;
@@ -2064,7 +2066,7 @@ int _UITableMessage(UIElement *element, UIMessage message, int di, void *dp) {
 		UITableGetItem m = { 0 };
 		m.buffer = buffer;
 		m.bufferBytes = sizeof(buffer);
-		row.t += UI_SIZE_TABLE_HEADER;
+		row.t += UI_SIZE_TABLE_HEADER * table->e.window->scale;
 		row.t -= (int64_t) table->vScroll->position % rowHeight;
 		int hovered = UITableHitTest(table, element->window->cursorX, element->window->cursorY);
 
@@ -2089,7 +2091,7 @@ int _UITableMessage(UIElement *element, UIMessage message, int di, void *dp) {
 			}
 
 			UIRectangle cell = row;
-			cell.l += UI_SIZE_TABLE_COLUMN_GAP;
+			cell.l += UI_SIZE_TABLE_COLUMN_GAP * table->e.window->scale;
 
 			for (int j = 0; j < table->columnCount; j++) {
 				if (j) {
@@ -2099,16 +2101,16 @@ int _UITableMessage(UIElement *element, UIMessage message, int di, void *dp) {
 
 				cell.r = cell.l + table->columnWidths[j];
 				UIDrawString(painter, cell, buffer, bytes, textColor, UI_ALIGN_LEFT, NULL);
-				cell.l += table->columnWidths[j] + UI_SIZE_TABLE_COLUMN_GAP;
+				cell.l += table->columnWidths[j] + UI_SIZE_TABLE_COLUMN_GAP * table->e.window->scale;
 			}
 
 			row.t += rowHeight;
 		}
 
 		UIRectangle header = bounds;
-		header.b = header.t + UI_SIZE_TABLE_HEADER;
+		header.b = header.t + UI_SIZE_TABLE_HEADER * table->e.window->scale;
 		UIDrawRectangle(painter, header, ui.theme.panel1, ui.theme.border, UI_RECT_4(0, 0, 0, 1));
-		header.l += UI_SIZE_TABLE_COLUMN_GAP;
+		header.l += UI_SIZE_TABLE_COLUMN_GAP * table->e.window->scale;
 
 		int position = 0;
 		int index = 0;
@@ -2120,7 +2122,7 @@ int _UITableMessage(UIElement *element, UIMessage message, int di, void *dp) {
 
 				header.r = header.l + table->columnWidths[index];
 				UIDrawString(painter, header, table->columns + position, end - position, ui.theme.text, UI_ALIGN_LEFT, NULL);
-				header.l += table->columnWidths[index] + UI_SIZE_TABLE_COLUMN_GAP;
+				header.l += table->columnWidths[index] + UI_SIZE_TABLE_COLUMN_GAP * table->e.window->scale;
 
 				if (table->columns[end] == '\t') {
 					position = end + 1;
@@ -2132,9 +2134,9 @@ int _UITableMessage(UIElement *element, UIMessage message, int di, void *dp) {
 		}
 	} else if (message == UI_MSG_LAYOUT) {
 		UIRectangle scrollBarBounds = element->bounds;
-		scrollBarBounds.l = scrollBarBounds.r - UI_SIZE_SCROLL_BAR;
+		scrollBarBounds.l = scrollBarBounds.r - UI_SIZE_SCROLL_BAR * element->window->scale;
 		table->vScroll->maximum = table->itemCount * UIMeasureStringHeight();
-		table->vScroll->page = UI_RECT_HEIGHT(element->bounds) - UI_SIZE_TABLE_HEADER;
+		table->vScroll->page = UI_RECT_HEIGHT(element->bounds) - UI_SIZE_TABLE_HEADER * table->e.window->scale;
 		UIElementMove(&table->vScroll->e, scrollBarBounds, true);
 	} else if (message == UI_MSG_MOUSE_MOVE) {
 		UIElementRepaint(element, NULL);
@@ -3494,7 +3496,7 @@ int UIMessageLoop() {
 void UIMenuShow(UIMenu *menu) {
 	int width, height;
 	_UIMenuPrepare(menu, &width, &height);
-	MoveWindow(menu->e.window->hwnd, menu->pointX, menu->pointY, r.right - r.left, r.bottom - r.top, FALSE);
+	MoveWindow(menu->e.window->hwnd, menu->pointX, menu->pointY, width, height, FALSE);
 	ShowWindow(menu->e.window->hwnd, SW_SHOWNOACTIVATE);
 }
 
