@@ -16,7 +16,6 @@
 
 #define UI_LINUX
 #define UI_IMPLEMENTATION
-#define UI_DEBUG
 #include "luigi.h"
 
 #define MSG_RECEIVED_DATA ((UIMessage) (UI_MSG_USER + 1))
@@ -372,13 +371,12 @@ int ThemeEditorWindowMessage(UIElement *element, UIMessage message, int di, void
 }
 
 const char *themeItems[] = {
-	"panel1", "panel2", "text", "border",
-	"buttonNormal", "buttonHovered", "buttonPressed", "buttonFocused", "textboxNormal", 
-	"textboxText", "textboxFocused", "textboxSelected", "textboxSelectedText",
+	"panel1", "panel2", "text", "textDisabled", "border",
+	"buttonNormal", "buttonHovered", "buttonPressed", "buttonFocused", "buttonDisabled",
+	"textboxNormal", "textboxText", "textboxFocused", "textboxSelected", "textboxSelectedText",
 	"scrollGlyph", "scrollThumbNormal", "scrollThumbHovered", "scrollThumbPressed",
 	"codeFocused", "codeBackground", "codeDefault", "codeComment", "codeString", "codeNumber", "codeOperator", "codePreprocessor",
-	"gaugeFilled",
-	"tableSelected", "tableSelectedText", "tableHovered", "tableHoveredText",
+	"gaugeFilled", "tableSelected", "tableSelectedText", "tableHovered", "tableHoveredText",
 };
 
 int ThemeEditorTableMessage(UIElement *element, UIMessage message, int di, void *dp) {
@@ -443,7 +441,7 @@ void CommandSaveTheme(void *) {
 }
 
 void CommandLoadDefaultColors(void *) {
-	ui.theme = _uiThemeDefault;
+	ui.theme = _uiThemeDark;
 	UIElementRepaint(&window->e, NULL);
 	UIElementRepaint(&themeEditorWindow->e, NULL);
 }
