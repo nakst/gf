@@ -1,6 +1,7 @@
 // Build with: g++ gf2.cpp -lX11 -Wall -Wextra -Wno-unused-parameter -Wno-missing-field-initializers -Wno-format-truncation -o gf2 -g -pthread
 
 // Future extensions: 
+// 	- Saving commands to shortcuts (with alt- key).
 // 	- Watch window.
 // 	- Memory window.
 // 	- Disassembly window.
@@ -11,6 +12,13 @@
 // 	- More reliable way to get the exact source file and line?
 // 	- Automatically restoring breakpoints and symbols files after restarting gdb.
 
+#include <pthread.h>
+#include <unistd.h>
+#include <signal.h>
+#include <spawn.h>
+#include <stdio.h>
+#include <ctype.h>
+
 #define STB_DS_IMPLEMENTATION
 #include "stb_ds.h"
 
@@ -19,13 +27,6 @@
 #include "luigi.h"
 
 #define MSG_RECEIVED_DATA ((UIMessage) (UI_MSG_USER + 1))
-
-#include <pthread.h>
-#include <unistd.h>
-#include <signal.h>
-#include <spawn.h>
-#include <stdio.h>
-#include <ctype.h>
 
 // Current file and line:
 
@@ -189,6 +190,25 @@ void EvaluateCommand(const char *command) {
 	UIElementRepaint(&trafficLight->e, NULL);
 }
 
+char *LoadFile(const char *path, size_t *_bytes) {
+	FILE *f = fopen(path, "rb");
+
+	if (!f) {
+		return NULL;
+	}
+
+	fseek(f, 0, SEEK_END);
+	size_t bytes = ftell(f);
+	fseek(f, 0, SEEK_SET);
+	char *buffer = (char *) malloc(bytes + 1);
+	buffer[bytes] = 0;
+	fread(buffer, 1, bytes, f);
+	fclose(f);
+	if (_bytes) *_bytes = bytes;
+
+	return buffer;
+}
+
 void SetPosition(const char *file, int line) {
 	char buffer[4096];
 
@@ -203,21 +223,16 @@ void SetPosition(const char *file, int line) {
 
 		printf("attempting to load '%s'\n", file);
 
-		FILE *f = fopen(file, "rb");
+		size_t bytes;
+		char *buffer2 = LoadFile(file, &bytes);
 
-		if (!f) {
-			char buffer2[4096];
-			snprintf(buffer2, 4096, "The file '%s' could not be loaded.", file);
-			UICodeInsertContent(displayCode, buffer2, -1, true);
+		if (!buffer2) {
+			char buffer3[4096];
+			snprintf(buffer3, 4096, "The file '%s' could not be loaded.", file);
+			UICodeInsertContent(displayCode, buffer3, -1, true);
 		} else {
-			fseek(f, 0, SEEK_END);
-			size_t bytes = ftell(f);
-			fseek(f, 0, SEEK_SET);
-			char *buffer2 = (char *) malloc(bytes + 1);
-			buffer2[bytes] = 0;
-			fread(buffer2, 1, bytes, f);
-			fclose(f);
 			UICodeInsertContent(displayCode, buffer2, bytes, true);
+			free(buffer2);
 		}
 	}
 
@@ -253,12 +268,12 @@ void CommandPause(void *) {
 }
 
 void CommandSyncWithGvim(void *) {
-	if (system("vim --servername GVIM --remote-expr \"execute(\\\"ls\\\")\" | grep % > current_file_open_in_vim.txt")) {
+	if (system("vim --servername GVIM --remote-expr \"execute(\\\"ls\\\")\" | grep % > .temp.gf")) {
 		return;
 	}
 
 	char buffer[1024];
-	FILE *file = fopen("current_file_open_in_vim.txt", "r");
+	FILE *file = fopen(".temp.gf", "r");
 
 	if (file) {
 		buffer[fread(buffer, 1, 1023, file)] = 0;
@@ -277,7 +292,7 @@ void CommandSyncWithGvim(void *) {
 		}
 
 		done:;
-		unlink("current_file_open_in_vim.txt");
+		unlink(".temp.gf");
 	}
 }
 
@@ -500,6 +515,81 @@ void RegisterShortcuts() {
 	UIWindowRegisterShortcut(window, { .code = UI_KEYCODE_F9, .invoke = CommandToggleBreakpoint, .cp = NULL });
 	UIWindowRegisterShortcut(window, { .code = UI_KEYCODE_F2, .invoke = CommandSyncWithGvim, .cp = NULL });
 	UIWindowRegisterShortcut(window, { .code = UI_KEYCODE_LETTER('F'), .ctrl = true, .invoke = CommandFind, .cp = NULL });
+}
+
+int RunSystemWithOutput(const char *command) {
+	char buffer[4096];
+	snprintf(buffer, 4096, "Running shell command \"%s\"...\n", command);
+	UICodeInsertContent(displayOutput, buffer, -1, false);
+	snprintf(buffer, 4096, "%s > .output.gf 2>&1", command);
+	int start = time(NULL);
+	int result = system(buffer);
+	size_t bytes;
+	char *output = LoadFile(".output.gf", &bytes);
+	unlink(".output.gf");
+	char *copy = (char *) malloc(bytes + 1);
+	uintptr_t j = 0;
+
+	for (uintptr_t i = 0; i <= bytes;) {
+		if ((uint8_t) output[i] == 0xE2 && (uint8_t) output[i + 1] == 0x80 
+				&& ((uint8_t) output[i + 2] == 0x98 || (uint8_t) output[i + 2] == 0x99)) {
+			copy[j++] = '\'';
+			i += 3;
+		} else {
+			copy[j++] = output[i++];
+		}
+	}
+
+	UICodeInsertContent(displayOutput, copy, j, false);
+	free(output);
+	free(copy);
+	snprintf(buffer, 4096, "(exit code: %d; time: %ds)\n", result, (int) (time(NULL) - start));
+	UICodeInsertContent(displayOutput, buffer, -1, false);
+	UIElementRefresh(&displayOutput->e);
+	return result;
+}
+
+void CustomCommand(void *_command) {
+	const char *command = (const char *) _command;
+
+	if (0 == memcmp(command, "shell ", 6)) {
+		RunSystemWithOutput(command + 6);
+	} else {
+		SendToGDB(command, true);
+	}
+}
+
+void CustomCommandAndRun(void *_command) {
+	const char *command = (const char *) _command;
+
+	if (0 == memcmp(command, "shell ", 6)) {
+		if (RunSystemWithOutput(command + 6)) {
+			return;
+		}
+	} else {
+		SendToGDB(command, true);
+	}
+
+	CommandSendToGDB((void *) "r");
+}
+
+void LoadProjectSettings() {
+	char *settings = LoadFile(".project.gf", NULL);
+	int index = 0;
+
+	while (settings && *settings) {
+		char *start = settings;
+		char *end = strchr(settings, '\n');
+
+		if (end) { *end = 0, settings = end + 1; }
+		else settings = NULL;
+
+		printf("shortcut for \"%s\" on ctrl+%d\n", start, index);
+
+		UIWindowRegisterShortcut(window, { .code = UI_KEYCODE_DIGIT('0' + index), .ctrl = true, .invoke = CustomCommand, .cp = start });
+		UIWindowRegisterShortcut(window, { .code = UI_KEYCODE_DIGIT('0' + index), .ctrl = true, .shift = true, .invoke = CustomCommandAndRun, .cp = start });
+		index++;
+	}
 }
 
 int TextboxInputMessage(UIElement *, UIMessage message, int di, void *dp) {
@@ -912,6 +1002,7 @@ int main(int, char **) {
 
 	CommandSyncWithGvim(NULL);
 	RegisterShortcuts();
+	LoadProjectSettings();
 	UIMessageLoop();
 	kill(gdbPID, SIGKILL);
 	pthread_cancel(gdbThread);

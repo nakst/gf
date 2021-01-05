@@ -268,8 +268,10 @@ extern const int UI_KEYCODE_RIGHT;
 extern const int UI_KEYCODE_SPACE;
 extern const int UI_KEYCODE_TAB;
 extern const int UI_KEYCODE_UP;
+extern const int UI_KEYCODE_0;
 
 #define UI_KEYCODE_LETTER(x) (UI_KEYCODE_A + (x) - 'A')
+#define UI_KEYCODE_DIGIT(x) (UI_KEYCODE_0 + (x) - '0')
 
 typedef struct UIPainter {
 	UIRectangle clip;
@@ -3564,6 +3566,7 @@ const int UI_KEYCODE_RIGHT = XK_Right;
 const int UI_KEYCODE_SPACE = XK_space;
 const int UI_KEYCODE_TAB = XK_Tab;
 const int UI_KEYCODE_UP = XK_Up;
+const int UI_KEYCODE_0 = XK_0;
 
 int _UIWindowMessage(UIElement *element, UIMessage message, int di, void *dp) {
 	if (message == UI_MSG_LAYOUT && element->children) {
@@ -3772,11 +3775,10 @@ bool _UIProcessEvent(XEvent *event) {
 			char text[32];
 			KeySym symbol = NoSymbol;
 			Status status;
-			// printf("%ld, %s\n", symbol, text);
 			UIKeyTyped m = { 0 };
 			m.textBytes = Xutf8LookupString(window->xic, &event->xkey, text, sizeof(text) - 1, &symbol, &status); 
 			m.text = text;
-			m.code = symbol;
+			m.code = XLookupKeysym(&event->xkey, 0);
 
 			if (symbol == XK_Control_L || symbol == XK_Control_R) {
 				window->ctrl = true;
