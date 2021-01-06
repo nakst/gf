@@ -18,6 +18,7 @@
 #include <spawn.h>
 #include <stdio.h>
 #include <ctype.h>
+#include <sys/stat.h>
 
 #define STB_DS_IMPLEMENTATION
 #include "stb_ds.h"
@@ -32,6 +33,7 @@
 
 char currentFile[4096];
 int currentLine;
+time_t currentFileReadTime;
 
 // User interface:
 
@@ -217,7 +219,24 @@ void SetPosition(const char *file, int line) {
 		file = buffer;
 	}
 
-	if (file && strcmp(currentFile, file)) {
+	bool reloadFile = false;
+
+	if (file) {
+		if (strcmp(currentFile, file)) {
+			reloadFile = true;
+		}
+
+		struct stat buf;
+		stat(file, &buf);
+		
+		if (buf.st_mtim.tv_sec != currentFileReadTime) {
+			reloadFile = true;
+		}
+
+		currentFileReadTime = buf.st_mtim.tv_sec;
+	}
+
+	if (reloadFile) {
 		currentLine = 0;
 		snprintf(currentFile, 4096, "%s", file);
 
