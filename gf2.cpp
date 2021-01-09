@@ -121,7 +121,7 @@ void *DebuggerThread(void *) {
 		if (!count) break;
 		receiveBufferPosition += snprintf(receiveBuffer + receiveBufferPosition, 
 			RECEIVE_BUFFER_SIZE - receiveBufferPosition, "%s", buffer);
-		if (!strstr(buffer, "(gdb) ")) continue;
+		if (!strstr(receiveBuffer, "(gdb) ")) continue;
 
 		receiveBuffer[receiveBufferPosition] = 0;
 		char *copy = strdup(receiveBuffer);
