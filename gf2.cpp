@@ -1,4 +1,5 @@
 // Build with: g++ gf2.cpp -lX11 -Wall -Wextra -Wno-unused-parameter -Wno-missing-field-initializers -Wno-format-truncation -o gf2 -g -pthread
+// Add the following flags to use FreeType: -lfreetype -D UI_FREETYPE -I /usr/include/freetype2 -D UI_FONT_PATH=/usr/share/fonts/TTF/DejaVuSansMono.ttf -D UI_FONT_SIZE=13
 
 // Future extensions: 
 // 	- Saving commands to shortcuts (with alt- key).
@@ -9,7 +10,6 @@
 // 	- Automatically show results from previous line.
 // 	- Thread selection.
 // 	- Data breakpoint viewer.
-// 	- More reliable way to get the exact source file and line?
 // 	- Automatically restoring breakpoints and symbols files after restarting gdb.
 
 #include <pthread.h>
@@ -704,28 +704,6 @@ int TextboxInputMessage(UIElement *, UIMessage message, int di, void *dp) {
 }
 
 void Update(const char *data) {
-	// Parse the name of the file.
-
-	bool fileChanged = false;
-	char newFile[4096];
-
-	{
-		const char *file = data;
-
-		while (true) {
-			file = strstr(file, " at ");
-			if (!file) break;
-
-			file += 4;
-			const char *end = strchr(file, ':');
-
-			if (end && isdigit(end[1])) {
-				snprintf(newFile, sizeof(newFile), "%.*s", (int) (end - file), file);
-				fileChanged = true;
-			}
-		}
-	}
-
 	// Parse the current line.
 
 	bool lineChanged = false;
@@ -761,6 +739,28 @@ void Update(const char *data) {
 			}
 		}
 	}
+
+	// Get the name of the file.
+
+	EvaluateCommand("info source");
+	bool fileChanged = false;
+	char newFile[4096];
+
+	{
+		const char *file = strstr(evaluateResult, "Located in ");
+
+		if (file) {
+			file += 11;
+			const char *end = strchr(file, '\n');
+
+			if (end) {
+				snprintf(newFile, sizeof(newFile), "%.*s", (int) (end - file), file);
+				fileChanged = true;
+			}
+		}
+	}
+
+	// Set the file and line in the source display.
 
 	SetPosition(fileChanged ? newFile : NULL, lineChanged ? newLine : -1);
 
