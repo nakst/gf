@@ -1108,11 +1108,11 @@ void UIDrawGlyph(UIPainter *painter, int x0, int y0, int c, uint32_t color) {
 	FT_Bitmap *bitmap = &ui.glyphs[c];
 	x0 += ui.glyphOffsetsX[c], y0 += ui.glyphOffsetsY[c];
 
-	for (int y = 0; y < bitmap->rows; y++) {
+	for (int y = 0; y < (int) bitmap->rows; y++) {
 		if (y0 + y < painter->clip.t) continue;
 		if (y0 + y >= painter->clip.b) break;
 
-		for (int x = 0; x < bitmap->width / 3; x++) {
+		for (int x = 0; x < (int) bitmap->width / 3; x++) {
 			if (x0 + x < painter->clip.l) continue;
 			if (x0 + x >= painter->clip.r) break;
 
@@ -1122,6 +1122,7 @@ void UIDrawGlyph(UIPainter *painter, int x0, int y0, int c, uint32_t color) {
 			uint32_t ra = ((uint8_t *) bitmap->buffer)[x * 3 + y * bitmap->pitch + 0];
 			uint32_t ga = ((uint8_t *) bitmap->buffer)[x * 3 + y * bitmap->pitch + 1];
 			uint32_t ba = ((uint8_t *) bitmap->buffer)[x * 3 + y * bitmap->pitch + 2];
+			ra += (ga - ra) / 2, ba += (ga - ba) / 2;
 			uint32_t r2 = (255 - ra) * ((original & 0x000000FF) >> 0);
 			uint32_t g2 = (255 - ga) * ((original & 0x0000FF00) >> 8);
 			uint32_t b2 = (255 - ba) * ((original & 0x00FF0000) >> 16);

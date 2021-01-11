@@ -1,6 +1,8 @@
 // Build with: g++ gf2.cpp -lX11 -Wall -Wextra -Wno-unused-parameter -Wno-missing-field-initializers -Wno-format-truncation -o gf2 -g -pthread
 // Add the following flags to use FreeType: -lfreetype -D UI_FREETYPE -I /usr/include/freetype2 -D UI_FONT_PATH=/usr/share/fonts/TTF/DejaVuSansMono.ttf -D UI_FONT_SIZE=13
 
+// TODO Breakpoints display in margin is broken.
+
 // Future extensions: 
 // 	- Saving commands to shortcuts (with alt- key).
 // 	- Watch window.
@@ -211,12 +213,21 @@ char *LoadFile(const char *path, size_t *_bytes) {
 	return buffer;
 }
 
-void SetPosition(const char *file, int line) {
+void SetPosition(const char *file, int line, bool useGDBToGetFullPath) {
 	char buffer[4096];
 
 	if (file && file[0] == '~') {
 		snprintf(buffer, sizeof(buffer), "%s/%s", getenv("HOME"), 1 + file);
 		file = buffer;
+	} else if (file && file[0] != '/' && useGDBToGetFullPath) {
+		EvaluateCommand("info source");
+		const char *f = strstr(evaluateResult, "Located in ");
+
+		if (f) {
+			f += 11;
+			const char *end = strchr(f, '\n');
+			if (end) snprintf(buffer, sizeof(buffer), "%.*s", (int) (end - f), f);
+		}
 	}
 
 	bool reloadFile = false;
@@ -307,7 +318,7 @@ void CommandSyncWithGvim(void *) {
 			char *line = strstr(nameEnd + 1, "line ");
 			if (!line) goto done;
 			int lineNumber = atoi(line + 5);
-			SetPosition(name, lineNumber);
+			SetPosition(name, lineNumber, false);
 		}
 
 		done:;
@@ -740,20 +751,22 @@ void Update(const char *data) {
 		}
 	}
 
-	// Get the name of the file.
+	// Parse the name of the file.
 
-	EvaluateCommand("info source");
 	bool fileChanged = false;
 	char newFile[4096];
 
 	{
-		const char *file = strstr(evaluateResult, "Located in ");
+		const char *file = data;
 
-		if (file) {
-			file += 11;
-			const char *end = strchr(file, '\n');
+		while (true) {
+			file = strstr(file, " at ");
+			if (!file) break;
 
-			if (end) {
+			file += 4;
+			const char *end = strchr(file, ':');
+
+			if (end && isdigit(end[1])) {
 				snprintf(newFile, sizeof(newFile), "%.*s", (int) (end - file), file);
 				fileChanged = true;
 			}
@@ -762,7 +775,7 @@ void Update(const char *data) {
 
 	// Set the file and line in the source display.
 
-	SetPosition(fileChanged ? newFile : NULL, lineChanged ? newLine : -1);
+	SetPosition(fileChanged ? newFile : NULL, lineChanged ? newLine : -1, true);
 
 	// Get the list of breakpoints.
 
