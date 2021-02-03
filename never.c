@@ -1,17 +1,26 @@
 // TODO General editing:
-// !	Visual mode: v, V, ctrl+v
-// !	Searching: /, *, n, N, %, t, f
+// !	Searching: *, %
 // !	Clipboard: y, ", p, P, ;
+// !	Dot "." command: work at a higher level, like macros.
 // 	Join "J" command: modifying whitespace.
 // 	Tabs character are incorrectly sized when horizontally scrolled.
+// 	Toggle case "~"
+// 	Increment number Ctrl+A
 //
 // TODO Extended commands:
+// !	Quitting individual tabs.
 // !	Edit
 // !	Tab-completion.
+//  	Up/down history
 //
 // TODO Features:
-// !	Multiple tabs.
 // !	Autocomplete.
+// !	Block visual mode.
+// !	Reloading files.
+// !	Merging tabs with the same buffer.
+// 	Highlighting search matches.
+// 	Repeat macro until error (e.g. cannot find).
+// 	Indenting lines where the previous line has an unmatched '('.
 // 	Import vim colorscheme.
 // 	Syntax highlighting identifiers.
 // 	Browsing directories.
@@ -19,6 +28,11 @@
 // 	Ctags lookup.
 // 	gf integration.
 // 	Evaluate expression.
+//
+// TODO Bugs:
+// 	If the file does not end with a newline, then you can't do: ggvGd
+// 	Not clearing right side of screen in visual mode with long lines.
+// 	Fuzzing!
 
 #include <stdint.h>
 #include <stddef.h>
@@ -79,6 +93,8 @@ void FileFree(char *buffer);
 #define KEYCODE_TAB XK_Tab
 #define KEYCODE_UP XK_Up
 #define KEYCODE_0 XK_0
+#define KEYCODE_PAGE_UP XK_Page_Up
+#define KEYCODE_PAGE_DOWN XK_Page_Down
 
 #endif
 
@@ -93,13 +109,18 @@ void FileFree(char *buffer);
 
 #define COLOR_BACKGROUND (0x303036)
 #define COLOR_TEXT (0xFFFFFF)
-#define COLOR_LINE_NUMBERS (0x141415)
-#define COLOR_LINE_NUMBERS_TEXT (0x606067)
 #define COLOR_COMMENT (0xFFB4B4B4)
 #define COLOR_STRING (0xFFF5DDD1)
 #define COLOR_NUMBER (0xFFD1F5DD)
 #define COLOR_OPERATOR (0xFFF5F3D1)
 #define COLOR_PREPROCESSOR (0xFFF5F3D1)
+#define COLOR_SELECTED (0xFF5DA892)
+
+#define COLOR_LINE_NUMBERS (0x141415)
+#define COLOR_LINE_NUMBERS_TEXT (0x606067)
+
+#define COLOR_TAB_BAR (0x141415)
+#define COLOR_TAB_BAR_TEXT (0xA0A0A5)
 
 ///////////////////////////////////////////////////
 
@@ -119,6 +140,7 @@ typedef struct Input {
 } Input;
 
 typedef struct Line {
+	// TODO Make this structure smaller if possible.
 	char *text;
 	bool redraw;
 } Line;
@@ -137,7 +159,7 @@ typedef struct Buffer {
 typedef struct View {
 	Buffer *buffer;
 	int scrollX, scrollY;
-	Caret caret;
+	Caret caret, anchor;
 	int columns, rows;
 } View;
 
@@ -157,9 +179,12 @@ typedef struct Step {
 
 #define MODE_NORMAL (0)
 #define MODE_INSERT (1)
+#define MODE_VISUAL (2)
+#define MODE_VISUAL_LINE (3)
 
 struct {
 	View *view;
+	View **openViews;
 	int columns, rows;
 	int mode;
 	Input *command;
@@ -170,6 +195,7 @@ struct {
 	Step *undo;
 	int undoIndex, undoBase;
 	char message[64];
+	char *search;
 } state;
 
 ///////////////////////////////////////////////////
@@ -225,8 +251,41 @@ int IndexToColumn(Line *line, int index) {
 void DrawLine(int lineIndex) {
 	Line *line = state.view->buffer->lines + lineIndex;
 	Caret *caret = &state.view->caret;
-	int row = lineIndex - state.view->scrollY;
+	Caret *anchor = &state.view->anchor;
+	int row = lineIndex - state.view->scrollY + 1;
+
 	DrawBlock(0, row, state.columns, COLOR_BACKGROUND);
+
+	Caret *selectionFrom = anchor, *selectionTo = caret;
+
+	if (caret->line < anchor->line || (caret->line == anchor->line && caret->offset < anchor->offset)) {
+		selectionFrom = caret, selectionTo = anchor;
+	}
+
+	int textOffset = 5;
+
+	int selectionOffsetFrom = 0, selectionOffsetTo = -1;
+
+	if ((state.mode == MODE_VISUAL || state.mode == MODE_VISUAL_LINE)
+			&& (lineIndex >= selectionFrom->line && lineIndex <= selectionTo->line)) {
+		if (state.mode == MODE_VISUAL_LINE) {
+			selectionOffsetTo = arrlen(line->text);
+		} else {
+			if (lineIndex == selectionFrom->line) {
+				selectionOffsetFrom = selectionFrom->offset;
+			}
+
+			if (lineIndex == selectionTo->line) {
+				selectionOffsetTo = selectionTo->offset;
+			} else {
+				selectionOffsetTo = arrlen(line->text);
+			}
+		}
+
+		DrawBlock(IndexToColumn(line, selectionOffsetFrom) + textOffset - state.view->scrollX, row, 
+				IndexToColumn(line, selectionOffsetTo) - IndexToColumn(line, selectionOffsetFrom) + 1, 
+				COLOR_SELECTED);
+	}
 
 	int index = ColumnToIndex(line, state.view->scrollX);
 
@@ -294,11 +353,15 @@ void DrawLine(int lineIndex) {
 		uint32_t colors[] = { COLOR_TEXT, COLOR_COMMENT, COLOR_STRING, COLOR_NUMBER, COLOR_OPERATOR, COLOR_PREPROCESSOR };
 		uint32_t color = colors[lexState];
 
+		if (index >= selectionOffsetFrom && index <= selectionOffsetTo) {
+			color = COLOR_TEXT;
+		}
+
 		if (caret->line == lineIndex && caret->offset == index && (!arrlen(state.command) || state.command[0].text[0] != '\\')) {
 			if (state.mode == MODE_INSERT) {
-				DrawCaret(j + 5, row, color);
+				DrawCaret(j + textOffset, row, color);
 			} else {
-				DrawBlock(j + 5, row, 1, color);
+				DrawBlock(j + textOffset, row, 1, color);
 				color = COLOR_BACKGROUND;
 			}
 		}
@@ -307,18 +370,18 @@ void DrawLine(int lineIndex) {
 			if (line->text[index] == '\t') {
 				j = ((j + state.view->scrollX + 8) & ~7) - 1 - state.view->scrollX;
 			} else {
-				DrawGlyph(j + 5, row, line->text[index], color);
+				DrawGlyph(j + textOffset, row, line->text[index], color);
 			}
 		}
 	}
 
-	DrawBlock(0, row, 5, COLOR_LINE_NUMBERS);
+	DrawBlock(0, row, textOffset, COLOR_LINE_NUMBERS);
 
 	{
 		char buffer[5];
-		int length = snprintf(buffer, 5, "%4d", lineIndex + 1);
+		snprintf(buffer, 5, "%4d", lineIndex + 1);
 
-		for (int i = 0; i < length; i++) {
+		for (int i = 0; buffer[i]; i++) {
 			DrawGlyph(i, row, buffer[i], COLOR_LINE_NUMBERS_TEXT);
 		}
 	}
@@ -348,6 +411,37 @@ void DrawStatusBar() {
 	}
 }
 
+void DrawTabBar() {
+	DrawBlock(0, 0, state.columns, COLOR_TAB_BAR);
+
+	for (int i = 0, x = 1; i < arrlen(state.openViews); i++) {
+		View *view = state.openViews[i];
+		const char *string = view->buffer->path ?: "untitled";
+		int stringBytes = STRLEN(string);
+		uint32_t color = COLOR_TAB_BAR_TEXT;
+
+		if (state.view == view) {
+			DrawBlock(x, 0, stringBytes + 2, COLOR_BACKGROUND);
+			color = COLOR_TEXT;
+			DrawGlyph(x++, 0, '[', color);
+		} else {
+			x++;
+		}
+
+		for (int j = 0; j < stringBytes; j++, x++) {
+			DrawGlyph(x, 0, string[j], color);
+		}
+
+		if (state.view == view) {
+			DrawGlyph(x++, 0, ']', color);
+		} else {
+			x++;
+		}
+
+		x++;
+	}
+}
+
 void Draw() {
 	Buffer *buffer = state.view->buffer;
 
@@ -356,7 +450,7 @@ void Draw() {
 
 		if (line < 0 || line >= arrlen(buffer->lines)) {
 			if (state.redrawAll) {
-				DrawBlock(0, i, state.columns, COLOR_BACKGROUND);
+				DrawBlock(0, i + 1, state.columns, COLOR_BACKGROUND);
 			}
 		} else {
 			if (state.redrawAll || buffer->lines[line].redraw) {
@@ -368,6 +462,10 @@ void Draw() {
 
 	DrawSync();
 	DrawStatusBar();
+
+	DrawSync();
+	DrawTabBar();
+
 	state.redrawAll = false;
 }
 
@@ -383,6 +481,7 @@ void Draw() {
 #define MOVE_VERTICAL (4)
 #define MOVE_LARGE_VERTICAL (5)
 #define MOVE_ALL (6)
+#define MOVE_VERTICAL_SIMPLE (7)
 #define MOVE_WRAP (1 << 16)
 
 bool MoveCaret(Caret *caret, bool backward, int type) {
@@ -408,6 +507,16 @@ bool MoveCaret(Caret *caret, bool backward, int type) {
 		line = state.view->buffer->lines + caret->line;
 		caret->offset = column == -1 ? arrlen(line->text) : ColumnToIndex(line, column);
 		state.moveColumn = column;
+		return true;
+	} else if (type == MOVE_VERTICAL_SIMPLE) {
+		if ((backward && caret->line == 0) || (!backward && caret->line == arrlen(state.view->buffer->lines) - 1)) {
+			return false;
+		}
+
+		int column = IndexToColumn(line, caret->offset);
+		caret->line += backward ? -1 : 1;
+		line = state.view->buffer->lines + caret->line;
+		caret->offset = column == -1 ? arrlen(line->text) : ColumnToIndex(line, column);
 		return true;
 	} else if (type == MOVE_LINE) {
 		if (backward && caret->offset > 0) {
@@ -498,7 +607,6 @@ Buffer *BufferLoadFromFile(const char *path) {
 		Line line = { 0 };
 		arrinsn(line.text, 0, STRLEN(errorMessage));
 		COPY(line.text, errorMessage, STRLEN(errorMessage));
-		arrput(state.view->buffer->lines, line);
 		arrput(buffer->lines, line);
 	} else {
 		int lineStart = 0;
@@ -528,11 +636,11 @@ bool BufferWrite(const char *path, bool canOverwrite) {
 
 	if (!canOverwrite && path && *path && FileExists(path)) {
 		const char *message = "Error: the file already exists.";
-		COPY(state.message, message, STRLEN(message));
+		COPY(state.message, message, STRLEN(message) + 1);
 		return false;
 	} else if (!buffer->path && (!path || !(*path))) {
 		const char *message = "Error: specify a file to write to.";
-		COPY(state.message, message, STRLEN(message));
+		COPY(state.message, message, STRLEN(message) + 1);
 		return false;
 	}
 
@@ -558,12 +666,15 @@ bool BufferWrite(const char *path, bool canOverwrite) {
 
 	if (!success) {
 		const char *message = "Error: the file could not be accessed.";
-		COPY(state.message, message, STRLEN(message));
+		COPY(state.message, message, STRLEN(message) + 1);
 		return false;
 	} else if (path && *path) {
 		arrfree(buffer->path);
 		arrsetlen(buffer->path, STRLEN(path) + 1);
 		COPY(buffer->path, path, STRLEN(path) + 1);
+
+		const char *message = "Buffer written successfully.";
+		COPY(state.message, message, STRLEN(message) + 1);
 	}
 
 	buffer->modified = 0;
@@ -683,7 +794,8 @@ void Join(int line) {
 	Line *next = previous + 1;
 	int oldLength = arrlen(previous->text);
 	step.caretBefore.offset = oldLength;
-	arrinsn(previous->text, oldLength, arrlen(next->text));
+	if (!oldLength) arrsetlen(previous->text, arrlenu(next->text));
+	else arrinsn(previous->text, oldLength, arrlen(next->text));
 	COPY(previous->text + oldLength, next->text, arrlen(next->text));
 	arrdel(buffer->lines, line + 1);
 	state.redrawAll = true;
@@ -809,6 +921,9 @@ void IndentLine(int line) {
 	for (int i = 0; i < arrlen(l->text); i++) {
 		if (l->text[i] == '\t') {
 			state.view->caret.offset++;
+		} else if (l->text[i] == '}') {
+			if (t) t--;
+			break;
 		} else {
 			break;
 		}
@@ -821,36 +936,74 @@ void IndentLine(int line) {
 	Insert(tabs, t);
 }
 
+void Search(bool backward) {
+	Buffer *buffer = state.view->buffer;
+	Caret *caret = &state.view->caret;
+
+	for (int i = 0; i <= arrlen(buffer->lines); i++) {
+		int lineIndex = caret->line + (backward ? -i : i);
+		while (lineIndex < 0) lineIndex += arrlen(buffer->lines);
+		lineIndex %= arrlen(buffer->lines);
+		Line *line = buffer->lines + lineIndex;
+		int end = arrlen(line->text) - arrlen(state.search);
+		int j = i ? (backward ? end : 0) : (backward ? (caret->offset - 1 - arrlen(state.search)) : (caret->offset + 1));
+
+		while (j >= 0 && j <= end) {
+			for (int k = 0; k < arrlen(state.search); k++) {
+				if (line->text[j + k] != state.search[k]) {
+					goto next;
+				}
+			}
+
+			caret->line = lineIndex;
+			caret->offset = j;
+			return;
+
+			next:;
+
+			j += backward ? -1 : 1;
+		}
+	}
+
+	const char *message = "Error: search text not found.";
+	COPY(state.message, message, STRLEN(message) + 1);
+}
+
 ///////////////////////////////////////////////////
 
 void ProcessInput(Input in);
 
-bool RunCommand(Input *command) {
+void VisualModePreCommand() {
+	Caret *caret = &state.view->caret;
+	Caret *anchor = &state.view->anchor;
+
+	if (state.mode == MODE_VISUAL_LINE) {
+		MoveCaret(caret, MOVE_BACKWARD, MOVE_LINE);
+		MoveCaret(anchor, MOVE_BACKWARD, MOVE_LINE);
+
+		if (caret->line < anchor->line) {
+			MoveCaret(anchor, MOVE_FORWARD, MOVE_VERTICAL_SIMPLE);
+		} else {
+			MoveCaret(caret, MOVE_FORWARD, MOVE_VERTICAL_SIMPLE);
+		}
+	} else if (state.mode == MODE_VISUAL) {
+		if (caret->line > anchor->line || (caret->line == anchor->line && caret->offset > anchor->offset)) {
+			MoveCaret(caret, MOVE_FORWARD, MOVE_SINGLE);
+		} else {
+			MoveCaret(anchor, MOVE_FORWARD, MOVE_SINGLE);
+		}
+	}
+
+	state.mode = MODE_NORMAL;
+}
+
+bool ProcessCommand(Input *command) {
 	Caret *caret = &state.view->caret;
 
 	if (!command) return false;
 	int c = command[0].code;
 
-	if (c == KEYCODE_LETTER('I')) {
-		state.mode = MODE_INSERT;
-	} else if (c == KEYCODE_LETTER('A')) {
-		MoveCaret(caret, MOVE_FORWARD, MOVE_SINGLE);
-		state.mode = MODE_INSERT;
-	} else if (c == (KEYCODE_LETTER('A') | KEYCODE_SHIFT)) {
-		MoveCaret(caret, MOVE_FORWARD, MOVE_LINE);
-		state.mode = MODE_INSERT;
-	} else if (c == KEYCODE_LETTER('O')) {
-		MoveCaret(caret, MOVE_FORWARD, MOVE_LINE);
-		Insert("\r", 1);
-		IndentLine(caret->line);
-		state.mode = MODE_INSERT;
-	} else if (c == (KEYCODE_LETTER('O') | KEYCODE_SHIFT)) {
-		MoveCaret(caret, MOVE_BACKWARD, MOVE_VERTICAL);
-		MoveCaret(caret, MOVE_FORWARD, MOVE_LINE);
-		Insert("\r", 1);
-		IndentLine(caret->line);
-		state.mode = MODE_INSERT;
-	} else if (c == KEYCODE_LETTER('H') || c == KEYCODE_LEFT) {
+	if (c == KEYCODE_LETTER('H') || c == KEYCODE_LEFT) {
 		MoveCaret(caret, MOVE_BACKWARD, MOVE_SINGLE);
 	} else if (c == KEYCODE_LETTER('L') || c == KEYCODE_RIGHT) {
 		MoveCaret(caret, MOVE_FORWARD, MOVE_SINGLE);
@@ -880,73 +1033,174 @@ bool RunCommand(Input *command) {
 		MoveCaret(caret, MOVE_BACKWARD, MOVE_LINE);
 	} else if (c == KEYCODE_END) {
 		MoveCaret(caret, MOVE_FORWARD, MOVE_LINE);
+	} else if (c == KEYCODE_PAGE_UP) {
+		MoveCaret(caret, MOVE_BACKWARD, MOVE_LARGE_VERTICAL);
+	} else if (c == KEYCODE_PAGE_DOWN) {
+		MoveCaret(caret, MOVE_FORWARD, MOVE_LARGE_VERTICAL);
 	} else if (c == (KEYCODE_HOME | KEYCODE_CTRL)) {
 		MoveCaret(caret, MOVE_BACKWARD, MOVE_ALL);
 	} else if (c == (KEYCODE_END | KEYCODE_CTRL)) {
 		MoveCaret(caret, MOVE_FORWARD, MOVE_ALL);
-	} else if (c == (KEYCODE_LETTER('J') | KEYCODE_SHIFT)) {
+	} else if (c == KEYCODE_DIGIT('0')) {
+		MoveCaret(caret, MOVE_BACKWARD, MOVE_LINE);
+	} else if (c == (KEYCODE_DIGIT('4') | KEYCODE_SHIFT)) {
 		MoveCaret(caret, MOVE_FORWARD, MOVE_LINE);
-		Join(caret->line);
-	} else if (command[0].text[0] == '=' && command[0].textBytes == 1) {
-		Caret anchor = *caret;
+		MoveCaret(caret, MOVE_BACKWARD, MOVE_SINGLE);
+	} else if (c == KEYCODE_LETTER('I')) {
+		state.mode = MODE_INSERT;
+	} else if (c == KEYCODE_LETTER('V')) {
+		state.mode = MODE_VISUAL;
+		state.view->anchor = state.view->caret;
+	} else if (c == (KEYCODE_LETTER('V') | KEYCODE_SHIFT)) {
+		state.mode = MODE_VISUAL_LINE;
+		state.view->anchor = state.view->caret;
+	} else if (c == KEYCODE_LETTER('A')) {
+		MoveCaret(caret, MOVE_FORWARD, MOVE_SINGLE);
+		state.mode = MODE_INSERT;
+	} else if (c == (KEYCODE_LETTER('A') | KEYCODE_SHIFT)) {
+		MoveCaret(caret, MOVE_FORWARD, MOVE_LINE);
+		state.mode = MODE_INSERT;
+	} else if (c == KEYCODE_LETTER('O')) {
+		MoveCaret(caret, MOVE_FORWARD, MOVE_LINE);
+		Insert("\r", 1);
+		IndentLine(caret->line);
+		state.mode = MODE_INSERT;
+	} else if (c == (KEYCODE_LETTER('O') | KEYCODE_SHIFT)) {
+		MoveCaret(caret, MOVE_BACKWARD, MOVE_VERTICAL);
+		MoveCaret(caret, MOVE_FORWARD, MOVE_LINE);
+		Insert("\r", 1);
+		IndentLine(caret->line);
+		state.mode = MODE_INSERT;
+	} else if (c == (KEYCODE_LETTER('J') | KEYCODE_SHIFT)) {
+		if (state.mode == MODE_VISUAL || state.mode == MODE_VISUAL_LINE) {
+			int from = state.view->anchor.line, to = caret->line;
+			if (from > to) { int temp = from; from = to; to = temp; }
 
-		if (command[1].code) {
-			if (command[1].text[0] == '=' && command[1].textBytes == 1) {
-			} else if (RunCommand(command + 1)) {
-				return true;
+			for (int i = from; i < to; i++) {
+				Join(from);
 			}
 
-			int from = anchor.line, to = caret->line;
+			caret->line = from, caret->offset = 0;
+
+			state.mode = MODE_NORMAL;
+		} else {
+			MoveCaret(caret, MOVE_FORWARD, MOVE_LINE);
+			Join(caret->line);
+		}
+	} else if (c == KEYCODE_LETTER('G')) {
+		if (command[1].code == KEYCODE_LETTER('G')) {
+			MoveCaret(caret, MOVE_BACKWARD, MOVE_ALL);
+		} else if (!command[1].code) {
+			return true;
+		}
+	} else if (command[0].text[0] == '>' && command[0].textBytes == 1) {
+		if (state.mode == MODE_VISUAL || state.mode == MODE_VISUAL_LINE) {
+			int from = state.view->anchor.line, to = caret->line;
+			if (from > to) { int temp = from; from = to; to = temp; }
+
+			for (int i = from; i <= to; i++) {
+				state.view->caret.line = i;
+				state.view->caret.offset = 0;
+				Insert("\t", 1);
+			}
+
+			state.mode = MODE_NORMAL;
+		}
+	} else if (command[0].text[0] == '<' && command[0].textBytes == 1) {
+		if (state.mode == MODE_VISUAL || state.mode == MODE_VISUAL_LINE) {
+			int from = state.view->anchor.line, to = caret->line;
+			if (from > to) { int temp = from; from = to; to = temp; }
+
+			for (int i = from; i <= to; i++) {
+				Line *line = state.view->buffer->lines + i;
+
+				if (arrlenu(line->text) && line->text[0] == '\t') {
+					_Delete(i, 0, 1);
+				}
+			}
+
+			state.mode = MODE_NORMAL;
+		}
+	} else if (command[0].text[0] == '=' && command[0].textBytes == 1) {
+		if (state.mode == MODE_VISUAL || state.mode == MODE_VISUAL_LINE) {
+			int from = state.view->anchor.line, to = caret->line;
 			if (from > to) { int temp = from; from = to; to = temp; }
 
 			for (int i = from; i <= to; i++) {
 				IndentLine(i);
 			}
 
-			state.redrawAll = true;
+			state.mode = MODE_NORMAL;
 		} else {
-			return true;
+			Caret anchor = *caret;
+
+			if (command[1].code) {
+				if (command[1].text[0] == '=' && command[1].textBytes == 1) {
+				} else if (ProcessCommand(command + 1)) {
+					return true;
+				}
+
+				int from = anchor.line, to = caret->line;
+				if (from > to) { int temp = from; from = to; to = temp; }
+
+				for (int i = from; i <= to; i++) {
+					IndentLine(i);
+				}
+			} else {
+				return true;
+			}
 		}
 	} else if (c == KEYCODE_LETTER('D')) {
-		Caret anchor = *caret;
+		if (state.mode == MODE_VISUAL || state.mode == MODE_VISUAL_LINE) {
+			VisualModePreCommand();
+			Delete(&state.view->anchor);
+		} else {
+			Caret anchor = *caret;
 
-		if (command[1].code) {
-			if (command[1].code == KEYCODE_LETTER('D')) {
-				MoveCaret(caret, MOVE_BACKWARD, MOVE_LINE);
-				MoveCaret(&anchor, MOVE_BACKWARD, MOVE_LINE);
-				MoveCaret(&anchor, MOVE_FORWARD, MOVE_VERTICAL);
-			} else if (RunCommand(command + 1)) {
+			if (command[1].code) {
+				if (command[1].code == KEYCODE_LETTER('D')) {
+					MoveCaret(caret, MOVE_BACKWARD, MOVE_LINE);
+					MoveCaret(&anchor, MOVE_BACKWARD, MOVE_LINE);
+					MoveCaret(&anchor, MOVE_FORWARD, MOVE_VERTICAL);
+				} else if (ProcessCommand(command + 1)) {
+					return true;
+				}
+
+				if (command[1].code == KEYCODE_LETTER('E')) {
+					MoveCaret(caret, MOVE_FORWARD, MOVE_SINGLE);
+				}
+
+				Delete(&anchor);
+			} else {
 				return true;
 			}
-
-			if (command[1].code == KEYCODE_LETTER('E')) {
-				MoveCaret(caret, MOVE_FORWARD, MOVE_SINGLE);
-			}
-
-			Delete(&anchor);
-		} else {
-			return true;
 		}
 	} else if (c == KEYCODE_LETTER('C')) {
-		Caret anchor = *caret;
-
-		if (command[1].code) {
-			if (command[1].code == KEYCODE_LETTER('W')) {
-				command[1].code = KEYCODE_LETTER('E');
-			}
-
-			if (RunCommand(command + 1)) {
-				return true;
-			}
-
-			if (command[1].code == KEYCODE_LETTER('E')) {
-				MoveCaret(caret, MOVE_FORWARD, MOVE_SINGLE);
-			}
-
-			Delete(&anchor);
+		if (state.mode == MODE_VISUAL || state.mode == MODE_VISUAL_LINE) {
+			VisualModePreCommand();
+			Delete(&state.view->anchor);
 			state.mode = MODE_INSERT;
 		} else {
-			return true;
+			Caret anchor = *caret;
+
+			if (command[1].code) {
+				if (command[1].code == KEYCODE_LETTER('W')) {
+					command[1].code = KEYCODE_LETTER('E');
+				}
+
+				if (ProcessCommand(command + 1)) {
+					return true;
+				}
+
+				if (command[1].code == KEYCODE_LETTER('E')) {
+					MoveCaret(caret, MOVE_FORWARD, MOVE_SINGLE);
+				}
+
+				Delete(&anchor);
+				state.mode = MODE_INSERT;
+			} else {
+				return true;
+			}
 		}
 	} else if (c == KEYCODE_LETTER('R')) {
 		if (command[1].code) {
@@ -958,16 +1212,6 @@ bool RunCommand(Input *command) {
 		} else {
 			return true;
 		}
-	} else if (c == KEYCODE_LETTER('G')) {
-		if (command[1].code == KEYCODE_LETTER('G')) {
-			MoveCaret(caret, MOVE_BACKWARD, MOVE_ALL);
-		} else if (!command[1].code) {
-			return true;
-		}
-	} else if (c == KEYCODE_DIGIT('0')) {
-		MoveCaret(caret, MOVE_BACKWARD, MOVE_LINE);
-	} else if (c == (KEYCODE_DIGIT('4') | KEYCODE_SHIFT)) {
-		MoveCaret(caret, MOVE_FORWARD, MOVE_LINE);
 	} else if (c >= KEYCODE_DIGIT('1') && c <= KEYCODE_DIGIT('9')) {
 		int repeat = c - KEYCODE_DIGIT('0');
 		int position = 1;
@@ -997,7 +1241,7 @@ bool RunCommand(Input *command) {
 			}
 		} else {
 			while (repeat--) {
-				if (RunCommand(command + position)) {
+				if (ProcessCommand(command + position)) {
 					return true;
 				}
 			}
@@ -1022,6 +1266,32 @@ bool RunCommand(Input *command) {
 		} else if (!command[1].code) {
 			return true;
 		}
+	} else if (c == KEYCODE_LETTER('T')) {
+		if (command[1].textBytes) {
+			Line *line = state.view->buffer->lines + caret->line;
+
+			for (int i = caret->offset + 1; i < arrlen(line->text) - 1; i++) {
+				if (line->text[i + 1] == command[1].text[0]) {
+					caret->offset = i;
+					break;
+				}
+			}
+		} else if (!command[1].code) {
+			return true;
+		}
+	} else if (c == KEYCODE_LETTER('F')) {
+		if (command[1].textBytes) {
+			Line *line = state.view->buffer->lines + caret->line;
+
+			for (int i = caret->offset + 1; i < arrlen(line->text); i++) {
+				if (line->text[i] == command[1].text[0]) {
+					caret->offset = i;
+					break;
+				}
+			}
+		} else if (!command[1].code) {
+			return true;
+		}
 	} else if (c == KEYCODE_LETTER('M')) {
 		if (command[1].code >= KEYCODE_LETTER('A') && command[1].code <= KEYCODE_LETTER('Z')) {
 			state.view->buffer->marks[command[1].code - KEYCODE_LETTER('A')] = *caret;
@@ -1040,6 +1310,24 @@ bool RunCommand(Input *command) {
 				caret->offset = arrlen(state.view->buffer->lines[caret->line].text);
 			}
 		} else if (!command[1].code) {
+			return true;
+		}
+	} else if (c == KEYCODE_LETTER('N')) {
+		Search(MOVE_FORWARD);
+	} else if (c == (KEYCODE_LETTER('N') | KEYCODE_SHIFT)) {
+		Search(MOVE_BACKWARD);
+	} else if (command[0].textBytes == 1 && command[0].text[0] == '/') {
+		if (command[arrlen(command) - 2].text[0] == '\r') {
+			arrfree(state.search);
+
+			for (int i = 1; i < arrlen(command) - 2; i++) {
+				if (command[i].textBytes) {
+					arrput(state.search, command[i].text[0]);
+				}
+			}
+
+			Search(MOVE_FORWARD);
+		} else {
 			return true;
 		}
 	} else if (command[0].textBytes == 1 && command[0].text[0] == '\\') {
@@ -1100,6 +1388,13 @@ bool RunCommand(Input *command) {
 	return false;
 }
 
+void ActivateView(View *view) {
+	state.redrawAll = true;
+	view->columns = state.view->columns;
+	view->rows = state.view->rows;
+	state.view = view;
+}
+
 void ProcessInput(Input in) {
 	Caret *caret = &state.view->caret;
 
@@ -1109,7 +1404,29 @@ void ProcessInput(Input in) {
 		} else if (in.code == KEYCODE_BACKSPACE && arrlen(state.command)) {
 			(void) arrpop(state.command);
 		} else if (!arrlen(state.command) && in.textBytes == 1 && in.text[0] == '.') {
-			RunCommand(state.macros[0]);
+			ProcessCommand(state.macros[0]);
+		} else if (in.code == (KEYCODE_LETTER('T') | KEYCODE_CTRL)) {
+			View *view = ALLOC(sizeof(View), true);
+			Buffer *buffer = ALLOC(sizeof(Buffer), true);
+			Line line = { 0 };
+			arrput(buffer->lines, line);
+			view->buffer = buffer;
+			arrput(state.openViews, view);
+			ActivateView(view);
+		} else if (in.code == (KEYCODE_TAB | KEYCODE_CTRL)) {
+			for (int i = 0; i < arrlen(state.openViews); i++) {
+				if (state.openViews[i] == state.view) {
+					ActivateView(state.openViews[(i + 1) % arrlen(state.openViews)]);
+					break;
+				}
+			}
+		} else if (in.code == (KEYCODE_TAB | KEYCODE_CTRL | KEYCODE_SHIFT)) {
+			for (int i = 0; i < arrlen(state.openViews); i++) {
+				if (state.openViews[i] == state.view) {
+					ActivateView(state.openViews[(i + arrlen(state.openViews) - 1) % arrlen(state.openViews)]);
+					break;
+				}
+			}
 		} else {
 			arrput(state.command, in);
 			Input empty = { 0 };
@@ -1117,7 +1434,7 @@ void ProcessInput(Input in) {
 
 			uint64_t oldModified = state.view->buffer->modified;
 
-			if (!RunCommand(state.command)) {
+			if (!ProcessCommand(state.command)) {
 				if (oldModified < state.view->buffer->modified) {
 					arrfree(state.macros[0]);
 					state.macros[0] = state.command;
@@ -1125,9 +1442,23 @@ void ProcessInput(Input in) {
 				} else {
 					arrfree(state.command);
 				}
+			} else {
+				(void) arrpop(state.command);
+			}
+		}
+	} else if (state.mode == MODE_VISUAL || state.mode == MODE_VISUAL_LINE) {
+		if (in.code == KEYCODE_ESCAPE || in.code == KEYCODE_LETTER('V')) {
+			state.mode = MODE_NORMAL;
+			state.redrawAll = true;
+		} else if (in.code == KEYCODE_BACKSPACE && arrlen(state.command)) {
+			(void) arrpop(state.command);
+		} else {
+			arrput(state.command, in);
+			Input empty = { 0 };
+			arrput(state.command, empty);
 
-				state.oldMoveColumn = state.moveColumn;
-				state.moveColumn = -1;
+			if (!ProcessCommand(state.command)) {
+				arrfree(state.command);
 			} else {
 				(void) arrpop(state.command);
 			}
@@ -1180,10 +1511,24 @@ void ProcessInput(Input in) {
 						break;
 					}
 				}
+			} else if (in.text[0] == '}' && in.textBytes == 1) {
+				Line *l = state.view->buffer->lines + caret->line;
 
+				for (int i = 0; i < arrlen(l->text); i++) {
+					if (l->text[i] == '}') {
+						IndentLine(caret->line);
+						MoveCaret(caret, MOVE_FORWARD, MOVE_SINGLE);
+						break;
+					} else if (l->text[i] != '\t') {
+						break;
+					}
+				}
 			}
 		}
 	}
+
+	state.oldMoveColumn = state.moveColumn;
+	state.moveColumn = -1;
 }
 
 ///////////////////////////////////////////////////
@@ -1191,6 +1536,15 @@ void ProcessInput(Input in) {
 void EventInitialise() {
 	state.view = ALLOC(sizeof(View), true);
 	state.view->buffer = BufferLoadFromFile("never.c");
+	arrput(state.openViews, state.view);
+
+	state.view = ALLOC(sizeof(View), true);
+	state.view->buffer = BufferLoadFromFile("luigi.h");
+	arrput(state.openViews, state.view);
+
+	state.view = ALLOC(sizeof(View), true);
+	state.view->buffer = BufferLoadFromFile("math2.cpp");
+	arrput(state.openViews, state.view);
 
 	Step stepMarker = { 0 };
 	arrput(state.undo, stepMarker);
@@ -1300,12 +1654,11 @@ void EventInput(Input in) {
 	}
 
 	if (!state.redrawAll) {
-		if (caretOldLine < arrlen(buffer->lines)) {
-			buffer->lines[caretOldLine].redraw = true;
-		}
+		int from = caretOldLine, to = caret->line;
+		if (from > to) { int temp = from; from = to; to = temp; }
 
-		if (caret->line < arrlen(buffer->lines)) {
-			buffer->lines[caret->line].redraw = true;
+		for (int i = from; i <= to && i < arrlen(buffer->lines); i++) {
+			buffer->lines[i].redraw = true;
 		}
 	}
 
@@ -1317,7 +1670,7 @@ void EventResize(int columns, int rows) {
 	state.columns = columns;
 	state.rows = rows;
 	state.view->columns = columns - 5 /* line numbers */;
-	state.view->rows = rows - 1 /* status bar */;
+	state.view->rows = rows - 2 /* tab bar, status bar */;
 	state.redrawAll = true;
 	Draw();
 }
@@ -1332,7 +1685,7 @@ void EventClose() {
 	arrput(in, i2);
 	arrput(in, i3);
 	arrput(in, i4);
-	RunCommand(in);
+	ProcessCommand(in);
 	arrfree(in);
 	state.redrawAll = true;
 	Draw();
@@ -1380,8 +1733,17 @@ void _DrawBlock(int x0, int y0, int xc, uint32_t color) {
 }
 
 void DrawBlock(int x0, int y0, int xc, uint32_t color) {
+	if (x0 < 0) {
+		xc += x0;
+		x0 = 0;
+	}
+
+	if (x0 + xc > platform.windowWidth / platform.glyphWidth) {
+		xc = platform.windowWidth / platform.glyphWidth - x0;
+	}
+
 	if (x0 < 0 || y0 < 0 || x0 + xc > platform.windowWidth / platform.glyphWidth 
-			|| y0 >= platform.windowHeight / platform.glyphHeight) {
+			|| y0 >= platform.windowHeight / platform.glyphHeight || xc < 0) {
 		return;
 	}
 
@@ -1432,7 +1794,6 @@ void DrawGlyph(int x0, int y0, int c, uint32_t color) {
 			uint32_t ra = ((uint8_t *) bitmap->buffer)[x * 3 + y * bitmap->pitch + 0];
 			uint32_t ga = ((uint8_t *) bitmap->buffer)[x * 3 + y * bitmap->pitch + 1];
 			uint32_t ba = ((uint8_t *) bitmap->buffer)[x * 3 + y * bitmap->pitch + 2];
-			ra += (ga - ra) / 2, ba += (ga - ba) / 2;
 			uint32_t r2 = (255 - ra) * ((original & 0x000000FF) >> 0);
 			uint32_t g2 = (255 - ga) * ((original & 0x0000FF00) >> 8);
 			uint32_t b2 = (255 - ba) * ((original & 0x00FF0000) >> 16);
@@ -1564,7 +1925,7 @@ int main(int argc, char **argv) {
 				platform.image->bytes_per_line = platform.windowWidth * 4;
 				platform.image->data = (char *) platform.bits;
 				for (int i = 0; i < platform.windowWidth * platform.windowHeight; i++) platform.bits[i] = COLOR_BACKGROUND;
-				EventResize(platform.windowWidth / platform.glyphWidth, platform.windowHeight / platform.glyphHeight);
+				EventResize((platform.windowWidth - 1) / platform.glyphWidth, (platform.windowHeight - 1) / platform.glyphHeight);
 			}
 		} else if (event.type == KeyPress) {
 			Input in = { 0 };
