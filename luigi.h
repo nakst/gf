@@ -3527,6 +3527,14 @@ void _UIInitialiseCommon() {
 #endif
 }
 
+void _UIWindowAdd(UIWindow *window) {
+	window->scale = 1.0f;
+	window->e.window = window;
+	window->hovered = &window->e;
+	window->next = ui.windows;
+	ui.windows = window;
+}
+
 #ifdef UI_DEBUG
 
 void UIInspectorLog(const char *cFormat, ...) {
@@ -3715,11 +3723,7 @@ UIWindow *UIWindowCreate(UIWindow *owner, uint32_t flags, const char *cTitle, in
 	_UIMenusClose();
 
 	UIWindow *window = (UIWindow *) UIElementCreate(sizeof(UIWindow), NULL, flags | UI_ELEMENT_WINDOW, _UIWindowMessage, "Window");
-	window->scale = 1.0f;
-	window->e.window = window;
-	window->hovered = &window->e;
-	window->next = ui.windows;
-	ui.windows = window;
+	_UIWindowAdd(window);
 
 	int width = (flags & UI_WINDOW_MENU) ? 1 : _width ? _width : 800;
 	int height = (flags & UI_WINDOW_MENU) ? 1 : _height ? _height : 600;
@@ -3741,6 +3745,10 @@ UIWindow *UIWindowCreate(UIWindow *owner, uint32_t flags, const char *cTitle, in
 	window->xic = XCreateIC(ui.xim, XNInputStyle, XIMPreeditNothing | XIMStatusNothing, XNClientWindow, window->window, XNFocusWindow, window->window, NULL);
 
 	return window;
+}
+
+Display *_UIX11GetDisplay() {
+	return ui.display;
 }
 
 void UIInitialise() {
@@ -3786,6 +3794,10 @@ UIWindow *_UIFindWindow(Window window) {
 
 void _UIWindowSetCursor(UIWindow *window, int cursor) {
 	XDefineCursor(ui.display, window->window, ui.cursors[cursor]);
+}
+
+void _UIX11ResetCursor(UIWindow *window) {
+	XDefineCursor(ui.display, window->window, ui.cursors[UI_CURSOR_ARROW]);
 }
 
 void _UIWindowEndPaint(UIWindow *window, UIPainter *painter) {
@@ -4248,11 +4260,7 @@ UIWindow *UIWindowCreate(UIWindow *owner, uint32_t flags, const char *cTitle, in
 	_UIMenusClose();
 
 	UIWindow *window = (UIWindow *) UIElementCreate(sizeof(UIWindow), NULL, flags | UI_ELEMENT_WINDOW, _UIWindowMessage, "Window");
-	window->scale = 1.0f;
-	window->e.window = window;
-	window->hovered = &window->e;
-	window->next = ui.windows;
-	ui.windows = window;
+	_UIWindowAdd(window);
 
 	if (flags & UI_WINDOW_MENU) {
 		UI_ASSERT(owner);
@@ -4381,11 +4389,7 @@ UIWindow *UIWindowCreate(UIWindow *owner, uint32_t flags, const char *cTitle, in
 	_UIMenusClose();
 
 	UIWindow *window = (UIWindow *) UIElementCreate(sizeof(UIWindow), NULL, flags | UI_ELEMENT_WINDOW, _UIWindowMessage, "Window");
-	window->scale = 1.0f;
-	window->e.window = window;
-	window->hovered = &window->e;
-	window->next = ui.windows;
-	ui.windows = window;
+	_UIWindowAdd(window);
 
 	return window;
 }

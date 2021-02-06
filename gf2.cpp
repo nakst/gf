@@ -23,9 +23,11 @@
 #define STB_DS_IMPLEMENTATION
 #include "stb_ds.h"
 
+extern "C" {
 #define UI_LINUX
 #define UI_IMPLEMENTATION
 #include "luigi.h"
+}
 
 #define MSG_RECEIVED_DATA ((UIMessage) (UI_MSG_USER + 1))
 
@@ -186,7 +188,10 @@ void EvaluateCommand(const char *command) {
 	evaluateMode = true;
 	pthread_mutex_lock(&evaluateMutex);
 	SendToGDB(command, false);
-	pthread_cond_wait(&evaluateEvent, &evaluateMutex);
+	struct timespec timeout;
+	clock_gettime(CLOCK_REALTIME, &timeout);
+	timeout.tv_sec++;
+	pthread_cond_timedwait(&evaluateEvent, &evaluateMutex, &timeout);
 	pthread_mutex_unlock(&evaluateMutex);
 	programRunning = false;
 	UIElementRepaint(&trafficLight->e, NULL);
@@ -211,7 +216,12 @@ char *LoadFile(const char *path, size_t *_bytes) {
 	return buffer;
 }
 
-void SetPosition(const char *file, int line, bool useGDBToGetFullPath) {
+extern "C" const char *GetPosition(int *line) {
+	*line = currentLine;
+	return currentFile;
+}
+
+extern "C" void SetPosition(const char *file, int line, bool useGDBToGetFullPath) {
 	char buffer[4096];
 	const char *originalFile = file;
 
@@ -300,6 +310,7 @@ void CommandPause(void *) {
 	kill(gdbPID, SIGINT);
 }
 
+#ifndef EMBED_GF
 void CommandSyncWithGvim(void *) {
 	if (system("vim --servername GVIM --remote-expr \"execute(\\\"ls\\\")\" | grep % > .temp.gf")) {
 		return;
@@ -328,6 +339,7 @@ void CommandSyncWithGvim(void *) {
 		unlink(".temp.gf");
 	}
 }
+#endif
 
 void CommandToggleBreakpoint(void *_line) {
 	int line = (int) (intptr_t) _line;
@@ -528,7 +540,9 @@ void ShowMenu(void *) {
 	UIMenuAddItem(menu, 0, "Step out\tShift+F11", -1, CommandSendToGDB, (void *) "finish");
 	UIMenuAddItem(menu, 0, "Pause\tF8", -1, CommandPause, NULL);
 	UIMenuAddItem(menu, 0, "Toggle breakpoint\tF9", -1, CommandToggleBreakpoint, NULL);
+#ifndef EMBED_GF
 	UIMenuAddItem(menu, 0, "Sync with gvim\tF2", -1, CommandSyncWithGvim, NULL);
+#endif
 	UIMenuAddItem(menu, 0, "Find\tCtrl+F", -1, CommandFind, NULL);
 	UIMenuAddItem(menu, 0, "Theme editor", -1, CommandThemeEditor, NULL);
 	UIMenuShow(menu);
@@ -546,7 +560,9 @@ void RegisterShortcuts() {
 	UIWindowRegisterShortcut(window, { .code = UI_KEYCODE_F11, .shift = true, .invoke = CommandSendToGDB, .cp = (void *) "finish" });
 	UIWindowRegisterShortcut(window, { .code = UI_KEYCODE_F8, .invoke = CommandPause, .cp = NULL });
 	UIWindowRegisterShortcut(window, { .code = UI_KEYCODE_F9, .invoke = CommandToggleBreakpoint, .cp = NULL });
+#ifndef EMBED_GF
 	UIWindowRegisterShortcut(window, { .code = UI_KEYCODE_F2, .invoke = CommandSyncWithGvim, .cp = NULL });
+#endif
 	UIWindowRegisterShortcut(window, { .code = UI_KEYCODE_LETTER('F'), .ctrl = true, .invoke = CommandFind, .cp = NULL });
 }
 
@@ -1002,12 +1018,10 @@ int WindowMessage(UIElement *, UIMessage message, int di, void *dp) {
 	return 0;
 }
 
-int main(int, char **) {
-	UIInitialise();
-	CommandLoadTheme(NULL);
-
-	window = UIWindowCreate(0, 0, "gf2", 0, 0);
+extern "C" void CreateInterface(UIWindow *_window) {
+	window = _window;
 	window->e.messageUser = WindowMessage;
+
 	UIPanel *panel1 = UIPanelCreate(&window->e, UI_PANEL_EXPAND);
 	UISplitPane *split1 = UISplitPaneCreate(&panel1->e, UI_SPLIT_PANE_VERTICAL | UI_ELEMENT_V_FILL, 0.75f);
 	UISplitPane *split2 = UISplitPaneCreate(&split1->e, /* horizontal */ 0, 0.80f);
@@ -1035,12 +1049,23 @@ int main(int, char **) {
 	pthread_mutex_init(&evaluateMutex, NULL);
 	StartGDBThread();
 
-	CommandSyncWithGvim(NULL);
 	RegisterShortcuts();
 	LoadProjectSettings();
-	UIMessageLoop();
+	CommandLoadTheme(NULL);
+}
+
+extern "C" void CloseDebugger() {
 	kill(gdbPID, SIGKILL);
 	pthread_cancel(gdbThread);
+}
 
+#ifndef EMBED_GF
+int main(int, char **) {
+	UIInitialise();
+	CreateInterface(UIWindowCreate(0, 0, "gf2", 0, 0));
+	CommandSyncWithGvim(NULL);
+	UIMessageLoop();
+	CloseDebugger();
 	return 0;
 }
+#endif
