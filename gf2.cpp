@@ -1,8 +1,6 @@
 // Build with: g++ gf2.cpp -lX11 -Wall -Wextra -Wno-unused-parameter -Wno-missing-field-initializers -Wno-format-truncation -o gf2 -g -pthread
 // Add the following flags to use FreeType: -lfreetype -D UI_FREETYPE -I /usr/include/freetype2 -D UI_FONT_PATH=/usr/share/fonts/TTF/DejaVuSansMono.ttf -D UI_FONT_SIZE=13
 
-// TODO Breakpoints display in margin is broken.
-
 // Future extensions: 
 // 	- Saving commands to shortcuts (with alt- key).
 // 	- Watch window.
@@ -215,6 +213,7 @@ char *LoadFile(const char *path, size_t *_bytes) {
 
 void SetPosition(const char *file, int line, bool useGDBToGetFullPath) {
 	char buffer[4096];
+	const char *originalFile = file;
 
 	if (file && file[0] == '~') {
 		snprintf(buffer, sizeof(buffer), "%s/%s", getenv("HOME"), 1 + file);
@@ -226,14 +225,18 @@ void SetPosition(const char *file, int line, bool useGDBToGetFullPath) {
 		if (f) {
 			f += 11;
 			const char *end = strchr(f, '\n');
-			if (end) snprintf(buffer, sizeof(buffer), "%.*s", (int) (end - f), f);
+
+			if (end) {
+				snprintf(buffer, sizeof(buffer), "%.*s", (int) (end - f), f);
+				file = buffer;
+			}
 		}
 	}
 
 	bool reloadFile = false;
 
 	if (file) {
-		if (strcmp(currentFile, file)) {
+		if (strcmp(currentFile, originalFile)) {
 			reloadFile = true;
 		}
 
@@ -249,16 +252,16 @@ void SetPosition(const char *file, int line, bool useGDBToGetFullPath) {
 
 	if (reloadFile) {
 		currentLine = 0;
-		snprintf(currentFile, 4096, "%s", file);
+		snprintf(currentFile, 4096, "%s", originalFile);
 
-		printf("attempting to load '%s'\n", file);
+		printf("attempting to load '%s' (from '%s')\n", file, originalFile);
 
 		size_t bytes;
 		char *buffer2 = LoadFile(file, &bytes);
 
 		if (!buffer2) {
 			char buffer3[4096];
-			snprintf(buffer3, 4096, "The file '%s' could not be loaded.", file);
+			snprintf(buffer3, 4096, "The file '%s' (from '%s') could not be loaded.", file, originalFile);
 			UICodeInsertContent(displayCode, buffer3, -1, true);
 		} else {
 			UICodeInsertContent(displayCode, buffer2, bytes, true);
