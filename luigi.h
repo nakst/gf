@@ -185,6 +185,7 @@ typedef enum UIMessage {
 	UI_MSG_VALUE_CHANGED, // sent to notify that the element's value has changed
 	UI_MSG_TABLE_GET_ITEM, // dp = pointer to UITableGetItem; return string length
 	UI_MSG_CODE_GET_MARGIN_COLOR, // di = line index (starts at 1); return color
+	UI_MSG_CODE_GET_LINE_HINT, // dp = pointer to UITableGetItem (line in index field); return string length
 	UI_MSG_WINDOW_CLOSE, // return 1 to prevent default (process exit for UIWindow; close for UIMDIChild)
 
 	UI_MSG_USER,
@@ -1108,11 +1109,11 @@ void UIDrawGlyph(UIPainter *painter, int x0, int y0, int c, uint32_t color) {
 	FT_Bitmap *bitmap = &ui.glyphs[c];
 	x0 += ui.glyphOffsetsX[c], y0 += ui.glyphOffsetsY[c];
 
-	for (int y = 0; y < bitmap->rows; y++) {
+	for (int y = 0; y < (int) bitmap->rows; y++) {
 		if (y0 + y < painter->clip.t) continue;
 		if (y0 + y >= painter->clip.b) break;
 
-		for (int x = 0; x < bitmap->width / 3; x++) {
+		for (int x = 0; x < (int) bitmap->width / 3; x++) {
 			if (x0 + x < painter->clip.l) continue;
 			if (x0 + x >= painter->clip.r) break;
 
@@ -1122,6 +1123,7 @@ void UIDrawGlyph(UIPainter *painter, int x0, int y0, int c, uint32_t color) {
 			uint32_t ra = ((uint8_t *) bitmap->buffer)[x * 3 + y * bitmap->pitch + 0];
 			uint32_t ga = ((uint8_t *) bitmap->buffer)[x * 3 + y * bitmap->pitch + 1];
 			uint32_t ba = ((uint8_t *) bitmap->buffer)[x * 3 + y * bitmap->pitch + 2];
+			ra += (ga - ra) / 2, ba += (ga - ba) / 2;
 			uint32_t r2 = (255 - ra) * ((original & 0x000000FF) >> 0);
 			uint32_t g2 = (255 - ga) * ((original & 0x0000FF00) >> 8);
 			uint32_t b2 = (255 - ba) * ((original & 0x00FF0000) >> 16);
@@ -2163,6 +2165,20 @@ int _UICodeMessage(UIElement *element, UIMessage message, int di, void *dp) {
 				} else {
 					UIDrawGlyph(painter, x, y, c, colors[lexState]);
 					x += ui.glyphWidth, ti++;
+				}
+			}
+			
+			{
+				char buffer[128];
+				UITableGetItem m = { 0 };
+				m.buffer = buffer;
+				m.bufferBytes = sizeof(buffer);
+				m.index = i + 1;
+				size_t bytes = UIElementMessage(element, UI_MSG_CODE_GET_LINE_HINT, 0, &m);
+				
+				if (bytes) {
+					UIRectangle rectangle = UI_RECT_4(x + ui.glyphWidth, lineBounds.r, y, y + lineHeight);
+					UIDrawString(painter, rectangle, m.buffer, bytes, ui.theme.codeComment, UI_ALIGN_LEFT, NULL);
 				}
 			}
 
@@ -3526,6 +3542,14 @@ void _UIInitialiseCommon() {
 #endif
 }
 
+void _UIWindowAdd(UIWindow *window) {
+	window->scale = 1.0f;
+	window->e.window = window;
+	window->hovered = &window->e;
+	window->next = ui.windows;
+	ui.windows = window;
+}
+
 #ifdef UI_DEBUG
 
 void UIInspectorLog(const char *cFormat, ...) {
@@ -3714,11 +3738,7 @@ UIWindow *UIWindowCreate(UIWindow *owner, uint32_t flags, const char *cTitle, in
 	_UIMenusClose();
 
 	UIWindow *window = (UIWindow *) UIElementCreate(sizeof(UIWindow), NULL, flags | UI_ELEMENT_WINDOW, _UIWindowMessage, "Window");
-	window->scale = 1.0f;
-	window->e.window = window;
-	window->hovered = &window->e;
-	window->next = ui.windows;
-	ui.windows = window;
+	_UIWindowAdd(window);
 
 	int width = (flags & UI_WINDOW_MENU) ? 1 : _width ? _width : 800;
 	int height = (flags & UI_WINDOW_MENU) ? 1 : _height ? _height : 600;
@@ -3740,6 +3760,10 @@ UIWindow *UIWindowCreate(UIWindow *owner, uint32_t flags, const char *cTitle, in
 	window->xic = XCreateIC(ui.xim, XNInputStyle, XIMPreeditNothing | XIMStatusNothing, XNClientWindow, window->window, XNFocusWindow, window->window, NULL);
 
 	return window;
+}
+
+Display *_UIX11GetDisplay() {
+	return ui.display;
 }
 
 void UIInitialise() {
@@ -3785,6 +3809,10 @@ UIWindow *_UIFindWindow(Window window) {
 
 void _UIWindowSetCursor(UIWindow *window, int cursor) {
 	XDefineCursor(ui.display, window->window, ui.cursors[cursor]);
+}
+
+void _UIX11ResetCursor(UIWindow *window) {
+	XDefineCursor(ui.display, window->window, ui.cursors[UI_CURSOR_ARROW]);
 }
 
 void _UIWindowEndPaint(UIWindow *window, UIPainter *painter) {
@@ -4247,11 +4275,7 @@ UIWindow *UIWindowCreate(UIWindow *owner, uint32_t flags, const char *cTitle, in
 	_UIMenusClose();
 
 	UIWindow *window = (UIWindow *) UIElementCreate(sizeof(UIWindow), NULL, flags | UI_ELEMENT_WINDOW, _UIWindowMessage, "Window");
-	window->scale = 1.0f;
-	window->e.window = window;
-	window->hovered = &window->e;
-	window->next = ui.windows;
-	ui.windows = window;
+	_UIWindowAdd(window);
 
 	if (flags & UI_WINDOW_MENU) {
 		UI_ASSERT(owner);
@@ -4380,11 +4404,7 @@ UIWindow *UIWindowCreate(UIWindow *owner, uint32_t flags, const char *cTitle, in
 	_UIMenusClose();
 
 	UIWindow *window = (UIWindow *) UIElementCreate(sizeof(UIWindow), NULL, flags | UI_ELEMENT_WINDOW, _UIWindowMessage, "Window");
-	window->scale = 1.0f;
-	window->e.window = window;
-	window->hovered = &window->e;
-	window->next = ui.windows;
-	ui.windows = window;
+	_UIWindowAdd(window);
 
 	return window;
 }

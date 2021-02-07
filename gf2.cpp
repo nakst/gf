@@ -23,9 +23,11 @@
 #define STB_DS_IMPLEMENTATION
 #include "stb_ds.h"
 
+extern "C" {
 #define UI_LINUX
 #define UI_IMPLEMENTATION
 #include "luigi.h"
+}
 
 #define MSG_RECEIVED_DATA ((UIMessage) (UI_MSG_USER + 1))
 
@@ -85,6 +87,13 @@ Breakpoint *breakpoints;
 
 char **commandHistory;
 int commandHistoryIndex;
+
+// Auto-print expression:
+
+char autoPrintExpression[1024];
+char autoPrintResult[1024];
+int autoPrintExpressionLine;
+int autoPrintResultLine;
 
 // GDB process:
 
@@ -186,7 +195,10 @@ void EvaluateCommand(const char *command) {
 	evaluateMode = true;
 	pthread_mutex_lock(&evaluateMutex);
 	SendToGDB(command, false);
-	pthread_cond_wait(&evaluateEvent, &evaluateMutex);
+	struct timespec timeout;
+	clock_gettime(CLOCK_REALTIME, &timeout);
+	timeout.tv_sec++;
+	pthread_cond_timedwait(&evaluateEvent, &evaluateMutex, &timeout);
 	pthread_mutex_unlock(&evaluateMutex);
 	programRunning = false;
 	UIElementRepaint(&trafficLight->e, NULL);
@@ -211,18 +223,37 @@ char *LoadFile(const char *path, size_t *_bytes) {
 	return buffer;
 }
 
-void SetPosition(const char *file, int line) {
+extern "C" const char *GetPosition(int *line) {
+	*line = currentLine;
+	return currentFile;
+}
+
+extern "C" bool SetPosition(const char *file, int line, bool useGDBToGetFullPath) {
 	char buffer[4096];
+	const char *originalFile = file;
 
 	if (file && file[0] == '~') {
 		snprintf(buffer, sizeof(buffer), "%s/%s", getenv("HOME"), 1 + file);
 		file = buffer;
+	} else if (file && file[0] != '/' && useGDBToGetFullPath) {
+		EvaluateCommand("info source");
+		const char *f = strstr(evaluateResult, "Located in ");
+
+		if (f) {
+			f += 11;
+			const char *end = strchr(f, '\n');
+
+			if (end) {
+				snprintf(buffer, sizeof(buffer), "%.*s", (int) (end - f), f);
+				file = buffer;
+			}
+		}
 	}
 
 	bool reloadFile = false;
 
 	if (file) {
-		if (strcmp(currentFile, file)) {
+		if (strcmp(currentFile, originalFile)) {
 			reloadFile = true;
 		}
 
@@ -235,32 +266,40 @@ void SetPosition(const char *file, int line) {
 
 		currentFileReadTime = buf.st_mtim.tv_sec;
 	}
+	
+	bool changed = false;
 
 	if (reloadFile) {
 		currentLine = 0;
-		snprintf(currentFile, 4096, "%s", file);
+		snprintf(currentFile, 4096, "%s", originalFile);
 
-		printf("attempting to load '%s'\n", file);
+		printf("attempting to load '%s' (from '%s')\n", file, originalFile);
 
 		size_t bytes;
 		char *buffer2 = LoadFile(file, &bytes);
 
 		if (!buffer2) {
 			char buffer3[4096];
-			snprintf(buffer3, 4096, "The file '%s' could not be loaded.", file);
+			snprintf(buffer3, 4096, "The file '%s' (from '%s') could not be loaded.", file, originalFile);
 			UICodeInsertContent(displayCode, buffer3, -1, true);
 		} else {
 			UICodeInsertContent(displayCode, buffer2, bytes, true);
 			free(buffer2);
 		}
+		
+		changed = true;
+		autoPrintResult[0] = 0;
 	}
 
 	if (line != -1 && currentLine != line) {
 		currentLine = line;
 		UICodeFocusLine(displayCode, line); 
+		changed = true;
 	}
 
 	UIElementRefresh(&displayCode->e);
+	
+	return changed;
 }
 
 void CommandSendToGDB(void *_string) {
@@ -286,6 +325,7 @@ void CommandPause(void *) {
 	kill(gdbPID, SIGINT);
 }
 
+#ifndef EMBED_GF
 void CommandSyncWithGvim(void *) {
 	if (system("vim --servername GVIM --remote-expr \"execute(\\\"ls\\\")\" | grep % > .temp.gf")) {
 		return;
@@ -307,13 +347,14 @@ void CommandSyncWithGvim(void *) {
 			char *line = strstr(nameEnd + 1, "line ");
 			if (!line) goto done;
 			int lineNumber = atoi(line + 5);
-			SetPosition(name, lineNumber);
+			SetPosition(name, lineNumber, false);
 		}
 
 		done:;
 		unlink(".temp.gf");
 	}
 }
+#endif
 
 void CommandToggleBreakpoint(void *_line) {
 	int line = (int) (intptr_t) _line;
@@ -514,7 +555,9 @@ void ShowMenu(void *) {
 	UIMenuAddItem(menu, 0, "Step out\tShift+F11", -1, CommandSendToGDB, (void *) "finish");
 	UIMenuAddItem(menu, 0, "Pause\tF8", -1, CommandPause, NULL);
 	UIMenuAddItem(menu, 0, "Toggle breakpoint\tF9", -1, CommandToggleBreakpoint, NULL);
+#ifndef EMBED_GF
 	UIMenuAddItem(menu, 0, "Sync with gvim\tF2", -1, CommandSyncWithGvim, NULL);
+#endif
 	UIMenuAddItem(menu, 0, "Find\tCtrl+F", -1, CommandFind, NULL);
 	UIMenuAddItem(menu, 0, "Theme editor", -1, CommandThemeEditor, NULL);
 	UIMenuShow(menu);
@@ -532,7 +575,9 @@ void RegisterShortcuts() {
 	UIWindowRegisterShortcut(window, { .code = UI_KEYCODE_F11, .shift = true, .invoke = CommandSendToGDB, .cp = (void *) "finish" });
 	UIWindowRegisterShortcut(window, { .code = UI_KEYCODE_F8, .invoke = CommandPause, .cp = NULL });
 	UIWindowRegisterShortcut(window, { .code = UI_KEYCODE_F9, .invoke = CommandToggleBreakpoint, .cp = NULL });
+#ifndef EMBED_GF
 	UIWindowRegisterShortcut(window, { .code = UI_KEYCODE_F2, .invoke = CommandSyncWithGvim, .cp = NULL });
+#endif
 	UIWindowRegisterShortcut(window, { .code = UI_KEYCODE_LETTER('F'), .ctrl = true, .invoke = CommandFind, .cp = NULL });
 }
 
@@ -740,20 +785,22 @@ void Update(const char *data) {
 		}
 	}
 
-	// Get the name of the file.
+	// Parse the name of the file.
 
-	EvaluateCommand("info source");
 	bool fileChanged = false;
 	char newFile[4096];
 
 	{
-		const char *file = strstr(evaluateResult, "Located in ");
+		const char *file = data;
 
-		if (file) {
-			file += 11;
-			const char *end = strchr(file, '\n');
+		while (true) {
+			file = strstr(file, " at ");
+			if (!file) break;
 
-			if (end) {
+			file += 4;
+			const char *end = strchr(file, ':');
+
+			if (end && isdigit(end[1])) {
 				snprintf(newFile, sizeof(newFile), "%.*s", (int) (end - file), file);
 				fileChanged = true;
 			}
@@ -762,7 +809,90 @@ void Update(const char *data) {
 
 	// Set the file and line in the source display.
 
-	SetPosition(fileChanged ? newFile : NULL, lineChanged ? newLine : -1);
+	bool changedSourceLine = SetPosition(fileChanged ? newFile : NULL, lineChanged ? newLine : -1, true);
+	
+	if (changedSourceLine) {
+		// If there is an auto-print expression from the previous line, evaluate it.
+		
+		if (autoPrintExpression[0]) {
+			char buffer[1024];
+			snprintf(buffer, sizeof(buffer), "p %s", autoPrintExpression);
+			EvaluateCommand(buffer);
+			const char *result = strchr(evaluateResult, '=');
+			
+			if (result) {
+				autoPrintResultLine = autoPrintExpressionLine;
+				strcpy(autoPrintResult, result);
+				char *end = strchr(autoPrintResult, '\n');
+				if (end) *end = 0;
+			} else {
+				autoPrintResult[0] = 0;
+			}
+			
+			autoPrintExpression[0] = 0;
+		}
+		
+		// Parse the new source line.
+	
+		UICodeLine *line = displayCode->lines + currentLine - 1;
+		const char *text = displayCode->content + line->offset;
+		size_t bytes = line->bytes;
+		uintptr_t position = 0;
+		
+		while (position < bytes) {
+			if (text[position] != '\t') break;
+			else position++;
+		}
+		
+		uintptr_t expressionStart = position;
+		
+		{
+			// Try to parse a type name.
+			
+			uintptr_t position2 = position;
+			
+			while (position2 < bytes) { 
+				char c = text[position2];
+				if (!_UICharIsAlphaOrDigitOrUnderscore(c)) break;
+				else position2++;
+			}
+			
+			if (position2 == bytes) goto noTypeName;
+			if (text[position2] != ' ') goto noTypeName;
+			position2++;
+			
+			while (position2 < bytes) {
+				if (text[position2] != '*') break;
+				else position2++;
+			}
+			
+			if (position2 == bytes) goto noTypeName;
+			if (!_UICharIsAlphaOrDigitOrUnderscore(text[position2])) goto noTypeName;
+			
+			position = expressionStart = position2;
+			noTypeName:;
+		}
+		
+		while (position < bytes) { 
+			char c = text[position];
+			if (!_UICharIsAlphaOrDigitOrUnderscore(c) && c != '[' && c != ']' && c != ' ' && c != '.' && c != '-' && c != '>') break;
+			else position++;
+		}
+		
+		uintptr_t expressionEnd = position;
+		
+		while (position < bytes) { 
+			if (text[position] != ' ') break;
+			else position++;
+		}
+		
+		if (position != bytes && text[position] == '=') {
+			snprintf(autoPrintExpression, sizeof(autoPrintExpression), "%.*s", 
+				(int) (expressionEnd - expressionStart), text + expressionStart);
+		}
+		
+		autoPrintExpressionLine = currentLine;
+	}
 
 	// Get the list of breakpoints.
 
@@ -958,6 +1088,12 @@ int DisplayCodeMessage(UIElement *element, UIMessage message, int di, void *dp) 
 				return 0xFF0000;
 			}
 		}
+	} else if (message == UI_MSG_CODE_GET_LINE_HINT) {
+		UITableGetItem *m = (UITableGetItem *) dp;
+		
+		if (m->index == autoPrintResultLine) {
+			return snprintf(m->buffer, m->bufferBytes, "%s", autoPrintResult);
+		}
 	}
 
 	return 0;
@@ -986,12 +1122,10 @@ int WindowMessage(UIElement *, UIMessage message, int di, void *dp) {
 	return 0;
 }
 
-int main(int, char **) {
-	UIInitialise();
-	CommandLoadTheme(NULL);
-
-	window = UIWindowCreate(0, 0, "gf2", 0, 0);
+extern "C" void CreateInterface(UIWindow *_window) {
+	window = _window;
 	window->e.messageUser = WindowMessage;
+
 	UIPanel *panel1 = UIPanelCreate(&window->e, UI_PANEL_EXPAND);
 	UISplitPane *split1 = UISplitPaneCreate(&panel1->e, UI_SPLIT_PANE_VERTICAL | UI_ELEMENT_V_FILL, 0.75f);
 	UISplitPane *split2 = UISplitPaneCreate(&split1->e, /* horizontal */ 0, 0.80f);
@@ -1019,12 +1153,23 @@ int main(int, char **) {
 	pthread_mutex_init(&evaluateMutex, NULL);
 	StartGDBThread();
 
-	CommandSyncWithGvim(NULL);
 	RegisterShortcuts();
 	LoadProjectSettings();
-	UIMessageLoop();
+	CommandLoadTheme(NULL);
+}
+
+extern "C" void CloseDebugger() {
 	kill(gdbPID, SIGKILL);
 	pthread_cancel(gdbThread);
+}
 
+#ifndef EMBED_GF
+int main(int, char **) {
+	UIInitialise();
+	CreateInterface(UIWindowCreate(0, 0, "gf2", 0, 0));
+	CommandSyncWithGvim(NULL);
+	UIMessageLoop();
+	CloseDebugger();
 	return 0;
 }
+#endif
