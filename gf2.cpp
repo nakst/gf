@@ -105,18 +105,19 @@ pthread_mutex_t evaluateMutex;
 char *evaluateResult;
 bool evaluateMode;
 bool programRunning;
+char **gdbArgv;
 
 void *DebuggerThread(void *) {
 	int outputPipe[2], inputPipe[2];
 	pipe(outputPipe);
 	pipe(inputPipe);
 
-	char *const argv[] = { (char *) "gdb", NULL };
+	// char *const argv[] = { (char *) "gdb", NULL };
 	posix_spawn_file_actions_t actions = {};
 	posix_spawn_file_actions_adddup2(&actions, inputPipe[0],  0);
 	posix_spawn_file_actions_adddup2(&actions, outputPipe[1], 1);
 	posix_spawn_file_actions_adddup2(&actions, outputPipe[1], 2);
-	posix_spawnp((pid_t *) &gdbPID, "gdb", &actions, NULL, argv, environ);
+	posix_spawnp((pid_t *) &gdbPID, "gdb", &actions, NULL, gdbArgv, environ);
 
 	pipeToGDB = inputPipe[1];
 
@@ -1219,12 +1220,18 @@ extern "C" void CreateInterface(UIWindow *_window) {
 }
 
 extern "C" void CloseDebugger() {
+
 	kill(gdbPID, SIGKILL);
 	pthread_cancel(gdbThread);
 }
 
 #ifndef EMBED_GF
-int main(int, char **) {
+int main(int argc, char **argv) {
+	// setup gdb args
+	gdbArgv = (char**)malloc(sizeof(char*)*(argc+1));
+	gdbArgv[0] = (char*)"gdb";
+	memcpy(gdbArgv+1, argv+1, sizeof(argv)*(argc-1));
+
 	UIInitialise();
 	CreateInterface(UIWindowCreate(0, 0, "gf2", 0, 0));
 	CommandSyncWithGvim(NULL);
