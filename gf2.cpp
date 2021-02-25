@@ -31,6 +31,8 @@ extern "C" {
 
 #define MSG_RECEIVED_DATA ((UIMessage) (UI_MSG_USER + 1))
 
+FILE *commandLog;
+
 // Current file and line:
 
 char currentFile[4096];
@@ -47,12 +49,7 @@ UITable *tableStack;
 UITextbox *textboxInput;
 UIButton *buttonMenu;
 UISpacer *trafficLight;
-
-// Find dialog:
-
-UIWindow *findWindow;
-UITextbox *findTextbox;
-UILabel *findLabel;
+UIMDIClient *dataWindow;
 
 // Theme editor:
 
@@ -377,64 +374,6 @@ void CommandToggleBreakpoint(void *_line) {
 	SendToGDB(buffer, true);
 }
 
-int FindWindowMessage(UIElement *element, UIMessage message, int di, void *dp) {
-	if (message == UI_MSG_WINDOW_CLOSE) {
-		UIElementDestroy(element);
-		findWindow = NULL;
-		return 1;
-	} else if (message == UI_MSG_KEY_TYPED) {
-		UIKeyTyped *m = (UIKeyTyped *) dp;
-
-		if (m->code == UI_KEYCODE_ESCAPE) {
-			UIElementDestroy(element);
-			findWindow = NULL;
-			return 1;
-		} else if (m->code == UI_KEYCODE_ENTER) {
-			displayCode->content = (char *) UI_REALLOC(displayCode->content, displayCode->contentBytes + 1);
-			displayCode->content[displayCode->contentBytes] = 0;
-			findTextbox->string = (char *) UI_REALLOC(findTextbox->string, findTextbox->bytes + 1);
-			findTextbox->string[findTextbox->bytes] = 0;
-			const char *result = strstr(displayCode->content, findTextbox->string);
-
-			if (result) {
-				int line = 1;
-
-				for (int i = 0; i < result - displayCode->content; i++) {
-					if (displayCode->content[i] == '\n') {
-						line++;
-					}
-				}
-
-				UICodeFocusLine(displayCode, line); 
-				UIElementRefresh(&displayCode->e);
-
-				UIElementDestroy(element);
-				findWindow = NULL;
-			} else {
-				UILabelSetContent(findLabel, "Search for: (not found)", -1);
-				UIElementRefresh(&findLabel->e);
-			}
-
-			return 1;
-
-		}
-	}
-
-	return 0;
-}
-
-void CommandFind(void *) {
-	if (findWindow) return;
-	findWindow = UIWindowCreate(0, 0, "Find", 300, 70);
-	findWindow->e.messageUser = FindWindowMessage;
-	UIPanel *panel = UIPanelCreate(&findWindow->e, UI_PANEL_GRAY | UI_PANEL_EXPAND);
-	panel->border = UI_RECT_1(5);
-	panel->gap = 5;
-	findLabel = UILabelCreate(&panel->e, 0, "Search for:", -1);
-	findTextbox = UITextboxCreate(&panel->e, 0); 
-	UIElementFocus(&findTextbox->e);
-}
-
 int ThemeEditorWindowMessage(UIElement *element, UIMessage message, int di, void *dp) {
 	if (message == UI_MSG_WINDOW_CLOSE) {
 		UIElementDestroy(element);
@@ -558,7 +497,6 @@ void ShowMenu(void *) {
 #ifndef EMBED_GF
 	UIMenuAddItem(menu, 0, "Sync with gvim\tF2", -1, CommandSyncWithGvim, NULL);
 #endif
-	UIMenuAddItem(menu, 0, "Find\tCtrl+F", -1, CommandFind, NULL);
 	UIMenuAddItem(menu, 0, "Theme editor", -1, CommandThemeEditor, NULL);
 	UIMenuShow(menu);
 }
@@ -578,7 +516,6 @@ void RegisterShortcuts() {
 #ifndef EMBED_GF
 	UIWindowRegisterShortcut(window, { .code = UI_KEYCODE_F2, .invoke = CommandSyncWithGvim, .cp = NULL });
 #endif
-	UIWindowRegisterShortcut(window, { .code = UI_KEYCODE_LETTER('F'), .ctrl = true, .invoke = CommandFind, .cp = NULL });
 }
 
 int RunSystemWithOutput(const char *command) {
@@ -656,6 +593,115 @@ void LoadProjectSettings() {
 	}
 }
 
+const char *EvaluateExpression(const char *expression) {
+	char buffer[1024];
+	snprintf(buffer, sizeof(buffer), "p %s", expression);
+	EvaluateCommand(buffer);
+	char *result = strchr(evaluateResult, '=');
+
+	if (result) {
+		char *end = strchr(result, '\n');
+
+		if (end) {
+			*end = 0;
+			return result;
+		}
+	}
+
+	return nullptr;
+}
+
+void PrintErrorMessage(const char *message) {
+	UICodeInsertContent(displayOutput, message, -1, false);
+	UIElementRefresh(&displayOutput->e);
+}
+
+void AddDataWindow(void *) {
+	char buffer[1024];
+	snprintf(buffer, 1024, "%.*s", (int) textboxInput->bytes, textboxInput->string);
+
+	char *tokens[16];
+	size_t tokenCount = 0;
+
+	for (int i = 0; buffer[i]; i++) {
+		if (buffer[i] == ' ') {
+			buffer[i] = 0;
+		}
+
+		if ((!i || (i && buffer[i - 1] == 0)) && buffer[i] != 0 && tokenCount != 16) {
+			tokens[tokenCount++] = buffer + i;
+		}
+	}
+
+	if (tokenCount < 1) {
+		return;
+	}
+
+	if (0 == strcmp(tokens[0], "bitmap")) {
+		if (tokenCount != 5 && tokenCount != 4) {
+			PrintErrorMessage("Usage: bitmap [pointer] [width] [height] [stride]\n");
+			return;
+		} else {
+			char *pointerString = tokens[1], *widthString = tokens[2], *heightString = tokens[3], *strideString = tokenCount == 5 ? tokens[4] : nullptr;
+			const char *widthResult = EvaluateExpression(widthString);
+			if (!widthResult) { PrintErrorMessage("Could not evaluate width.\n"); return; }
+			int width = atoi(widthResult + 1);
+			const char *heightResult = EvaluateExpression(heightString);
+			if (!heightResult) { PrintErrorMessage("Could not evaluate height.\n"); return; }
+			int height = atoi(heightResult + 1);
+			int stride = width * 4;
+
+			if (strideString) {
+				const char *strideResult = EvaluateExpression(strideString);
+				if (!strideResult) { PrintErrorMessage("Could not evaluate stride.\n"); return; }
+				stride = atoi(strideResult + 1);
+			}
+
+			uint32_t *bits = (uint32_t *) malloc(stride * height * 4);
+			int index = 0;
+
+#define BITMAP_BLOCK_SIZE (131072)
+
+			for (int block = 0; block < stride * height; block += BITMAP_BLOCK_SIZE) {
+				int size = BITMAP_BLOCK_SIZE;
+				if (block + size > stride * height) size = stride * height - block;
+
+				printf("%d%%\n", block * 100 / (stride * height));
+
+				char buffer[1024];
+				snprintf(buffer, sizeof(buffer), "x/%dxw (((uint8_t *) (%s)) + %d)", size / 4, pointerString, block);
+				EvaluateCommand(buffer);
+				char *position = evaluateResult;
+
+				for (int j = 0; j < size / 4; j++) {
+					position = strstr(position, "\t0x");
+
+					if (!position) { 
+						PrintErrorMessage("Could not read bits.\n"); 
+						free(bits);
+						return; 
+					}
+
+					position += 3;
+					bits[index++] = strtoul(position, NULL, 16);
+				}
+			}
+
+			UIImageDisplayCreate(&UIMDIChildCreate(&dataWindow->e, 
+						UI_MDI_CHILD_CLOSE_BUTTON, UI_RECT_1(0), 
+						"Bitmap", -1)->e, 0, bits, width, height, stride);
+			UIElementRefresh(&dataWindow->e);
+			free(bits);
+		}
+	} else {
+		PrintErrorMessage("Unknown command.\n");
+		return;
+	}
+
+	UITextboxClear(textboxInput, false);
+	UIElementRefresh(&textboxInput->e);
+}
+
 int TextboxInputMessage(UIElement *, UIMessage message, int di, void *dp) {
 	if (message == UI_MSG_KEY_TYPED) {
 		UIKeyTyped *m = (UIKeyTyped *) dp;
@@ -666,9 +712,10 @@ int TextboxInputMessage(UIElement *, UIMessage message, int di, void *dp) {
 		bool lastKeyWasTab = _lastKeyWasTab;
 		_lastKeyWasTab = false;
 
-		if (m->code == UI_KEYCODE_ENTER) {
+		if (m->code == UI_KEYCODE_ENTER && !window->shift) {
 			char buffer[1024];
 			snprintf(buffer, 1024, "%.*s", (int) textboxInput->bytes, textboxInput->string);
+			if (commandLog) fprintf(commandLog, "%s\n", buffer);
 			SendToGDB(buffer, true);
 
 			char *string = (char *) malloc(textboxInput->bytes + 1);
@@ -686,6 +733,8 @@ int TextboxInputMessage(UIElement *, UIMessage message, int di, void *dp) {
 			UIElementRefresh(&textboxInput->e);
 
 			return 1;
+		} else if (m->code == UI_KEYCODE_ENTER && window->shift) {
+			AddDataWindow(NULL);
 		} else if (m->code == UI_KEYCODE_TAB) {
 			char buffer[4096];
 			snprintf(buffer, sizeof(buffer), "complete %.*s", lastKeyWasTab ? lastTabBytes : (int) textboxInput->bytes, textboxInput->string);
@@ -1123,13 +1172,23 @@ int WindowMessage(UIElement *, UIMessage message, int di, void *dp) {
 }
 
 extern "C" void CreateInterface(UIWindow *_window) {
+#ifdef LOG_COMMANDS
+	{
+		char path[4096];
+		snprintf(path, sizeof(path), "%s/gf_log.txt", getenv("HOME"));
+		commandLog = fopen(path, "ab");
+	}
+#endif
+
 	window = _window;
 	window->e.messageUser = WindowMessage;
 
 	UIPanel *panel1 = UIPanelCreate(&window->e, UI_PANEL_EXPAND);
 	UISplitPane *split1 = UISplitPaneCreate(&panel1->e, UI_SPLIT_PANE_VERTICAL | UI_ELEMENT_V_FILL, 0.75f);
 	UISplitPane *split2 = UISplitPaneCreate(&split1->e, /* horizontal */ 0, 0.80f);
-	UIPanel *panel2 = UIPanelCreate(&split1->e, UI_PANEL_EXPAND);
+	UISplitPane *split4 = UISplitPaneCreate(&split1->e, /* horizontal */ 0, 0.65f);
+	UIPanel *panel2 = UIPanelCreate(&split4->e, UI_PANEL_EXPAND);
+	dataWindow = UIMDIClientCreate(&split4->e, 0);
 	displayOutput = UICodeCreate(&panel2->e, UI_CODE_NO_MARGIN | UI_ELEMENT_V_FILL);
 	UIPanel *panel3 = UIPanelCreate(&panel2->e, UI_PANEL_HORIZONTAL | UI_PANEL_EXPAND | UI_PANEL_GRAY);
 	panel3->border = UI_RECT_1(5);
@@ -1141,6 +1200,7 @@ extern "C" void CreateInterface(UIWindow *_window) {
 	textboxInput = UITextboxCreate(&panel3->e, UI_ELEMENT_H_FILL);
 	textboxInput->e.messageUser = TextboxInputMessage;
 	UIElementFocus(&textboxInput->e);
+	UIButtonCreate(&panel3->e, 0, "Add =>", -1)->invoke = AddDataWindow;
 	displayCode = UICodeCreate(&split2->e, 0);
 	displayCode->e.messageUser = DisplayCodeMessage;
 	UISplitPane *split3 = UISplitPaneCreate(&split2->e, UI_SPLIT_PANE_VERTICAL, 0.50f);
