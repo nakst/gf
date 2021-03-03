@@ -116,7 +116,12 @@ void *DebuggerThread(void *) {
 	posix_spawn_file_actions_adddup2(&actions, inputPipe[0],  0);
 	posix_spawn_file_actions_adddup2(&actions, outputPipe[1], 1);
 	posix_spawn_file_actions_adddup2(&actions, outputPipe[1], 2);
-	posix_spawnp((pid_t *) &gdbPID, "gdb", &actions, NULL, argv, environ);
+
+	posix_spawnattr_t attrs = {};
+	posix_spawnattr_init(&attrs);
+	posix_spawnattr_setflags(&attrs, POSIX_SPAWN_SETSID);
+
+	posix_spawnp((pid_t *) &gdbPID, "gdb", &actions, &attrs, argv, environ);
 
 	pipeToGDB = inputPipe[1];
 
