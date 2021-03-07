@@ -122,7 +122,7 @@ void *DebuggerThread(void *) {
 	posix_spawnattr_init(&attrs);
 	posix_spawnattr_setflags(&attrs, POSIX_SPAWN_SETSID);
 
-	posix_spawnp((pid_t *) &gdbPID, "gdb", &actions, &attrs, argv, environ);
+	posix_spawnp((pid_t *) &gdbPID, "gdb", &actions, &attrs, gdbArgv, environ);
 
 	pipeToGDB = inputPipe[1];
 
@@ -1076,10 +1076,10 @@ int TableStackMessage(UIElement *element, UIMessage message, int di, void *dp) {
 		} else if (m->column == 3) {
 			return snprintf(m->buffer, m->bufferBytes, "0x%lX", entry->address);
 		}
-	} else if (message == UI_MSG_CLICKED) {
+	} else if (message == UI_MSG_LEFT_DOWN || message == UI_MSG_MOUSE_DRAG) {
 		int index = UITableHitTest((UITable *) element, element->window->cursorX, element->window->cursorY); 
 
-		if (index != -1) {
+		if (index != -1 && stackSelected != index) {
 			char buffer[64];
 			snprintf(buffer, 64, "frame %d", index);
 			SendToGDB(buffer, false);
