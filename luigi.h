@@ -3946,6 +3946,17 @@ UIWindow *UIWindowCreate(UIWindow *owner, uint32_t flags, const char *cTitle, in
 
 	window->xic = XCreateIC(ui.xim, XNInputStyle, XIMPreeditNothing | XIMStatusNothing, XNClientWindow, window->window, XNFocusWindow, window->window, NULL);
 
+    if(flags & UI_WINDOW_MENU) {
+        Atom property[] = {
+            XInternAtom(ui.display, "_NET_WM_WINDOW_TYPE", true),
+            XInternAtom(ui.display, "_NET_WM_WINDOW_TYPE_DROPDOWN_MENU", true),
+        };
+        XChangeProperty(ui.display, window->window, XInternAtom(ui.display, "_NET_WM_WINDOW_TYPE", true), XA_ATOM, 32, PropModeReplace, (unsigned char*)property, 2);
+        XSetTransientForHint(ui.display, window->window, DefaultRootWindow(ui.display));
+
+    }
+
+
 	return window;
 }
 
