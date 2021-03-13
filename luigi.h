@@ -1,8 +1,9 @@
-// TODO UIMenu features - columns.
 // TODO UITextbox features - mouse input, multi-line, clipboard, undo, IME support, number dragging.
-// TODO New elements - list view, dialogs, menu bar, drawing canvas.
+// TODO New elements - list view, dialogs, menu bar.
 // TODO Keyboard navigation - menus, dialogs, tables.
 // TODO Easier to use fonts; GDI font support.
+// TODO Formalize the notion of size-stability? See _UIExpandPaneButtonInvoke.
+// TODO UI_ELEMENT_IMGUI - when UIElementRefresh is called, UIElementDestroyDescendents is called and UI_MSG_POPULATE is sent.
 
 #include <stdint.h>
 #include <stddef.h>
@@ -291,7 +292,6 @@ typedef struct UIElement {
 #define UI_ELEMENT_NON_CLIENT (1 << 21) // Don't destroy in UIElementDestroyDescendents, like scroll bars.
 #define UI_ELEMENT_DISABLED (1 << 22) // Don't receive input events.
 
-#define UI_ELEMENT_REPAINT (1 << 28)
 #define UI_ELEMENT_HIDE (1 << 29)
 #define UI_ELEMENT_DESTROY (1 << 30)
 #define UI_ELEMENT_DESTROY_DESCENDENT (1 << 31)
@@ -303,7 +303,7 @@ typedef struct UIElement {
 	struct UIElement *children;
 	struct UIWindow *window;
 
-	UIRectangle bounds, clip, repaint;
+	UIRectangle bounds, clip;
 	
 	void *cp; // Context pointer (for user).
 
@@ -468,6 +468,7 @@ typedef struct UIMenu {
 #define UI_MENU_PLACE_ABOVE (1 << 0)
 	UIElement e;
 	int pointX, pointY;
+	UIScrollBar *vScroll;
 } UIMenu;
 
 typedef struct UISlider {
@@ -561,6 +562,7 @@ void UICodeInsertContent(UICode *code, const char *content, ptrdiff_t byteCount,
 
 void UIDrawBlock(UIPainter *painter, UIRectangle rectangle, uint32_t color);
 void UIDrawInvert(UIPainter *painter, UIRectangle rectangle);
+void UIDrawLine(UIPainter *painter, int x0, int y0, int x1, int y1, uint32_t color);
 void UIDrawGlyph(UIPainter *painter, int x, int y, int c, uint32_t color);
 void UIDrawRectangle(UIPainter *painter, UIRectangle r, uint32_t mainColor, uint32_t borderColor, UIRectangle borderSize);
 void UIDrawBorder(UIPainter *painter, UIRectangle r, uint32_t borderColor, UIRectangle borderSize);
@@ -949,12 +951,12 @@ void UIColorToRGB(float h, float s, float v, uint32_t *rgb) {
 		float x = v * (1 - s), y = v * (1 - s * f), z = v * (1 - s * (1 - f));
 
 		switch (h0) {
-			case 0: r = v, g = z, b = x; break;
-			case 1: r = y, g = v, b = x; break;
-			case 2: r = x, g = v, b = z; break;
-			case 3: r = x, g = y, b = v; break;
-			case 4: r = z, g = x, b = v; break;
-			case 5: r = v, g = x, b = y; break;
+			case 0:  r = v, g = z, b = x; break;
+			case 1:  r = y, g = v, b = x; break;
+			case 2:  r = x, g = v, b = z; break;
+			case 3:  r = x, g = y, b = v; break;
+			case 4:  r = z, g = x, b = v; break;
+			default: r = v, g = x, b = y; break;
 		}
 	}
 
@@ -977,20 +979,10 @@ void UIElementRepaint(UIElement *element, UIRectangle *region) {
 		return;
 	}
 
-	bool changed = false;
-
-	if (element->flags & UI_ELEMENT_REPAINT) {
-		UIRectangle old = element->repaint;
-		element->repaint = UIRectangleBounding(element->repaint, r);
-		changed = !UIRectangleEquals(element->repaint, old);
+	if (UI_RECT_VALID(element->window->updateRegion)) {
+		element->window->updateRegion = UIRectangleBounding(element->window->updateRegion, r);
 	} else {
-		element->flags |= UI_ELEMENT_REPAINT;
-		element->repaint = r;
-		changed = true;
-	}
-
-	if (changed && element->parent) {
-		UIElementRepaint(element->parent, &r);
+		element->window->updateRegion = r;
 	}
 }
 
@@ -1072,6 +1064,50 @@ void UIDrawBlock(UIPainter *painter, UIRectangle rectangle, uint32_t color) {
 #ifdef UI_DEBUG
 	painter->fillCount += UI_RECT_WIDTH(rectangle) * UI_RECT_HEIGHT(rectangle);
 #endif
+}
+
+void UIDrawLine(UIPainter *painter, int x0, int y0, int x1, int y1, uint32_t color) {
+	// Clip the line to the painter's clip rectangle.
+
+	if (x0 > x1) { int t = x0; x0 = x1; x1 = t; }
+	if (y0 > y1) { int t = y0; y0 = y1; y1 = t; }
+	UIRectangle bounds = UIRectangleIntersection(painter->clip, UI_RECT_4(x0, x1, y0, y1));
+	int dx = x1 - x0, dy = y1 - y0;
+	int points[8], count = 0;
+	int iLY = dx ? (y0 + (bounds.l - x0) * dy / dx) : 0x7FFFFFFF;
+	int iRY = dx ? (y0 + (bounds.r - x0) * dy / dx) : 0x7FFFFFFF;
+	int iTX = dy ? (x0 + (bounds.t - y0) * dx / dy) : 0x7FFFFFFF;
+	int iBX = dy ? (x0 + (bounds.b - y0) * dx / dy) : 0x7FFFFFFF;
+	if (iLY >= bounds.t && iLY <= bounds.b) points[count + 0] = bounds.l, points[count + 1] = iLY, count += 2;
+	if (iRY >= bounds.t && iRY <= bounds.b) points[count + 0] = bounds.r, points[count + 1] = iRY, count += 2;
+	if (iTX >= bounds.l && iTX <= bounds.r) points[count + 1] = bounds.t, points[count + 0] = iTX, count += 2;
+	if (iBX >= bounds.l && iBX <= bounds.r) points[count + 1] = bounds.b, points[count + 0] = iBX, count += 2;
+	if (count < 4) return;
+	x0 = points[0], y0 = points[1], x1 = points[2], y1 = points[3];
+	if (x0 == x1 && y0 == y1 && count > 4) x1 = points[4], y1 = points[5];
+	dx = x1 - x0, dy = y1 - y0;
+
+	// Draw the line using Bresenham's line algorithm.
+
+	uint32_t *bits = painter->bits + y0 * painter->width + x0;
+
+	if (dy * dy < dx * dx) {
+		int m = 2 * dy - dx;
+
+		for (int i = 0; i < dx; i++, bits++) {
+			*bits = color;
+			if (m > 0) bits += painter->width, m -= 2 * dx;
+			m += 2 * dy;
+		}
+	} else {
+		int m = 2 * dx - dy;
+
+		for (int i = 0; i < dy; i++, bits += painter->width) {
+			*bits = color;
+			if (m > 0) bits++, m -= 2 * dy;
+			m += 2 * dx;
+		}
+	}
 }
 
 void UIDrawInvert(UIPainter *painter, UIRectangle rectangle) {
@@ -1424,13 +1460,13 @@ int _UIPanelLayout(UIPanel *panel, UIRectangle bounds, bool measure) {
 		if (horizontal) {
 			if (child->flags & UI_ELEMENT_H_FILL) {
 				fill++;
-			} else {
+			} else if (available > 0) {
 				available -= UIElementMessage(child, UI_MSG_GET_WIDTH, vSpace, 0);
 			}
 		} else {
 			if (child->flags & UI_ELEMENT_V_FILL) {
 				fill++;
-			} else {
+			} else if (available > 0) {
 				available -= UIElementMessage(child, UI_MSG_GET_HEIGHT, hSpace, 0);
 			}
 		}
@@ -3108,8 +3144,6 @@ void _UIExpandPaneButtonInvoke(void *cp) {
 	while (ancestor) {
 		UIElementRefresh(ancestor);
 
-		// TODO Formalize the notion of height-stability.
-
 		if ((ancestor->messageClass == _UIPanelMessage && (ancestor->flags & UI_PANEL_SCROLL)) 
 				|| (ancestor->messageClass == _UIMDIChildMessage)
 				|| (ancestor->flags & UI_ELEMENT_V_FILL)) {
@@ -3213,23 +3247,31 @@ int _UIMenuItemMessage(UIElement *element, UIMessage message, int di, void *dp) 
 }
 
 int _UIMenuMessage(UIElement *element, UIMessage message, int di, void *dp) {
+	UIMenu *menu = (UIMenu *) element;
+
 	if (message == UI_MSG_GET_WIDTH) {
 		UIElement *child = element->children;
 		int width = 0;
 
 		while (child) {
-			int w = UIElementMessage(child, UI_MSG_GET_WIDTH, 0, 0);
-			if (w > width) width = w;
+			if (~child->flags & UI_ELEMENT_NON_CLIENT) {
+				int w = UIElementMessage(child, UI_MSG_GET_WIDTH, 0, 0);
+				if (w > width) width = w;
+			}
+
 			child = child->next;
 		}
 
-		return width + 4;
+		return width + 4 + UI_SIZE_SCROLL_BAR;
 	} else if (message == UI_MSG_GET_HEIGHT) {
 		UIElement *child = element->children;
 		int height = 0;
 
 		while (child) {
-			height += UIElementMessage(child, UI_MSG_GET_HEIGHT, 0, 0);
+			if (~child->flags & UI_ELEMENT_NON_CLIENT) {
+				height += UIElementMessage(child, UI_MSG_GET_HEIGHT, 0, 0);
+			}
+
 			child = child->next;
 		}
 
@@ -3238,14 +3280,26 @@ int _UIMenuMessage(UIElement *element, UIMessage message, int di, void *dp) {
 		UIDrawBlock((UIPainter *) dp, element->bounds, ui.theme.border);
 	} else if (message == UI_MSG_LAYOUT) {
 		UIElement *child = element->children;
-		int position = element->bounds.t + 2;
+		int position = element->bounds.t + 2 - menu->vScroll->position;
+		int totalHeight = 0;
 
 		while (child) {
-			int height = UIElementMessage(child, UI_MSG_GET_HEIGHT, 0, 0);
-			UIElementMove(child, UI_RECT_4(element->bounds.l + 2, element->bounds.r - 2, position, position + height), false);
-			position += height;
+			if (~child->flags & UI_ELEMENT_NON_CLIENT) {
+				int height = UIElementMessage(child, UI_MSG_GET_HEIGHT, 0, 0);
+				UIElementMove(child, UI_RECT_4(element->bounds.l + 2, element->bounds.r - UI_SIZE_SCROLL_BAR - 2, 
+							position, position + height), false);
+				position += height;
+				totalHeight += height;
+			}
+
 			child = child->next;
 		}
+
+		UIRectangle scrollBarBounds = element->bounds;
+		scrollBarBounds.l = scrollBarBounds.r - UI_SIZE_SCROLL_BAR * element->window->scale;
+		menu->vScroll->maximum = totalHeight;
+		menu->vScroll->page = UI_RECT_HEIGHT(element->bounds);
+		UIElementMove(&menu->vScroll->e, scrollBarBounds, true);
 	} else if (message == UI_MSG_KEY_TYPED) {
 		UIKeyTyped *m = (UIKeyTyped *) dp;
 
@@ -3253,6 +3307,10 @@ int _UIMenuMessage(UIElement *element, UIMessage message, int di, void *dp) {
 			_UIMenusClose();
 			return 1;
 		}
+	} else if (message == UI_MSG_MOUSE_WHEEL) {
+		return UIElementMessage(&menu->vScroll->e, message, di, dp);
+	} else if (message == UI_MSG_SCROLLED) {
+		UIElementRefresh(element);
 	}
 
 	return 0;
@@ -3278,6 +3336,8 @@ UIMenu *UIMenuCreate(UIElement *parent, uint32_t flags) {
 	UIWindow *window = UIWindowCreate(parent->window, UI_WINDOW_MENU, 0, 0, 0);
 	
 	UIMenu *menu = (UIMenu *) UIElementCreate(sizeof(UIMenu), &window->e, flags, _UIMenuMessage, "Menu");
+
+	menu->vScroll = UIScrollBarCreate(&menu->e, UI_ELEMENT_NON_CLIENT);
 
 	if (parent->parent) {
 		UIRectangle screenBounds = UIElementScreenBounds(parent);
@@ -3322,37 +3382,6 @@ void _UIElementPaint(UIElement *element, UIPainter *painter, bool forRepaint) {
 		return;
 	}
 
-	if (forRepaint) {
-		// Add to the repaint region the intersection of the parent's repaint region with our clip.
-
-		if (element->parent) {
-			UIRectangle parentRepaint = UIRectangleIntersection(element->parent->repaint, element->clip);
-
-			if (UI_RECT_VALID(parentRepaint)) {
-				if (element->flags & UI_ELEMENT_REPAINT) {
-					element->repaint = UIRectangleBounding(element->repaint, parentRepaint);
-				} else {
-					element->repaint = parentRepaint;
-					element->flags |= UI_ELEMENT_REPAINT;
-				}
-			} 
-		}
-
-		// If we don't need to repaint, don't.
-		
-		if (~element->flags & UI_ELEMENT_REPAINT) {
-			return;
-		}
-
-		// Clip painting to our repaint region.
-
-		painter->clip = UIRectangleIntersection(element->repaint, painter->clip);
-
-		if (!UI_RECT_VALID(painter->clip)) {
-			return;
-		}
-	}
-
 	// Paint the element.
 
 	UIElementMessage(element, UI_MSG_PAINT, 0, painter);
@@ -3366,12 +3395,6 @@ void _UIElementPaint(UIElement *element, UIPainter *painter, bool forRepaint) {
 		painter->clip = previousClip;
 		_UIElementPaint(child, painter, forRepaint);
 		child = child->next;
-	}
-
-	// Clear the repaint flag.
-
-	if (forRepaint) {
-		element->flags &= ~UI_ELEMENT_REPAINT;
 	}
 }
 
@@ -3458,19 +3481,19 @@ void _UIUpdate() {
 		} else {
 			link = &window->next;
 
-			if (window->e.flags & UI_ELEMENT_REPAINT) {
+			if (UI_RECT_VALID(window->updateRegion)) {
 #ifdef __cplusplus
 				UIPainter painter = {};
 #else
 				UIPainter painter = { 0 };
 #endif
-				window->updateRegion = window->e.repaint;
 				painter.bits = window->bits;
 				painter.width = window->width;
 				painter.height = window->height;
-				painter.clip = UI_RECT_2S(window->width, window->height);
+				painter.clip = UIRectangleIntersection(UI_RECT_2S(window->width, window->height), window->updateRegion);
 				_UIElementPaint(&window->e, &painter, true);
 				_UIWindowEndPaint(window, &painter);
+				window->updateRegion = UI_RECT_1(0);
 
 #ifdef UI_DEBUG
 				window->lastFullFillCount = (float) painter.fillCount / (UI_RECT_WIDTH(window->updateRegion) * UI_RECT_HEIGHT(window->updateRegion));
@@ -3946,17 +3969,6 @@ UIWindow *UIWindowCreate(UIWindow *owner, uint32_t flags, const char *cTitle, in
 
 	window->xic = XCreateIC(ui.xim, XNInputStyle, XIMPreeditNothing | XIMStatusNothing, XNClientWindow, window->window, XNFocusWindow, window->window, NULL);
 
-    if(flags & UI_WINDOW_MENU) {
-        Atom property[] = {
-            XInternAtom(ui.display, "_NET_WM_WINDOW_TYPE", true),
-            XInternAtom(ui.display, "_NET_WM_WINDOW_TYPE_DROPDOWN_MENU", true),
-        };
-        XChangeProperty(ui.display, window->window, XInternAtom(ui.display, "_NET_WM_WINDOW_TYPE", true), XA_ATOM, 32, PropModeReplace, (unsigned char*)property, 2);
-        XSetTransientForHint(ui.display, window->window, DefaultRootWindow(ui.display));
-
-    }
-
-
 	return window;
 }
 
@@ -4038,6 +4050,34 @@ void UIMenuShow(UIMenu *menu) {
 	int width, height;
 	_UIMenuPrepare(menu, &width, &height);
 
+	for (int i = 0; i < ScreenCount(ui.display); i++) {
+		Screen *screen = ScreenOfDisplay(ui.display, i);
+
+		int x, y;
+		Window child;
+		XTranslateCoordinates(ui.display, screen->root, DefaultRootWindow(ui.display), 0, 0, &x, &y, &child);
+
+		if (menu->pointX >= x && menu->pointX < x + screen->width 
+				&& menu->pointY >= y && menu->pointY < y + screen->height) {
+			if (menu->pointX + width > x + screen->width) menu->pointX = x + screen->width - width;
+			if (menu->pointY + height > y + screen->height) menu->pointY = y + screen->height - height;
+			if (menu->pointX < x) menu->pointX = x;
+			if (menu->pointY < y) menu->pointY = y;
+			if (menu->pointX + width > x + screen->width) width = x + screen->width - menu->pointX;
+			if (menu->pointY + height > y + screen->height) height = y + screen->height - menu->pointY;
+			break;
+		}
+	}
+
+	Atom properties[] = {
+		XInternAtom(ui.display, "_NET_WM_WINDOW_TYPE", true),
+		XInternAtom(ui.display, "_NET_WM_WINDOW_TYPE_DROPDOWN_MENU", true),
+		XInternAtom(ui.display, "_MOTIF_WM_HINTS", true),
+	};
+
+	XChangeProperty(ui.display, menu->e.window->window, properties[0], XA_ATOM, 32, PropModeReplace, (uint8_t *) properties, 2);
+	XSetTransientForHint(ui.display, menu->e.window->window, DefaultRootWindow(ui.display));
+
 	struct Hints {
 		int flags;
 		int functions;
@@ -4046,9 +4086,9 @@ void UIMenuShow(UIMenu *menu) {
 		int status;
 	};
 
-	struct Hints hints = { 2 };
-	Atom property = XInternAtom(ui.display, "_MOTIF_WM_HINTS", true);
-	XChangeProperty(ui.display, menu->e.window->window, property, property, 32, PropModeReplace, (uint8_t *) &hints, 5);
+	struct Hints hints = { 0 };
+	hints.flags = 2;
+	XChangeProperty(ui.display, menu->e.window->window, properties[2], properties[2], 32, PropModeReplace, (uint8_t *) &hints, 5);
 
 	XMapWindow(ui.display, menu->e.window->window);
 	XMoveResizeWindow(ui.display, menu->e.window->window, menu->pointX, menu->pointY, width, height);

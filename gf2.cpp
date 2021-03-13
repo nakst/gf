@@ -866,7 +866,7 @@ void Update(const char *data) {
 
 	bool changedSourceLine = SetPosition(fileChanged ? newFile : NULL, lineChanged ? newLine : -1, true);
 	
-	if (changedSourceLine) {
+	if (changedSourceLine && currentLine < displayCode->lineCount) {
 		// If there is an auto-print expression from the previous line, evaluate it.
 		
 		if (autoPrintExpression[0]) {
