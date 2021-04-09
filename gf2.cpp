@@ -20,9 +20,6 @@
 #include <ctype.h>
 #include <sys/stat.h>
 
-#define STB_DS_IMPLEMENTATION
-#include "stb_ds.h"
-
 extern "C" {
 #define UI_LINUX
 #define UI_IMPLEMENTATION
@@ -58,6 +55,29 @@ UIColorPicker *themeEditorColorPicker;
 UITable *themeEditorTable;
 int themeEditorSelectedColor;
 
+// Dynamic arrays:
+
+template <class T>
+struct Array {
+	T *array;
+	size_t length;
+
+	inline void Insert(T item, uintptr_t index) {
+		length++;
+		array = (T *) realloc(array, length * sizeof(T));
+		memmove(array + index + 1, array + index, (length - index - 1) * sizeof(T));
+		array[index] = item;
+	}
+
+	inline void Add(T item) { Insert(item, length); }
+	inline void Free() { free(array); array = nullptr; length = 0; }
+	inline int Length() { return length; }
+	inline T &First() { return array[0]; }
+	inline T &Last() { return array[length - 1]; }
+	inline T &operator[](uintptr_t index) { return array[index]; }
+	inline void Pop() { length--; }
+};
+
 // Call stack:
 
 struct StackEntry {
@@ -67,7 +87,7 @@ struct StackEntry {
 	int id;
 };
 
-StackEntry *stack;
+Array<StackEntry> stack;
 int stackSelected;
 bool stackJustSelected;
 
@@ -78,11 +98,11 @@ struct Breakpoint {
 	int line;
 };
 
-Breakpoint *breakpoints;
+Array<Breakpoint> breakpoints;
 
 // Command history:
 
-char **commandHistory;
+Array<char *> commandHistory;
 int commandHistoryIndex;
 
 // Auto-print expression:
@@ -311,7 +331,7 @@ void CommandSendToGDB(void *_string) {
 
 void CommandDeleteBreakpoint(void *_index) {
 	int index = (int) (intptr_t) _index;
-	Breakpoint *breakpoint = breakpoints + index;
+	Breakpoint *breakpoint = &breakpoints[index];
 	char buffer[1024];
 	snprintf(buffer, 1024, "clear %s:%d", breakpoint->file, breakpoint->line);
 	SendToGDB(buffer, true);
@@ -366,7 +386,7 @@ void CommandToggleBreakpoint(void *_line) {
 		line = currentLine;
 	}
 
-	for (int i = 0; i < arrlen(breakpoints); i++) {
+	for (int i = 0; i < breakpoints.Length(); i++) {
 		if (breakpoints[i].line == line && 0 == strcmp(breakpoints[i].file, currentFile)) {
 			char buffer[1024];
 			snprintf(buffer, 1024, "clear %s:%d", currentFile, line);
@@ -727,12 +747,12 @@ int TextboxInputMessage(UIElement *, UIMessage message, int di, void *dp) {
 			char *string = (char *) malloc(textboxInput->bytes + 1);
 			memcpy(string, textboxInput->string, textboxInput->bytes);
 			string[textboxInput->bytes] = 0;
-			arrins(commandHistory, 0, string);
+			commandHistory.Insert(string, 0);
 			commandHistoryIndex = 0;
 
-			if (arrlen(commandHistory) > 100) {
-				free(arrlast(commandHistory));
-				arrpop(commandHistory);
+			if (commandHistory.Length() > 100) {
+				free(commandHistory.Last());
+				commandHistory.Pop();
 			}
 
 			UITextboxClear(textboxInput, false);
@@ -782,10 +802,10 @@ int TextboxInputMessage(UIElement *, UIMessage message, int di, void *dp) {
 
 			return 1;
 		} else if (m->code == UI_KEYCODE_UP) {
-			if (commandHistoryIndex < arrlen(commandHistory)) {
+			if (commandHistoryIndex < commandHistory.Length()) {
 				UITextboxClear(textboxInput, false);
 				UITextboxReplace(textboxInput, commandHistory[commandHistoryIndex], -1, false);
-				if (commandHistoryIndex < arrlen(commandHistory) - 1) commandHistoryIndex++;
+				if (commandHistoryIndex < commandHistory.Length() - 1) commandHistoryIndex++;
 				UIElementRefresh(&textboxInput->e);
 			}
 		} else if (m->code == UI_KEYCODE_DOWN) {
@@ -952,7 +972,7 @@ void Update(const char *data) {
 	// Get the list of breakpoints.
 
 	EvaluateCommand("info break");
-	arrfree(breakpoints);
+	breakpoints.Free();
 
 	{
 		const char *position = evaluateResult;
@@ -992,21 +1012,21 @@ void Update(const char *data) {
 			} else recognised = false;
 
 			if (recognised) {
-				arrput(breakpoints, breakpoint);
+				breakpoints.Add(breakpoint);
 			}
 
 			position = next;
 		}
 	}
 
-	tableBreakpoints->itemCount = arrlen(breakpoints);
+	tableBreakpoints->itemCount = breakpoints.Length();
 	UITableResizeColumns(tableBreakpoints);
 	UIElementRefresh(&tableBreakpoints->e);
 
 	// Get the stack.
 
 	EvaluateCommand("bt 50");
-	arrfree(stack);
+	stack.Free();
 	if (!stackJustSelected) stackSelected = 0;
 	stackJustSelected = false;
 
@@ -1050,13 +1070,13 @@ void Update(const char *data) {
 				snprintf(entry.location, sizeof(entry.location), "%.*s", (int) (end - file), file);
 			}
 
-			arrput(stack, entry);
+			stack.Add(entry);
 
 			position = next + 1;
 		}
 	}
 
-	tableStack->itemCount = arrlen(stack);
+	tableStack->itemCount = stack.Length();
 	UITableResizeColumns(tableStack);
 	UIElementRefresh(&tableStack->e);
 }
@@ -1065,7 +1085,7 @@ int TableStackMessage(UIElement *element, UIMessage message, int di, void *dp) {
 	if (message == UI_MSG_TABLE_GET_ITEM) {
 		UITableGetItem *m = (UITableGetItem *) dp;
 		m->isSelected = m->index == stackSelected;
-		StackEntry *entry = stack + m->index;
+		StackEntry *entry = &stack[m->index];
 
 		if (m->column == 0) {
 			return snprintf(m->buffer, m->bufferBytes, "%d", entry->id);
@@ -1095,7 +1115,7 @@ int TableStackMessage(UIElement *element, UIMessage message, int di, void *dp) {
 int TableBreakpointsMessage(UIElement *element, UIMessage message, int di, void *dp) {
 	if (message == UI_MSG_TABLE_GET_ITEM) {
 		UITableGetItem *m = (UITableGetItem *) dp;
-		Breakpoint *entry = breakpoints + m->index;
+		Breakpoint *entry = &breakpoints[m->index];
 
 		if (m->column == 0) {
 			return snprintf(m->buffer, m->bufferBytes, "%s", entry->file);
@@ -1138,7 +1158,7 @@ int DisplayCodeMessage(UIElement *element, UIMessage message, int di, void *dp) 
 			}
 		}
 	} else if (message == UI_MSG_CODE_GET_MARGIN_COLOR) {
-		for (int i = 0; i < arrlen(breakpoints); i++) {
+		for (int i = 0; i < breakpoints.Length(); i++) {
 			if (breakpoints[i].line == di && 0 == strcmp(breakpoints[i].file, currentFile)) {
 				return 0xFF0000;
 			}
@@ -1225,7 +1245,6 @@ extern "C" void CreateInterface(UIWindow *_window) {
 }
 
 extern "C" void CloseDebugger() {
-
 	kill(gdbPID, SIGKILL);
 	pthread_cancel(gdbThread);
 }
