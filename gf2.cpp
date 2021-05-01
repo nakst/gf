@@ -1,13 +1,16 @@
 // Build with: g++ gf2.cpp -lX11 -Wall -Wextra -Wno-unused-parameter -Wno-missing-field-initializers -Wno-format-truncation -o gf2 -g -pthread
 // Add the following flags to use FreeType: -lfreetype -D UI_FREETYPE -I /usr/include/freetype2 -D UI_FONT_PATH=/usr/share/fonts/TTF/DejaVuSansMono.ttf -D UI_FONT_SIZE=13
 
-// Future extensions: 
-// 	- Saving commands to shortcuts (with alt- key).
+// TODO Disassembly window.
+// 	- Better tab alignment of code.
+// 	- Setting/clearing/showing breakpoints.
+// 	- Auto-print results.
+// 	- Jump to line and run to line.
+
+// TODO Future extensions.
 // 	- Watch window.
 // 	- Memory window.
-// 	- Disassembly window.
 // 	- Hover to view value.
-// 	- Automatically show results from previous line.
 // 	- Thread selection.
 // 	- Data breakpoint viewer.
 // 	- Automatically restoring breakpoints and symbols files after restarting gdb.
@@ -36,6 +39,10 @@ char currentFile[4096];
 int currentLine;
 time_t currentFileReadTime;
 
+bool showingDisassembly;
+char *disassemblyPreviousSourceFile;
+int disassemblyPreviousSourceLine;
+
 // User interface:
 
 UIWindow *window;
@@ -47,6 +54,8 @@ UITextbox *textboxInput;
 UIButton *buttonMenu;
 UISpacer *trafficLight;
 UIMDIClient *dataWindow;
+UITabPane *tabPaneWatchData;
+UIPanel *registersWindow;
 
 // Theme editor:
 
@@ -112,9 +121,17 @@ char autoPrintResult[1024];
 int autoPrintExpressionLine;
 int autoPrintResultLine;
 
+// Registers:
+
+struct RegisterData {
+	char string[64];
+};
+
+Array<RegisterData> registerData;
+
 // GDB process:
 
-#define RECEIVE_BUFFER_SIZE (4194304)
+#define RECEIVE_BUFFER_SIZE (16777216)
 char receiveBuffer[RECEIVE_BUFFER_SIZE];
 size_t receiveBufferPosition;
 volatile int pipeToGDB;
@@ -252,6 +269,19 @@ extern "C" const char *GetPosition(int *line) {
 }
 
 extern "C" bool SetPosition(const char *file, int line, bool useGDBToGetFullPath) {
+	if (showingDisassembly) {
+		if (file) {
+			free(disassemblyPreviousSourceFile);
+			disassemblyPreviousSourceFile = strdup(file);
+		}
+
+		if (line != -1) {
+			disassemblyPreviousSourceLine = line;
+		}
+
+		return false;
+	}
+
 	char buffer[4096];
 	const char *originalFile = file;
 
@@ -329,6 +359,20 @@ void CommandSendToGDB(void *_string) {
 	SendToGDB((const char *) _string, true);
 }
 
+void CommandSendToGDBStep(void *_string) {
+	const char *command = (const char *) _string;
+
+	if (showingDisassembly) {
+		if (0 == strcmp(command, "s")) {
+			command = "stepi";
+		} else if (0 == strcmp(command, "n")) {
+			command = "nexti";
+		}
+	}
+
+	SendToGDB(command, true);
+}
+
 void CommandDeleteBreakpoint(void *_index) {
 	int index = (int) (intptr_t) _index;
 	Breakpoint *breakpoint = &breakpoints[index];
@@ -348,7 +392,6 @@ void CommandPause(void *) {
 	kill(gdbPID, SIGINT);
 }
 
-#ifndef EMBED_GF
 void CommandSyncWithGvim(void *) {
 	if (system("vim --servername GVIM --remote-expr \"execute(\\\"ls\\\")\" | grep % > .temp.gf")) {
 		return;
@@ -377,10 +420,14 @@ void CommandSyncWithGvim(void *) {
 		unlink(".temp.gf");
 	}
 }
-#endif
 
 void CommandToggleBreakpoint(void *_line) {
 	int line = (int) (intptr_t) _line;
+
+	if (showingDisassembly) {
+		// TODO.
+		return;
+	}
 
 	if (!line) {
 		line = currentLine;
@@ -507,6 +554,101 @@ void CommandThemeEditor(void *) {
 	UITableResizeColumns(themeEditorTable);
 }
 
+void LoadDisassembly() {
+	EvaluateCommand("disas");
+
+	if (!strstr(evaluateResult, "Dump of assembler code for function")) {
+		EvaluateCommand("disas $pc,+1000");
+	}
+
+	char *end = strstr(evaluateResult, "End of assembler dump.");
+
+	if (!end) {
+		printf("Disassembly failed. GDB output:\n%s\n", evaluateResult);
+		return;
+	}
+
+	char *start = strstr(evaluateResult, ":\n");
+
+	if (!start) {
+		printf("Disassembly failed. GDB output:\n%s\n", evaluateResult);
+		return;
+	}
+
+	start += 2;
+
+	if (start >= end) {
+		printf("Disassembly failed. GDB output:\n%s\n", evaluateResult);
+		return;
+	}
+
+	char *pointer = strstr(start, "=> ");
+
+	if (pointer) {
+		pointer[0] = ' ';
+		pointer[1] = ' ';
+	}
+
+	UICodeInsertContent(displayCode, start, end - start, true);
+}
+
+void UpdateDisassemblyLine() {
+	EvaluateCommand("p $pc");
+	char *address = strstr(evaluateResult, "0x");
+
+	if (address) {
+		char *addressEnd;
+		uint64_t a = strtoul(address, &addressEnd, 0);
+
+		for (int i = 0; i < 2; i++) {
+			// Look for the line in the disassembly.
+
+			bool found = false;
+
+			for (int i = 0; i < displayCode->lineCount; i++) {
+				uint64_t b = strtoul(displayCode->content + displayCode->lines[i].offset + 3, &addressEnd, 0);
+
+				if (a == b) {
+					UICodeFocusLine(displayCode, i + 1);
+					found = true;
+					break;
+				}
+			}
+
+			if (!found) {
+				// Reload the disassembly.
+				LoadDisassembly();
+			} else {
+				break;
+			}
+		}
+
+		UIElementRefresh(&displayCode->e);
+	}
+}
+
+void CommandToggleDisassembly(void *) {
+	showingDisassembly = !showingDisassembly;
+	displayCode->e.flags ^= UI_CODE_NO_MARGIN;
+
+	if (showingDisassembly) {
+		free(disassemblyPreviousSourceFile);
+		disassemblyPreviousSourceFile = strdup(currentFile);
+		disassemblyPreviousSourceLine = currentLine;
+
+		UICodeInsertContent(displayCode, "Disassembly could not be loaded.\nPress Ctrl+D to return to source view.", -1, true);
+		LoadDisassembly();
+		UpdateDisassemblyLine();
+	} else {
+		currentLine = -1;
+		currentFile[0] = 0;
+		currentFileReadTime = 0;
+		SetPosition(disassemblyPreviousSourceFile, disassemblyPreviousSourceLine, true);
+	}
+
+	UIElementRefresh(&displayCode->e);
+}
+
 void ShowMenu(void *) {
 	UIMenu *menu = UIMenuCreate(&buttonMenu->e, UI_MENU_PLACE_ABOVE);
 	UIMenuAddItem(menu, 0, "Run\tShift+F5", -1, CommandSendToGDB, (void *) "r");
@@ -515,14 +657,13 @@ void ShowMenu(void *) {
 	UIMenuAddItem(menu, 0, "Restart GDB\tCtrl+R", -1, CommandRestartGDB, NULL);
 	UIMenuAddItem(menu, 0, "Connect\tF4", -1, CommandSendToGDB, (void *) "target remote :1234");
 	UIMenuAddItem(menu, 0, "Continue\tF5", -1, CommandSendToGDB, (void *) "c");
-	UIMenuAddItem(menu, 0, "Step over\tF10", -1, CommandSendToGDB, (void *) "n");
-	UIMenuAddItem(menu, 0, "Step in\tF11", -1, CommandSendToGDB, (void *) "s");
+	UIMenuAddItem(menu, 0, "Step over\tF10", -1, CommandSendToGDBStep, (void *) "n");
+	UIMenuAddItem(menu, 0, "Step in\tF11", -1, CommandSendToGDBStep, (void *) "s");
 	UIMenuAddItem(menu, 0, "Step out\tShift+F11", -1, CommandSendToGDB, (void *) "finish");
 	UIMenuAddItem(menu, 0, "Pause\tF8", -1, CommandPause, NULL);
 	UIMenuAddItem(menu, 0, "Toggle breakpoint\tF9", -1, CommandToggleBreakpoint, NULL);
-#ifndef EMBED_GF
 	UIMenuAddItem(menu, 0, "Sync with gvim\tF2", -1, CommandSyncWithGvim, NULL);
-#endif
+	UIMenuAddItem(menu, 0, "Toggle disassembly\tCtrl+D", -1, CommandToggleDisassembly, NULL);
 	UIMenuAddItem(menu, 0, "Theme editor", -1, CommandThemeEditor, NULL);
 	UIMenuShow(menu);
 }
@@ -534,14 +675,13 @@ void RegisterShortcuts() {
 	UIWindowRegisterShortcut(window, { .code = UI_KEYCODE_LETTER('R'), .ctrl = true, .invoke = CommandRestartGDB, .cp = NULL });
 	UIWindowRegisterShortcut(window, { .code = UI_KEYCODE_F4, .invoke = CommandSendToGDB, .cp = (void *) "target remote :1234" });
 	UIWindowRegisterShortcut(window, { .code = UI_KEYCODE_F5, .invoke = CommandSendToGDB, .cp = (void *) "c" });
-	UIWindowRegisterShortcut(window, { .code = UI_KEYCODE_F10, .invoke = CommandSendToGDB, .cp = (void *) "n" });
-	UIWindowRegisterShortcut(window, { .code = UI_KEYCODE_F11, .invoke = CommandSendToGDB, .cp = (void *) "s" });
+	UIWindowRegisterShortcut(window, { .code = UI_KEYCODE_F10, .invoke = CommandSendToGDBStep, .cp = (void *) "n" });
+	UIWindowRegisterShortcut(window, { .code = UI_KEYCODE_F11, .invoke = CommandSendToGDBStep, .cp = (void *) "s" });
 	UIWindowRegisterShortcut(window, { .code = UI_KEYCODE_F11, .shift = true, .invoke = CommandSendToGDB, .cp = (void *) "finish" });
 	UIWindowRegisterShortcut(window, { .code = UI_KEYCODE_F8, .invoke = CommandPause, .cp = NULL });
 	UIWindowRegisterShortcut(window, { .code = UI_KEYCODE_F9, .invoke = CommandToggleBreakpoint, .cp = NULL });
-#ifndef EMBED_GF
 	UIWindowRegisterShortcut(window, { .code = UI_KEYCODE_F2, .invoke = CommandSyncWithGvim, .cp = NULL });
-#endif
+	UIWindowRegisterShortcut(window, { .code = UI_KEYCODE_LETTER('D'), .ctrl = true, .invoke = CommandToggleDisassembly, .cp = NULL });
 }
 
 int RunSystemWithOutput(const char *command) {
@@ -643,6 +783,9 @@ void PrintErrorMessage(const char *message) {
 }
 
 void AddDataWindow(void *) {
+	tabPaneWatchData->active = 2;
+	UIElementRefresh(&tabPaneWatchData->e);
+
 	char buffer[1024];
 	snprintf(buffer, 1024, "%.*s", (int) textboxInput->bytes, textboxInput->string);
 
@@ -823,6 +966,14 @@ int TextboxInputMessage(UIElement *, UIMessage message, int di, void *dp) {
 	return 0;
 }
 
+int ModifiedRowMessage(UIElement *element, UIMessage message, int di, void *dp) {
+	if (message == UI_MSG_PAINT) {
+		UIDrawBorder((UIPainter *) dp, element->bounds, 0x00FF00, UI_RECT_1(2));
+	}
+
+	return 0;
+}
+
 void Update(const char *data) {
 	// Parse the current line.
 
@@ -880,6 +1031,12 @@ void Update(const char *data) {
 				fileChanged = true;
 			}
 		}
+	}
+
+	// Get the current address.
+
+	if (showingDisassembly) {
+		UpdateDisassemblyLine();
 	}
 
 	// Set the file and line in the source display.
@@ -1079,6 +1236,59 @@ void Update(const char *data) {
 	tableStack->itemCount = stack.Length();
 	UITableResizeColumns(tableStack);
 	UIElementRefresh(&tableStack->e);
+
+	// Get registers.
+
+	EvaluateCommand("info registers");
+
+	if (!strstr(evaluateResult, "The program has no registers now.")) {
+		UIElementDestroyDescendents(&registersWindow->e);
+		char *position = evaluateResult;
+		Array<RegisterData> newRegisterData = {};
+
+		while (*position != '(') {
+			char *nameStart = position;
+			while (isspace(*nameStart)) nameStart++;
+			char *nameEnd = position = strchr(nameStart, ' ');
+			if (!nameEnd) break;
+			char *format1Start = position;
+			while (isspace(*format1Start)) format1Start++;
+			char *format1End = position = strchr(format1Start, ' ');
+			if (!format1End) break;
+			char *format2Start = position;
+			while (isspace(*format2Start)) format2Start++;
+			char *format2End = position = strchr(format2Start, '\n');
+			if (!format2End) break;
+
+			RegisterData data;
+			snprintf(data.string, sizeof(data.string), "%.*s;%.*s;%.*s", 
+					(int) (format1End - format1Start), format1Start, 
+					(int) (format2End - format2Start), format2Start, 
+					(int) (nameEnd - nameStart), nameStart);
+			bool modified = false;
+
+			if (registerData.Length() > newRegisterData.Length()) {
+				RegisterData *old = &registerData[newRegisterData.Length()];
+
+				if (strcmp(old->string, data.string)) {
+					modified = true;
+				}
+			}
+
+			newRegisterData.Add(data);
+
+			UIPanel *row = UIPanelCreate(&registersWindow->e, UI_PANEL_HORIZONTAL | UI_ELEMENT_H_FILL);
+			row->gap = 20;
+			if (modified) row->e.messageUser = ModifiedRowMessage;
+			UILabelCreate(&row->e, 0, nameStart, nameEnd - nameStart);
+			UILabelCreate(&row->e, 0, format1Start, format1End - format1Start);
+			UILabelCreate(&row->e, 0, format2Start, format2End - format2Start);
+		}
+
+		UIElementRefresh(&registersWindow->e);
+		registerData.Free();
+		registerData = newRegisterData;
+	}
 }
 
 int TableStackMessage(UIElement *element, UIMessage message, int di, void *dp) {
@@ -1136,7 +1346,7 @@ int TableBreakpointsMessage(UIElement *element, UIMessage message, int di, void 
 }
 
 int DisplayCodeMessage(UIElement *element, UIMessage message, int di, void *dp) {
-	if (message == UI_MSG_CLICKED) {
+	if (message == UI_MSG_CLICKED && !showingDisassembly) {
 		int result = UICodeHitTest((UICode *) element, element->window->cursorX, element->window->cursorY); 
 
 		if (result < 0) {
@@ -1157,13 +1367,13 @@ int DisplayCodeMessage(UIElement *element, UIMessage message, int di, void *dp) 
 				SendToGDB(buffer, true);
 			}
 		}
-	} else if (message == UI_MSG_CODE_GET_MARGIN_COLOR) {
+	} else if (message == UI_MSG_CODE_GET_MARGIN_COLOR && !showingDisassembly) {
 		for (int i = 0; i < breakpoints.Length(); i++) {
 			if (breakpoints[i].line == di && 0 == strcmp(breakpoints[i].file, currentFile)) {
 				return 0xFF0000;
 			}
 		}
-	} else if (message == UI_MSG_CODE_GET_LINE_HINT) {
+	} else if (message == UI_MSG_CODE_GET_LINE_HINT && !showingDisassembly) {
 		UITableGetItem *m = (UITableGetItem *) dp;
 		
 		if (m->index == autoPrintResultLine) {
@@ -1177,6 +1387,21 @@ int DisplayCodeMessage(UIElement *element, UIMessage message, int di, void *dp) 
 int TrafficLightMessage(UIElement *element, UIMessage message, int di, void *dp) {
 	if (message == UI_MSG_PAINT) {
 		UIDrawRectangle((UIPainter *) dp, element->bounds, programRunning ? 0xFF0000 : 0x00FF00, ui.theme.border, UI_RECT_1(1));
+	}
+
+	return 0;
+}
+
+int WatchTableMessage(UIElement *element, UIMessage message, int di, void *dp) {
+	if (message == UI_MSG_TABLE_GET_ITEM) {
+		UITableGetItem *m = (UITableGetItem *) dp;
+
+		if (m->column == 0) {
+			// return snprintf(m->buffer, m->bufferBytes, "+ add");
+			return snprintf(m->buffer, m->bufferBytes, "(wip)");
+		} else {
+			return 0;
+		}
 	}
 
 	return 0;
@@ -1214,7 +1439,14 @@ extern "C" void CreateInterface(UIWindow *_window) {
 	UISplitPane *split2 = UISplitPaneCreate(&split1->e, /* horizontal */ 0, 0.80f);
 	UISplitPane *split4 = UISplitPaneCreate(&split1->e, /* horizontal */ 0, 0.65f);
 	UIPanel *panel2 = UIPanelCreate(&split4->e, UI_PANEL_EXPAND);
-	dataWindow = UIMDIClientCreate(&split4->e, 0);
+	tabPaneWatchData = UITabPaneCreate(&split4->e, 0, "Registers\tWatch\tData");
+	registersWindow = UIPanelCreate(&tabPaneWatchData->e, UI_PANEL_SMALL_SPACING | UI_PANEL_GRAY | UI_PANEL_SCROLL);
+	UIPanel *watchWindow = UIPanelCreate(&tabPaneWatchData->e, UI_PANEL_SMALL_SPACING | UI_PANEL_GRAY);
+	UITable *watchTable = UITableCreate(&watchWindow->e, UI_ELEMENT_V_FILL | UI_ELEMENT_H_FILL, "Expression\tValue");
+	UITableResizeColumns(watchTable);
+	watchTable->itemCount = 1;
+	watchTable->e.messageUser = WatchTableMessage;
+	dataWindow = UIMDIClientCreate(&tabPaneWatchData->e, 0);
 	displayOutput = UICodeCreate(&panel2->e, UI_CODE_NO_MARGIN | UI_ELEMENT_V_FILL);
 	UIPanel *panel3 = UIPanelCreate(&panel2->e, UI_PANEL_HORIZONTAL | UI_PANEL_EXPAND | UI_PANEL_GRAY);
 	panel3->border = UI_RECT_1(5);
@@ -1251,16 +1483,17 @@ extern "C" void CloseDebugger() {
 
 #ifndef EMBED_GF
 int main(int argc, char **argv) {
-	// setup gdb args
-	gdbArgv = (char**)malloc(sizeof(char*)*(argc+1));
-	gdbArgv[0] = (char*)"gdb";
-	memcpy(gdbArgv+1, argv+1, sizeof(argv)*(argc-1));
+	// Setup GDB arguments.
+	gdbArgv = (char **) malloc(sizeof(char *) * (argc + 1));
+	gdbArgv[0] = (char *) "gdb";
+	memcpy(gdbArgv + 1, argv + 1, sizeof(argv) * (argc - 1));
 
 	UIInitialise();
 	CreateInterface(UIWindowCreate(0, 0, "gf2", 0, 0));
 	CommandSyncWithGvim(NULL);
 	UIMessageLoop();
 	CloseDebugger();
+
 	return 0;
 }
 #endif
