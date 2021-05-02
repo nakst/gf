@@ -441,6 +441,7 @@ typedef struct UICode {
 	bool moveScrollToFocusNextLayout;
 	char *content;
 	size_t contentBytes;
+	int tabSize;
 } UICode;
 
 typedef struct UIGauge {
@@ -2225,7 +2226,7 @@ int _UICodeMessage(UIElement *element, UIMessage message, int di, void *dp) {
 
 				if (c == '\t') {
 					x += ui.glyphWidth, ti++;
-					while (ti & 3) x += ui.glyphWidth, ti++;
+					while (ti % code->tabSize) x += ui.glyphWidth, ti++;
 				} else {
 					UIDrawGlyph(painter, x, y, c, colors[lexState]);
 					x += ui.glyphWidth, ti++;
@@ -2330,6 +2331,7 @@ UICode *UICodeCreate(UIElement *parent, uint32_t flags) {
 	UICode *code = (UICode *) UIElementCreate(sizeof(UICode), parent, flags, _UICodeMessage, "Code");
 	code->vScroll = UIScrollBarCreate(&code->e, 0);
 	code->focused = -1;
+	code->tabSize = 4;
 	return code;
 }
 

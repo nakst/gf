@@ -2,10 +2,10 @@
 // Add the following flags to use FreeType: -lfreetype -D UI_FREETYPE -I /usr/include/freetype2 -D UI_FONT_PATH=/usr/share/fonts/TTF/DejaVuSansMono.ttf -D UI_FONT_SIZE=13
 
 // TODO Disassembly window.
-// 	- Better tab alignment of code.
+// 	- Split source and disassembly view.
 // 	- Setting/clearing/showing breakpoints.
-// 	- Auto-print results.
 // 	- Jump to line and run to line.
+// 	- Shift+F10: run to next instruction (for skipping past loops).
 
 // TODO Future extensions.
 // 	- Watch window.
@@ -124,7 +124,7 @@ int autoPrintResultLine;
 // Registers:
 
 struct RegisterData {
-	char string[64];
+	char string[128];
 };
 
 Array<RegisterData> registerData;
@@ -610,6 +610,7 @@ void UpdateDisassemblyLine() {
 
 				if (a == b) {
 					UICodeFocusLine(displayCode, i + 1);
+					autoPrintExpressionLine = i;
 					found = true;
 					break;
 				}
@@ -629,6 +630,8 @@ void UpdateDisassemblyLine() {
 
 void CommandToggleDisassembly(void *) {
 	showingDisassembly = !showingDisassembly;
+	autoPrintResultLine = 0;
+	autoPrintExpression[0] = 0;
 	displayCode->e.flags ^= UI_CODE_NO_MARGIN;
 
 	if (showingDisassembly) {
@@ -637,6 +640,7 @@ void CommandToggleDisassembly(void *) {
 		disassemblyPreviousSourceLine = currentLine;
 
 		UICodeInsertContent(displayCode, "Disassembly could not be loaded.\nPress Ctrl+D to return to source view.", -1, true);
+		displayCode->tabSize = 8;
 		LoadDisassembly();
 		UpdateDisassemblyLine();
 	} else {
@@ -644,6 +648,7 @@ void CommandToggleDisassembly(void *) {
 		currentFile[0] = 0;
 		currentFileReadTime = 0;
 		SetPosition(disassemblyPreviousSourceFile, disassemblyPreviousSourceLine, true);
+		displayCode->tabSize = 4;
 	}
 
 	UIElementRefresh(&displayCode->e);
@@ -1245,6 +1250,7 @@ void Update(const char *data) {
 		UIElementDestroyDescendents(&registersWindow->e);
 		char *position = evaluateResult;
 		Array<RegisterData> newRegisterData = {};
+		bool anyChanges = false;
 
 		while (*position != '(') {
 			char *nameStart = position;
@@ -1260,11 +1266,12 @@ void Update(const char *data) {
 			char *format2End = position = strchr(format2Start, '\n');
 			if (!format2End) break;
 
+			char *stringStart = nameStart;
+			char *stringEnd = format2End;
+
 			RegisterData data;
-			snprintf(data.string, sizeof(data.string), "%.*s;%.*s;%.*s", 
-					(int) (format1End - format1Start), format1Start, 
-					(int) (format2End - format2Start), format2Start, 
-					(int) (nameEnd - nameStart), nameStart);
+			snprintf(data.string, sizeof(data.string), "%.*s", 
+					(int) (stringEnd - stringStart), stringStart);
 			bool modified = false;
 
 			if (registerData.Length() > newRegisterData.Length()) {
@@ -1278,11 +1285,29 @@ void Update(const char *data) {
 			newRegisterData.Add(data);
 
 			UIPanel *row = UIPanelCreate(&registersWindow->e, UI_PANEL_HORIZONTAL | UI_ELEMENT_H_FILL);
-			row->gap = 20;
 			if (modified) row->e.messageUser = ModifiedRowMessage;
-			UILabelCreate(&row->e, 0, nameStart, nameEnd - nameStart);
-			UILabelCreate(&row->e, 0, format1Start, format1End - format1Start);
-			UILabelCreate(&row->e, 0, format2Start, format2End - format2Start);
+			UILabelCreate(&row->e, 0, stringStart, stringEnd - stringStart);
+
+			bool isPC = false;
+			if (nameEnd == nameStart + 3 && 0 == memcmp(nameStart, "rip", 3)) isPC = true;
+			if (nameEnd == nameStart + 3 && 0 == memcmp(nameStart, "eip", 3)) isPC = true;
+			if (nameEnd == nameStart + 2 && 0 == memcmp(nameStart,  "ip", 2)) isPC = true;
+
+			if (modified && showingDisassembly && !isPC) {
+				if (!anyChanges) {
+					autoPrintResult[0] = 0;
+					autoPrintResultLine = autoPrintExpressionLine;
+					anyChanges = true;
+				} else {
+					int position = strlen(autoPrintResult);
+					snprintf(autoPrintResult + position, sizeof(autoPrintResult) - position, ", ");
+				}
+
+				int position = strlen(autoPrintResult);
+				snprintf(autoPrintResult + position, sizeof(autoPrintResult) - position, "%.*s=%.*s", 
+						(int) (nameEnd - nameStart), nameStart, 
+						(int) (format1End - format1Start), format1Start);
+			}
 		}
 
 		UIElementRefresh(&registersWindow->e);
@@ -1373,7 +1398,7 @@ int DisplayCodeMessage(UIElement *element, UIMessage message, int di, void *dp) 
 				return 0xFF0000;
 			}
 		}
-	} else if (message == UI_MSG_CODE_GET_LINE_HINT && !showingDisassembly) {
+	} else if (message == UI_MSG_CODE_GET_LINE_HINT) {
 		UITableGetItem *m = (UITableGetItem *) dp;
 		
 		if (m->index == autoPrintResultLine) {
@@ -1397,8 +1422,7 @@ int WatchTableMessage(UIElement *element, UIMessage message, int di, void *dp) {
 		UITableGetItem *m = (UITableGetItem *) dp;
 
 		if (m->column == 0) {
-			// return snprintf(m->buffer, m->bufferBytes, "+ add");
-			return snprintf(m->buffer, m->bufferBytes, "(wip)");
+			return snprintf(m->buffer, m->bufferBytes, "+ add");
 		} else {
 			return 0;
 		}
@@ -1442,10 +1466,11 @@ extern "C" void CreateInterface(UIWindow *_window) {
 	tabPaneWatchData = UITabPaneCreate(&split4->e, 0, "Registers\tWatch\tData");
 	registersWindow = UIPanelCreate(&tabPaneWatchData->e, UI_PANEL_SMALL_SPACING | UI_PANEL_GRAY | UI_PANEL_SCROLL);
 	UIPanel *watchWindow = UIPanelCreate(&tabPaneWatchData->e, UI_PANEL_SMALL_SPACING | UI_PANEL_GRAY);
-	UITable *watchTable = UITableCreate(&watchWindow->e, UI_ELEMENT_V_FILL | UI_ELEMENT_H_FILL, "Expression\tValue");
-	UITableResizeColumns(watchTable);
-	watchTable->itemCount = 1;
-	watchTable->e.messageUser = WatchTableMessage;
+	UILabelCreate(&watchWindow->e, UI_ELEMENT_H_FILL, "(Work in progress.)", -1);
+	// UITable *watchTable = UITableCreate(&watchWindow->e, UI_ELEMENT_V_FILL | UI_ELEMENT_H_FILL, "Expression\tValue");
+	// UITableResizeColumns(watchTable);
+	// watchTable->itemCount = 1;
+	// watchTable->e.messageUser = WatchTableMessage;
 	dataWindow = UIMDIClientCreate(&tabPaneWatchData->e, 0);
 	displayOutput = UICodeCreate(&panel2->e, UI_CODE_NO_MARGIN | UI_ELEMENT_V_FILL);
 	UIPanel *panel3 = UIPanelCreate(&panel2->e, UI_PANEL_HORIZONTAL | UI_PANEL_EXPAND | UI_PANEL_GRAY);
