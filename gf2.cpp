@@ -22,6 +22,7 @@
 #include <stdio.h>
 #include <ctype.h>
 #include <sys/stat.h>
+#include <stdarg.h>
 
 extern "C" {
 #define UI_LINUX
@@ -144,6 +145,18 @@ bool evaluateMode;
 bool programRunning;
 char **gdbArgv;
 
+int bufferPrintf(char *buffer, size_t bufferSize, const char *format, ...) {
+	va_list varargs;
+
+	va_start(varargs, format);
+	int length = vsnprintf(buffer, bufferSize, format, varargs);
+	va_end(varargs);
+
+	if(length > bufferSize) length = bufferSize;
+
+	return length;
+}
+
 void *DebuggerThread(void *) {
 	int outputPipe[2], inputPipe[2];
 	pipe(outputPipe);
@@ -168,7 +181,7 @@ void *DebuggerThread(void *) {
 		int count = read(outputPipe[0], buffer, 512);
 		buffer[count] = 0;
 		if (!count) break;
-		receiveBufferPosition += snprintf(receiveBuffer + receiveBufferPosition, 
+		receiveBufferPosition += bufferPrintf(receiveBuffer + receiveBufferPosition,
 			RECEIVE_BUFFER_SIZE - receiveBufferPosition, "%s", buffer);
 		if (!strstr(receiveBuffer, "(gdb) ")) continue;
 
@@ -312,14 +325,14 @@ extern "C" bool SetPosition(const char *file, int line, bool useGDBToGetFullPath
 
 		struct stat buf;
 		stat(file, &buf);
-		
+
 		if (buf.st_mtim.tv_sec != currentFileReadTime) {
 			reloadFile = true;
 		}
 
 		currentFileReadTime = buf.st_mtim.tv_sec;
 	}
-	
+
 	bool changed = false;
 
 	if (reloadFile) {
@@ -339,19 +352,19 @@ extern "C" bool SetPosition(const char *file, int line, bool useGDBToGetFullPath
 			UICodeInsertContent(displayCode, buffer2, bytes, true);
 			free(buffer2);
 		}
-		
+
 		changed = true;
 		autoPrintResult[0] = 0;
 	}
 
 	if (line != -1 && currentLine != line) {
 		currentLine = line;
-		UICodeFocusLine(displayCode, line); 
+		UICodeFocusLine(displayCode, line);
 		changed = true;
 	}
 
 	UIElementRefresh(&displayCode->e);
-	
+
 	return changed;
 }
 
@@ -472,13 +485,13 @@ int ThemeEditorTableMessage(UIElement *element, UIMessage message, int di, void 
 		m->isSelected = themeEditorSelectedColor == m->index;
 
 		if (m->column == 0) {
-			return snprintf(m->buffer, m->bufferBytes, "%s", themeItems[m->index]);
+			return bufferPrintf(m->buffer, m->bufferBytes, "%s", themeItems[m->index]);
 		} else {
-			return snprintf(m->buffer, m->bufferBytes, "#%.6x", ui.theme.colors[m->index]);
+			return bufferPrintf(m->buffer, m->bufferBytes, "#%.6x", ui.theme.colors[m->index]);
 		}
 	} else if (message == UI_MSG_CLICKED) {
 		themeEditorSelectedColor = UITableHitTest((UITable *) element, element->window->cursorX, element->window->cursorY);
-		UIColorToHSV(ui.theme.colors[themeEditorSelectedColor], 
+		UIColorToHSV(ui.theme.colors[themeEditorSelectedColor],
 			&themeEditorColorPicker->hue, &themeEditorColorPicker->saturation, &themeEditorColorPicker->value);
 		UIElementRepaint(&themeEditorColorPicker->e, NULL);
 	}
@@ -501,7 +514,7 @@ void CommandLoadTheme(void *) {
 	char buffer[4096];
 	snprintf(buffer, 4096, "%s/.config/gf2_theme.dat", getenv("HOME"));
 	FILE *f = fopen(buffer, "rb");
-	
+
 	if (f) {
 		fread(&ui.theme, 1, sizeof(ui.theme), f);
 		fclose(f);
@@ -520,7 +533,7 @@ void CommandSaveTheme(void *) {
 	char buffer[4096];
 	snprintf(buffer, 4096, "%s/.config/gf2_theme.dat", getenv("HOME"));
 	FILE *f = fopen(buffer, "wb");
-	
+
 	if (f) {
 		fwrite(&ui.theme, 1, sizeof(ui.theme), f);
 		fclose(f);
@@ -703,7 +716,7 @@ int RunSystemWithOutput(const char *command) {
 	uintptr_t j = 0;
 
 	for (uintptr_t i = 0; i <= bytes;) {
-		if ((uint8_t) output[i] == 0xE2 && (uint8_t) output[i + 1] == 0x80 
+		if ((uint8_t) output[i] == 0xE2 && (uint8_t) output[i + 1] == 0x80
 				&& ((uint8_t) output[i + 2] == 0x98 || (uint8_t) output[i + 2] == 0x99)) {
 			copy[j++] = '\'';
 			i += 3;
@@ -850,10 +863,10 @@ void AddDataWindow(void *) {
 				for (int j = 0; j < size / 4; j++) {
 					position = strstr(position, "\t0x");
 
-					if (!position) { 
-						PrintErrorMessage("Could not read bits.\n"); 
+					if (!position) {
+						PrintErrorMessage("Could not read bits.\n");
 						free(bits);
-						return; 
+						return;
 					}
 
 					position += 3;
@@ -861,8 +874,8 @@ void AddDataWindow(void *) {
 				}
 			}
 
-			UIImageDisplayCreate(&UIMDIChildCreate(&dataWindow->e, 
-						UI_MDI_CHILD_CLOSE_BUTTON, UI_RECT_1(0), 
+			UIImageDisplayCreate(&UIMDIChildCreate(&dataWindow->e,
+						UI_MDI_CHILD_CLOSE_BUTTON, UI_RECT_1(0),
 						"Bitmap", -1)->e, 0, bits, width, height, stride);
 			UIElementRefresh(&dataWindow->e);
 			free(bits);
@@ -932,7 +945,7 @@ int TextboxInputMessage(UIElement *, UIMessage message, int di, void *dp) {
 				start = end + 1;
 				end = strchr(start, '\n');
 			}
-			
+
 			if (!end) {
 				consecutiveTabCount = 0;
 				start = evaluateResult;
@@ -1047,16 +1060,16 @@ void Update(const char *data) {
 	// Set the file and line in the source display.
 
 	bool changedSourceLine = SetPosition(fileChanged ? newFile : NULL, lineChanged ? newLine : -1, true);
-	
+
 	if (changedSourceLine && currentLine < displayCode->lineCount) {
 		// If there is an auto-print expression from the previous line, evaluate it.
-		
+
 		if (autoPrintExpression[0]) {
 			char buffer[1024];
 			snprintf(buffer, sizeof(buffer), "p %s", autoPrintExpression);
 			EvaluateCommand(buffer);
 			const char *result = strchr(evaluateResult, '=');
-			
+
 			if (result) {
 				autoPrintResultLine = autoPrintExpressionLine;
 				strcpy(autoPrintResult, result);
@@ -1065,69 +1078,69 @@ void Update(const char *data) {
 			} else {
 				autoPrintResult[0] = 0;
 			}
-			
+
 			autoPrintExpression[0] = 0;
 		}
-		
+
 		// Parse the new source line.
-	
+
 		UICodeLine *line = displayCode->lines + currentLine - 1;
 		const char *text = displayCode->content + line->offset;
 		size_t bytes = line->bytes;
 		uintptr_t position = 0;
-		
+
 		while (position < bytes) {
 			if (text[position] != '\t') break;
 			else position++;
 		}
-		
+
 		uintptr_t expressionStart = position;
-		
+
 		{
 			// Try to parse a type name.
-			
+
 			uintptr_t position2 = position;
-			
-			while (position2 < bytes) { 
+
+			while (position2 < bytes) {
 				char c = text[position2];
 				if (!_UICharIsAlphaOrDigitOrUnderscore(c)) break;
 				else position2++;
 			}
-			
+
 			if (position2 == bytes) goto noTypeName;
 			if (text[position2] != ' ') goto noTypeName;
 			position2++;
-			
+
 			while (position2 < bytes) {
 				if (text[position2] != '*') break;
 				else position2++;
 			}
-			
+
 			if (position2 == bytes) goto noTypeName;
 			if (!_UICharIsAlphaOrDigitOrUnderscore(text[position2])) goto noTypeName;
-			
+
 			position = expressionStart = position2;
 			noTypeName:;
 		}
-		
-		while (position < bytes) { 
+
+		while (position < bytes) {
 			char c = text[position];
 			if (!_UICharIsAlphaOrDigitOrUnderscore(c) && c != '[' && c != ']' && c != ' ' && c != '.' && c != '-' && c != '>') break;
 			else position++;
 		}
-		
+
 		uintptr_t expressionEnd = position;
-		
-		while (position < bytes) { 
+
+		while (position < bytes) {
 			if (text[position] != ' ') break;
 			else position++;
 		}
-		
+
 		if (position != bytes && text[position] == '=') {
-			snprintf(autoPrintExpression, sizeof(autoPrintExpression), "%.*s", 
+			snprintf(autoPrintExpression, sizeof(autoPrintExpression), "%.*s",
 				(int) (expressionEnd - expressionStart), text + expressionStart);
 		}
-		
+
 		autoPrintExpressionLine = currentLine;
 	}
 
@@ -1270,7 +1283,7 @@ void Update(const char *data) {
 			char *stringEnd = format2End;
 
 			RegisterData data;
-			snprintf(data.string, sizeof(data.string), "%.*s", 
+			snprintf(data.string, sizeof(data.string), "%.*s",
 					(int) (stringEnd - stringStart), stringStart);
 			bool modified = false;
 
@@ -1304,8 +1317,8 @@ void Update(const char *data) {
 				}
 
 				int position = strlen(autoPrintResult);
-				snprintf(autoPrintResult + position, sizeof(autoPrintResult) - position, "%.*s=%.*s", 
-						(int) (nameEnd - nameStart), nameStart, 
+				snprintf(autoPrintResult + position, sizeof(autoPrintResult) - position, "%.*s=%.*s",
+						(int) (nameEnd - nameStart), nameStart,
 						(int) (format1End - format1Start), format1Start);
 			}
 		}
@@ -1323,16 +1336,16 @@ int TableStackMessage(UIElement *element, UIMessage message, int di, void *dp) {
 		StackEntry *entry = &stack[m->index];
 
 		if (m->column == 0) {
-			return snprintf(m->buffer, m->bufferBytes, "%d", entry->id);
+			return bufferPrintf(m->buffer, m->bufferBytes, "%d", entry->id);
 		} else if (m->column == 1) {
-			return snprintf(m->buffer, m->bufferBytes, "%s", entry->function);
+			return bufferPrintf(m->buffer, m->bufferBytes, "%s", entry->function);
 		} else if (m->column == 2) {
-			return snprintf(m->buffer, m->bufferBytes, "%s", entry->location);
+			return bufferPrintf(m->buffer, m->bufferBytes, "%s", entry->location);
 		} else if (m->column == 3) {
-			return snprintf(m->buffer, m->bufferBytes, "0x%lX", entry->address);
+			return bufferPrintf(m->buffer, m->bufferBytes, "0x%lX", entry->address);
 		}
 	} else if (message == UI_MSG_LEFT_DOWN || message == UI_MSG_MOUSE_DRAG) {
-		int index = UITableHitTest((UITable *) element, element->window->cursorX, element->window->cursorY); 
+		int index = UITableHitTest((UITable *) element, element->window->cursorX, element->window->cursorY);
 
 		if (index != -1 && stackSelected != index) {
 			char buffer[64];
@@ -1353,12 +1366,12 @@ int TableBreakpointsMessage(UIElement *element, UIMessage message, int di, void 
 		Breakpoint *entry = &breakpoints[m->index];
 
 		if (m->column == 0) {
-			return snprintf(m->buffer, m->bufferBytes, "%s", entry->file);
+			return bufferPrintf(m->buffer, m->bufferBytes, "%s", entry->file);
 		} else if (m->column == 1) {
-			return snprintf(m->buffer, m->bufferBytes, "%d", entry->line);
+			return bufferPrintf(m->buffer, m->bufferBytes, "%d", entry->line);
 		}
 	} else if (message == UI_MSG_RIGHT_DOWN) {
-		int index = UITableHitTest((UITable *) element, element->window->cursorX, element->window->cursorY); 
+		int index = UITableHitTest((UITable *) element, element->window->cursorX, element->window->cursorY);
 
 		if (index != -1) {
 			UIMenu *menu = UIMenuCreate(&window->e, 0);
@@ -1372,7 +1385,7 @@ int TableBreakpointsMessage(UIElement *element, UIMessage message, int di, void 
 
 int DisplayCodeMessage(UIElement *element, UIMessage message, int di, void *dp) {
 	if (message == UI_MSG_CLICKED && !showingDisassembly) {
-		int result = UICodeHitTest((UICode *) element, element->window->cursorX, element->window->cursorY); 
+		int result = UICodeHitTest((UICode *) element, element->window->cursorX, element->window->cursorY);
 
 		if (result < 0) {
 			int line = -result;
@@ -1400,9 +1413,9 @@ int DisplayCodeMessage(UIElement *element, UIMessage message, int di, void *dp) 
 		}
 	} else if (message == UI_MSG_CODE_GET_LINE_HINT) {
 		UITableGetItem *m = (UITableGetItem *) dp;
-		
+
 		if (m->index == autoPrintResultLine) {
-			return snprintf(m->buffer, m->bufferBytes, "%s", autoPrintResult);
+			return bufferPrintf(m->buffer, m->bufferBytes, "%s", autoPrintResult);
 		}
 	}
 
@@ -1422,7 +1435,7 @@ int WatchTableMessage(UIElement *element, UIMessage message, int di, void *dp) {
 		UITableGetItem *m = (UITableGetItem *) dp;
 
 		if (m->column == 0) {
-			return snprintf(m->buffer, m->bufferBytes, "+ add");
+			return bufferPrintf(m->buffer, m->bufferBytes, "+ add");
 		} else {
 			return 0;
 		}
