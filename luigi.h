@@ -2530,6 +2530,7 @@ int _UITableMessage(UIElement *element, UIMessage message, int di, void *dp) {
 				}
 
 				cell.r = cell.l + table->columnWidths[j];
+				if ((size_t) bytes > m.bufferBytes && bytes > 0) bytes = m.bufferBytes;
 				UIDrawString(painter, cell, buffer, bytes, textColor, UI_ALIGN_LEFT, NULL);
 				cell.l += table->columnWidths[j] + UI_SIZE_TABLE_COLUMN_GAP * table->e.window->scale;
 			}

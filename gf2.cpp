@@ -145,14 +145,17 @@ bool evaluateMode;
 bool programRunning;
 char **gdbArgv;
 
-int bufferPrintf(char *buffer, size_t bufferSize, const char *format, ...) {
-	va_list varargs;
+int StringFormat(char *buffer, size_t bufferSize, const char *format, ...) {
+	va_list arguments;
 
-	va_start(varargs, format);
-	int length = vsnprintf(buffer, bufferSize, format, varargs);
-	va_end(varargs);
+	va_start(arguments, format);
+	size_t length = vsnprintf(buffer, bufferSize, format, arguments);
+	va_end(arguments);
 
-	if(length > bufferSize) length = bufferSize;
+	if (length > bufferSize) {
+		// HACK This could truncate a UTF-8 codepoint.
+		length = bufferSize;
+	}
 
 	return length;
 }
@@ -181,7 +184,7 @@ void *DebuggerThread(void *) {
 		int count = read(outputPipe[0], buffer, 512);
 		buffer[count] = 0;
 		if (!count) break;
-		receiveBufferPosition += bufferPrintf(receiveBuffer + receiveBufferPosition,
+		receiveBufferPosition += StringFormat(receiveBuffer + receiveBufferPosition,
 			RECEIVE_BUFFER_SIZE - receiveBufferPosition, "%s", buffer);
 		if (!strstr(receiveBuffer, "(gdb) ")) continue;
 
@@ -324,9 +327,8 @@ extern "C" bool SetPosition(const char *file, int line, bool useGDBToGetFullPath
 		}
 
 		struct stat buf;
-		stat(file, &buf);
 
-		if (buf.st_mtim.tv_sec != currentFileReadTime) {
+		if (!stat(file, &buf) && buf.st_mtim.tv_sec != currentFileReadTime) {
 			reloadFile = true;
 		}
 
@@ -485,9 +487,9 @@ int ThemeEditorTableMessage(UIElement *element, UIMessage message, int di, void 
 		m->isSelected = themeEditorSelectedColor == m->index;
 
 		if (m->column == 0) {
-			return bufferPrintf(m->buffer, m->bufferBytes, "%s", themeItems[m->index]);
+			return StringFormat(m->buffer, m->bufferBytes, "%s", themeItems[m->index]);
 		} else {
-			return bufferPrintf(m->buffer, m->bufferBytes, "#%.6x", ui.theme.colors[m->index]);
+			return StringFormat(m->buffer, m->bufferBytes, "#%.6x", ui.theme.colors[m->index]);
 		}
 	} else if (message == UI_MSG_CLICKED) {
 		themeEditorSelectedColor = UITableHitTest((UITable *) element, element->window->cursorX, element->window->cursorY);
@@ -1336,13 +1338,13 @@ int TableStackMessage(UIElement *element, UIMessage message, int di, void *dp) {
 		StackEntry *entry = &stack[m->index];
 
 		if (m->column == 0) {
-			return bufferPrintf(m->buffer, m->bufferBytes, "%d", entry->id);
+			return StringFormat(m->buffer, m->bufferBytes, "%d", entry->id);
 		} else if (m->column == 1) {
-			return bufferPrintf(m->buffer, m->bufferBytes, "%s", entry->function);
+			return StringFormat(m->buffer, m->bufferBytes, "%s", entry->function);
 		} else if (m->column == 2) {
-			return bufferPrintf(m->buffer, m->bufferBytes, "%s", entry->location);
+			return StringFormat(m->buffer, m->bufferBytes, "%s", entry->location);
 		} else if (m->column == 3) {
-			return bufferPrintf(m->buffer, m->bufferBytes, "0x%lX", entry->address);
+			return StringFormat(m->buffer, m->bufferBytes, "0x%lX", entry->address);
 		}
 	} else if (message == UI_MSG_LEFT_DOWN || message == UI_MSG_MOUSE_DRAG) {
 		int index = UITableHitTest((UITable *) element, element->window->cursorX, element->window->cursorY);
@@ -1366,9 +1368,9 @@ int TableBreakpointsMessage(UIElement *element, UIMessage message, int di, void 
 		Breakpoint *entry = &breakpoints[m->index];
 
 		if (m->column == 0) {
-			return bufferPrintf(m->buffer, m->bufferBytes, "%s", entry->file);
+			return StringFormat(m->buffer, m->bufferBytes, "%s", entry->file);
 		} else if (m->column == 1) {
-			return bufferPrintf(m->buffer, m->bufferBytes, "%d", entry->line);
+			return StringFormat(m->buffer, m->bufferBytes, "%d", entry->line);
 		}
 	} else if (message == UI_MSG_RIGHT_DOWN) {
 		int index = UITableHitTest((UITable *) element, element->window->cursorX, element->window->cursorY);
@@ -1415,7 +1417,7 @@ int DisplayCodeMessage(UIElement *element, UIMessage message, int di, void *dp) 
 		UITableGetItem *m = (UITableGetItem *) dp;
 
 		if (m->index == autoPrintResultLine) {
-			return bufferPrintf(m->buffer, m->bufferBytes, "%s", autoPrintResult);
+			return StringFormat(m->buffer, m->bufferBytes, "%s", autoPrintResult);
 		}
 	}
 
@@ -1435,7 +1437,7 @@ int WatchTableMessage(UIElement *element, UIMessage message, int di, void *dp) {
 		UITableGetItem *m = (UITableGetItem *) dp;
 
 		if (m->column == 0) {
-			return bufferPrintf(m->buffer, m->bufferBytes, "+ add");
+			return StringFormat(m->buffer, m->bufferBytes, "+ add");
 		} else {
 			return 0;
 		}
