@@ -1773,7 +1773,7 @@ int _UITabPaneMessage(UIElement *element, UIMessage message, int di, void *dp) {
 	if (message == UI_MSG_PAINT) {
 		UIPainter *painter = (UIPainter *) dp;
 		UIRectangle top = element->bounds;
-		top.b = top.t + UI_SIZE_BUTTON_HEIGHT;
+		top.b = top.t + UI_SIZE_BUTTON_HEIGHT * element->window->scale;
 		UIDrawRectangle(painter, top, ui.theme.panel1, ui.theme.border, UI_RECT_4(0, 0, 0, 1));
 
 		UIRectangle tab = top;
@@ -1814,7 +1814,7 @@ int _UITabPaneMessage(UIElement *element, UIMessage message, int di, void *dp) {
 		}
 	} else if (message == UI_MSG_LEFT_DOWN) {
 		UIRectangle tab = element->bounds;
-		tab.b = tab.t + UI_SIZE_BUTTON_HEIGHT;
+		tab.b = tab.t + UI_SIZE_BUTTON_HEIGHT * element->window->scale;
 		tab.l += UI_SIZE_TAB_PANE_SPACE_LEFT * element->window->scale;
 		tab.t += UI_SIZE_TAB_PANE_SPACE_TOP * element->window->scale;
 
@@ -1849,7 +1849,7 @@ int _UITabPaneMessage(UIElement *element, UIMessage message, int di, void *dp) {
 		int index = 0;
 
 		UIRectangle content = element->bounds;
-		content.t += UI_SIZE_BUTTON_HEIGHT;
+		content.t += UI_SIZE_BUTTON_HEIGHT * element->window->scale;
 
 		while (child) {
 			if (tabPane->active == index) {
@@ -2408,7 +2408,7 @@ int UITableHitTest(UITable *table, int x, int y) {
 
 	y -= (table->e.bounds.t + UI_SIZE_TABLE_HEADER * table->e.window->scale) - table->vScroll->position;
 
-	int rowHeight = UI_SIZE_TABLE_ROW;
+	int rowHeight = UI_SIZE_TABLE_ROW * table->e.window->scale;
 
 	if (y < 0 || y >= rowHeight * table->itemCount) {
 		return -1;
@@ -2418,7 +2418,7 @@ int UITableHitTest(UITable *table, int x, int y) {
 }
 
 bool UITableEnsureVisible(UITable *table, int index) {
-	int rowHeight = UI_SIZE_TABLE_ROW;
+	int rowHeight = UI_SIZE_TABLE_ROW * table->e.window->scale;
 	int y = index * rowHeight;
 	y -= table->vScroll->position;
 	int height = UI_RECT_HEIGHT(table->e.bounds) - UI_SIZE_TABLE_HEADER * table->e.window->scale - rowHeight;
@@ -2492,7 +2492,7 @@ int _UITableMessage(UIElement *element, UIMessage message, int di, void *dp) {
 		UIDrawBlock(painter, bounds, ui.theme.panel2);
 		char buffer[256];
 		UIRectangle row = bounds;
-		int rowHeight = UI_SIZE_TABLE_ROW;
+		int rowHeight = UI_SIZE_TABLE_ROW * element->window->scale;
 		UITableGetItem m = { 0 };
 		m.buffer = buffer;
 		m.bufferBytes = sizeof(buffer);
@@ -2566,7 +2566,7 @@ int _UITableMessage(UIElement *element, UIMessage message, int di, void *dp) {
 	} else if (message == UI_MSG_LAYOUT) {
 		UIRectangle scrollBarBounds = element->bounds;
 		scrollBarBounds.l = scrollBarBounds.r - UI_SIZE_SCROLL_BAR * element->window->scale;
-		table->vScroll->maximum = table->itemCount * UI_SIZE_TABLE_ROW;
+		table->vScroll->maximum = table->itemCount * UI_SIZE_TABLE_ROW * element->window->scale;
 		table->vScroll->page = UI_RECT_HEIGHT(element->bounds) - UI_SIZE_TABLE_HEADER * table->e.window->scale;
 		UIElementMove(&table->vScroll->e, scrollBarBounds, true);
 	} else if (message == UI_MSG_MOUSE_MOVE || message == UI_MSG_UPDATE) {
@@ -3337,9 +3337,7 @@ void _UIMenuPrepare(UIMenu *menu, int *width, int *height) {
 
 UIMenu *UIMenuCreate(UIElement *parent, uint32_t flags) {
 	UIWindow *window = UIWindowCreate(parent->window, UI_WINDOW_MENU, 0, 0, 0);
-	
 	UIMenu *menu = (UIMenu *) UIElementCreate(sizeof(UIMenu), &window->e, flags, _UIMenuMessage, "Menu");
-
 	menu->vScroll = UIScrollBarCreate(&menu->e, UI_ELEMENT_NON_CLIENT);
 
 	if (parent->parent) {
@@ -3947,6 +3945,7 @@ UIWindow *UIWindowCreate(UIWindow *owner, uint32_t flags, const char *cTitle, in
 
 	UIWindow *window = (UIWindow *) UIElementCreate(sizeof(UIWindow), NULL, flags | UI_ELEMENT_WINDOW, _UIWindowMessage, "Window");
 	_UIWindowAdd(window);
+	if (owner) window->scale = owner->scale;
 
 	int width = (flags & UI_WINDOW_MENU) ? 1 : _width ? _width : 800;
 	int height = (flags & UI_WINDOW_MENU) ? 1 : _height ? _height : 600;
@@ -4530,6 +4529,7 @@ UIWindow *UIWindowCreate(UIWindow *owner, uint32_t flags, const char *cTitle, in
 
 	UIWindow *window = (UIWindow *) UIElementCreate(sizeof(UIWindow), NULL, flags | UI_ELEMENT_WINDOW, _UIWindowMessage, "Window");
 	_UIWindowAdd(window);
+	if (owner) window->scale = owner->scale;
 
 	if (flags & UI_WINDOW_MENU) {
 		UI_ASSERT(owner);

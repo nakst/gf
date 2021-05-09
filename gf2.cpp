@@ -1,5 +1,5 @@
 // Build with: g++ gf2.cpp -lX11 -Wall -Wextra -Wno-unused-parameter -Wno-missing-field-initializers -Wno-format-truncation -o gf2 -g -pthread
-// Add the following flags to use FreeType: -lfreetype -D UI_FREETYPE -I /usr/include/freetype2 -D UI_FONT_PATH=/usr/share/fonts/TTF/DejaVuSansMono.ttf -D UI_FONT_SIZE=13
+// Add the following flags to use FreeType: -lfreetype -D UI_FREETYPE -I /usr/include/freetype2 -D UI_FONT_PATH=/usr/share/fonts/TTF/DejaVuSansMono.ttf
 
 // TODO Disassembly window.
 // 	- Split source and disassembly view.
@@ -24,7 +24,11 @@
 #include <sys/stat.h>
 #include <stdarg.h>
 
+int fontSize = 13;
+float uiScale = 1;
+
 extern "C" {
+#define UI_FONT_SIZE (fontSize)
 #define UI_LINUX
 #define UI_IMPLEMENTATION
 #include "luigi.h"
@@ -33,6 +37,7 @@ extern "C" {
 #define MSG_RECEIVED_DATA ((UIMessage) (UI_MSG_USER + 1))
 
 FILE *commandLog;
+char emptyString;
 
 // Current file and line:
 
@@ -144,6 +149,7 @@ char *evaluateResult;
 bool evaluateMode;
 bool programRunning;
 char **gdbArgv;
+int gdbArgc;
 
 int StringFormat(char *buffer, size_t bufferSize, const char *format, ...) {
 	va_list arguments;
@@ -552,6 +558,7 @@ void CommandThemeEditor(void *) {
 	if (themeEditorWindow) return;
 	themeEditorSelectedColor = -1;
 	themeEditorWindow = UIWindowCreate(0, 0, "Theme Editor", 0, 0);
+	themeEditorWindow->scale = uiScale;
 	themeEditorWindow->e.messageUser = ThemeEditorWindowMessage;
 	UISplitPane *splitPane = UISplitPaneCreate(&themeEditorWindow->e, 0, 0.5f);
 	UIPanel *panel = UIPanelCreate(&splitPane->e, UI_PANEL_GRAY);
@@ -746,36 +753,119 @@ void CustomCommand(void *_command) {
 	}
 }
 
-void CustomCommandAndRun(void *_command) {
-	const char *command = (const char *) _command;
+struct INIState {
+	char *buffer, *section, *key, *value;
+	size_t bytes, sectionBytes, keyBytes, valueBytes;
+};
 
-	if (0 == memcmp(command, "shell ", 6)) {
-		if (RunSystemWithOutput(command + 6)) {
-			return;
+bool INIParse(INIState *s) {
+#define INI_READ(destination, counter, c1, c2) \
+	s->destination = s->buffer, s->counter = 0; \
+	while (s->bytes && *s->buffer != c1 && *s->buffer != c2) s->counter++, s->buffer++, s->bytes--; \
+	if (s->bytes && *s->buffer == c1) s->buffer++, s->bytes--;
+
+	while (s->bytes) {
+		char c = *s->buffer;
+
+		if (c == ' ' || c == '\n' || c == '\r') { 
+			s->buffer++, s->bytes--; 
+			continue;
+		} else if (c == ';') {
+			s->valueBytes = 0;
+			INI_READ(key, keyBytes, '\n', 0);
+		} else if (c == '[') {
+			s->keyBytes = s->valueBytes = 0;
+			s->buffer++, s->bytes--;
+			INI_READ(section, sectionBytes, ']', 0);
+		} else {
+			INI_READ(key, keyBytes, '=', '\n');
+			INI_READ(value, valueBytes, '\n', 0);
 		}
-	} else {
-		SendToGDB(command, true);
+
+		if (s->sectionBytes) s->section[s->sectionBytes] = 0; else s->section = &emptyString;
+		if (s->keyBytes) s->key[s->keyBytes] = 0; else s->key = &emptyString;
+		if (s->valueBytes) s->value[s->valueBytes] = 0; else s->value = &emptyString;
+
+		return true;
 	}
 
-	CommandSendToGDB((void *) "r");
+	return false;
 }
 
-void LoadProjectSettings() {
-	char *settings = LoadFile(".project.gf", NULL);
-	int index = 0;
+void LoadSettings(bool earlyPass) {
+	char globalConfigPath[4096];
+	snprintf(globalConfigPath, 4096, "%s/.config/gf2_config.ini", getenv("HOME"));
 
-	while (settings && *settings) {
-		char *start = settings;
-		char *end = strchr(settings, '\n');
+	for (int i = 0; i < 2; i++) {
+		INIState state = { .buffer = LoadFile(i ? ".project.gf" : globalConfigPath, &state.bytes) };
 
-		if (end) { *end = 0, settings = end + 1; }
-		else settings = NULL;
+		while (INIParse(&state)) {
+			if (0 == strcmp(state.section, "shortcuts") && *state.key && !earlyPass) {
+				UIShortcut shortcut = {};
 
-		printf("shortcut for \"%s\" on ctrl+%d\n", start, index);
+				for (int i = 0; state.key[i]; i++) {
+					state.key[i] = tolower(state.key[i]);
+				}
 
-		UIWindowRegisterShortcut(window, { .code = UI_KEYCODE_DIGIT('0' + index), .ctrl = true, .invoke = CustomCommand, .cp = start });
-		UIWindowRegisterShortcut(window, { .code = UI_KEYCODE_DIGIT('0' + index), .ctrl = true, .shift = true, .invoke = CustomCommandAndRun, .cp = start });
-		index++;
+				shortcut.ctrl = strstr(state.key, "ctrl+");
+				shortcut.shift = strstr(state.key, "shift+");
+				shortcut.alt = strstr(state.key, "alt+");
+				shortcut.invoke = CustomCommand;
+				shortcut.cp = state.value;
+
+				const char *codeStart = state.key;
+
+				for (int i = 0; state.key[i]; i++) {
+					if (state.key[i] == '+') {
+						codeStart = state.key + i + 1;
+					}
+				}
+
+				for (int i = 0; i < 26; i++) {
+					if (codeStart[0] == 'a' + i && codeStart[1] == 0) {
+						shortcut.code = UI_KEYCODE_A + i;
+					}
+				}
+
+				for (int i = 0; i < 10; i++) {
+					if (codeStart[0] == '0' + i && codeStart[1] == 0) {
+						shortcut.code = UI_KEYCODE_0 + i;
+					}
+				}
+
+				if (0 == strcmp(codeStart, "F1"))  shortcut.code = UI_KEYCODE_F1;
+				if (0 == strcmp(codeStart, "F2"))  shortcut.code = UI_KEYCODE_F2;
+				if (0 == strcmp(codeStart, "F3"))  shortcut.code = UI_KEYCODE_F3;
+				if (0 == strcmp(codeStart, "F4"))  shortcut.code = UI_KEYCODE_F4;
+				if (0 == strcmp(codeStart, "F5"))  shortcut.code = UI_KEYCODE_F5;
+				if (0 == strcmp(codeStart, "F6"))  shortcut.code = UI_KEYCODE_F6;
+				if (0 == strcmp(codeStart, "F7"))  shortcut.code = UI_KEYCODE_F7;
+				if (0 == strcmp(codeStart, "F8"))  shortcut.code = UI_KEYCODE_F8;
+				if (0 == strcmp(codeStart, "F9"))  shortcut.code = UI_KEYCODE_F9;
+				if (0 == strcmp(codeStart, "F10")) shortcut.code = UI_KEYCODE_F10;
+				if (0 == strcmp(codeStart, "F11")) shortcut.code = UI_KEYCODE_F11;
+				if (0 == strcmp(codeStart, "F12")) shortcut.code = UI_KEYCODE_F12;
+
+				if (!shortcut.code) {
+					fprintf(stderr, "Warning: Could not register shortcut for '%s'.\n", state.key);
+				}
+
+				UIWindowRegisterShortcut(window, shortcut);
+			} else if (0 == strcmp(state.section, "ui") && earlyPass) {
+				if (0 == strcmp(state.key, "font_size")) {
+					fontSize = atoi(state.value);
+				} else if (0 == strcmp(state.key, "scale")) {
+					uiScale = atof(state.value);
+				}
+			} else if (0 == strcmp(state.section, "gdb") && !earlyPass) {
+				if (0 == strcmp(state.key, "argument")) {
+					gdbArgc++;
+					gdbArgv = (char **) realloc(gdbArgv, sizeof(char *) * (gdbArgc + 1));
+					gdbArgv[gdbArgc - 1] = state.value;
+					gdbArgv[gdbArgc] = nullptr;
+				}
+			}
+		}
 	}
 }
 
@@ -802,7 +892,7 @@ void PrintErrorMessage(const char *message) {
 	UIElementRefresh(&displayOutput->e);
 }
 
-void AddDataWindow(void *) {
+void AddDataWindow() {
 	tabPaneWatchData->active = 2;
 	UIElementRefresh(&tabPaneWatchData->e);
 
@@ -923,7 +1013,7 @@ int TextboxInputMessage(UIElement *, UIMessage message, int di, void *dp) {
 
 			return 1;
 		} else if (m->code == UI_KEYCODE_ENTER && window->shift) {
-			AddDataWindow(NULL);
+			AddDataWindow();
 		} else if (m->code == UI_KEYCODE_TAB) {
 			char buffer[4096];
 			snprintf(buffer, sizeof(buffer), "complete %.*s", lastKeyWasTab ? lastTabBytes : (int) textboxInput->bytes, textboxInput->string);
@@ -1249,6 +1339,7 @@ void Update(const char *data) {
 
 			stack.Add(entry);
 
+			if (!(*next)) break;
 			position = next + 1;
 		}
 	}
@@ -1261,7 +1352,8 @@ void Update(const char *data) {
 
 	EvaluateCommand("info registers");
 
-	if (!strstr(evaluateResult, "The program has no registers now.")) {
+	if (!strstr(evaluateResult, "The program has no registers now.")
+			&& !strstr(evaluateResult, "The current thread has terminated")) {
 		UIElementDestroyDescendents(&registersWindow->e);
 		char *position = evaluateResult;
 		Array<RegisterData> newRegisterData = {};
@@ -1471,6 +1563,7 @@ extern "C" void CreateInterface(UIWindow *_window) {
 #endif
 
 	window = _window;
+	window->scale = uiScale;
 	window->e.messageUser = WindowMessage;
 
 	UIPanel *panel1 = UIPanelCreate(&window->e, UI_PANEL_EXPAND);
@@ -1498,7 +1591,6 @@ extern "C" void CreateInterface(UIWindow *_window) {
 	textboxInput = UITextboxCreate(&panel3->e, UI_ELEMENT_H_FILL);
 	textboxInput->e.messageUser = TextboxInputMessage;
 	UIElementFocus(&textboxInput->e);
-	UIButtonCreate(&panel3->e, 0, "Add =>", -1)->invoke = AddDataWindow;
 	displayCode = UICodeCreate(&split2->e, 0);
 	displayCode->e.messageUser = DisplayCodeMessage;
 	UISplitPane *split3 = UISplitPaneCreate(&split2->e, UI_SPLIT_PANE_VERTICAL, 0.50f);
@@ -1507,13 +1599,13 @@ extern "C" void CreateInterface(UIWindow *_window) {
 	tableStack = UITableCreate(&split3->e, 0, "Index\tFunction\tLocation\tAddress");
 	tableStack->e.messageUser = TableStackMessage;
 
+	RegisterShortcuts();
+	LoadSettings(false);
+	CommandLoadTheme(NULL);
+
 	pthread_cond_init(&evaluateEvent, NULL);
 	pthread_mutex_init(&evaluateMutex, NULL);
 	StartGDBThread();
-
-	RegisterShortcuts();
-	LoadProjectSettings();
-	CommandLoadTheme(NULL);
 }
 
 extern "C" void CloseDebugger() {
@@ -1526,8 +1618,10 @@ int main(int argc, char **argv) {
 	// Setup GDB arguments.
 	gdbArgv = (char **) malloc(sizeof(char *) * (argc + 1));
 	gdbArgv[0] = (char *) "gdb";
-	memcpy(gdbArgv + 1, argv + 1, sizeof(argv) * (argc - 1));
+	memcpy(gdbArgv + 1, argv + 1, sizeof(argv) * argc);
+	gdbArgc = argc;
 
+	LoadSettings(true);
 	UIInitialise();
 	CreateInterface(UIWindowCreate(0, 0, "gf2", 0, 0));
 	CommandSyncWithGvim(NULL);
