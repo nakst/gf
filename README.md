@@ -10,19 +10,7 @@ Download this project's source.
 
 And compile the application.
 
-    g++ -o gf2 gf2.cpp -lX11 -pthread
-
-If you want to specify a font, add the following to the compile command:
-
-    -lfreetype -I /usr/include/freetype2 -D UI_FREETYPE -D UI_FONT_PATH=<path to font file>
-
-See the "Settings" section below for a discussion on changing the font size.
-
-## Guide
-
-You can run the application with `./gf2`. Any additional command line arguments passed to `gf` will be forwarded to GDB.
-
-You can view RGBA bitmaps with the command `bitmap <pointer> <width> <height> <stride>` and pressing Shift+Enter. Large bitmaps will take a while to load from GDB.
+    ./build.sh
 
 ## Settings
 
@@ -52,3 +40,9 @@ You can change the font size and user interface scaling in the `[ui]` section. F
     [ui]
     scale=1.5
     font_size=20
+
+## Tips
+
+You can run the application with `./gf2`. Any additional command line arguments passed to `gf` will be forwarded to GDB.
+
+You can view RGBA bitmaps with the command `bitmap <pointer> <width> <height> <stride>` and pressing Shift+Enter. Large bitmaps will take a while to load from GDB.
