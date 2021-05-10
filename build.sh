@@ -8,6 +8,6 @@ else
 	font_path=$1
 fi
 
-g++ gf2.cpp -o gf2 -g -lX11 -pthread \
+g++ gf2.cpp -o gf2 -g -O2 -lX11 -pthread \
 	-Wall -Wextra -Wno-unused-parameter -Wno-missing-field-initializers -Wno-format-truncation \
 	-lfreetype -D UI_FREETYPE -I /usr/include/freetype2 -D UI_FONT_PATH=$font_path
