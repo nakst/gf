@@ -1164,7 +1164,7 @@ void Update(const char *data) {
 
 			if (result) {
 				autoPrintResultLine = autoPrintExpressionLine;
-				strcpy(autoPrintResult, result);
+				snprintf(autoPrintResult, sizeof(autoPrintResult), "%s", result);
 				char *end = strchr(autoPrintResult, '\n');
 				if (end) *end = 0;
 			} else {
