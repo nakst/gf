@@ -541,6 +541,7 @@ void UILabelSetContent(UILabel *code, const char *content, ptrdiff_t byteCount);
 UIWindow *UIWindowCreate(UIWindow *owner, uint32_t flags, const char *cTitle, int width, int height);
 void UIWindowRegisterShortcut(UIWindow *window, UIShortcut shortcut);
 void UIWindowPostMessage(UIWindow *window, UIMessage message, void *dp); // Thread-safe.
+void UIWindowPack(UIWindow *window, int width); // Change the size of the window to best match its contents.
 
 UIMenu *UIMenuCreate(UIElement *parent, uint32_t flags);
 void UIMenuAddItem(UIMenu *menu, uint32_t flags, const char *label, ptrdiff_t labelBytes, void (*invoke)(void *cp), void *cp);
@@ -1528,7 +1529,7 @@ int _UIPanelMessage(UIElement *element, UIMessage message, int di, void *dp) {
 		}
 
 		_UIPanelLayout(panel, bounds, false);
-	} else if (message == UI_MSG_GET_WIDTH && horizontal) {
+	} else if (message == UI_MSG_GET_WIDTH) {
 		if (horizontal) {
 			return _UIPanelLayout(panel, UI_RECT_4(0, 0, 0, di), true);
 		} else {
@@ -3947,8 +3948,8 @@ UIWindow *UIWindowCreate(UIWindow *owner, uint32_t flags, const char *cTitle, in
 	_UIWindowAdd(window);
 	if (owner) window->scale = owner->scale;
 
-	int width = (flags & UI_WINDOW_MENU) ? 1 : _width ? _width : 800;
-	int height = (flags & UI_WINDOW_MENU) ? 1 : _height ? _height : 600;
+	int width = (flags & UI_WINDOW_MENU) ? 0 : _width ? _width : 800;
+	int height = (flags & UI_WINDOW_MENU) ? 0 : _height ? _height : 600;
 
 	window->window = XCreateWindow(ui.display, DefaultRootWindow(ui.display), 0, 0, width, height, 0, 0, 
 		InputOutput, CopyFromParent, 0, 0);
@@ -4095,6 +4096,12 @@ void UIMenuShow(UIMenu *menu) {
 
 	XMapWindow(ui.display, menu->e.window->window);
 	XMoveResizeWindow(ui.display, menu->e.window->window, menu->pointX, menu->pointY, width, height);
+}
+
+void UIWindowPack(UIWindow *window, int _width) {
+	int width = _width ? _width : UIElementMessage(window->e.children, UI_MSG_GET_WIDTH, 0, 0);
+	int height = UIElementMessage(window->e.children, UI_MSG_GET_HEIGHT, width, 0);
+	XResizeWindow(ui.display, window->window, width, height);
 }
 
 bool _UIProcessEvent(XEvent *event) {

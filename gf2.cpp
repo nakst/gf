@@ -1,11 +1,15 @@
 // Build with: g++ gf2.cpp -lX11 -Wall -Wextra -Wno-unused-parameter -Wno-missing-field-initializers -Wno-format-truncation -o gf2 -g -pthread
 // Add the following flags to use FreeType: -lfreetype -D UI_FREETYPE -I /usr/include/freetype2 -D UI_FONT_PATH=/usr/share/fonts/TTF/DejaVuSansMono.ttf
 
-// TODO Disassembly window.
+// TODO Disassembly window extensions.
 // 	- Split source and disassembly view.
 // 	- Setting/clearing/showing breakpoints.
 // 	- Jump to line and run to line.
 // 	- Shift+F10: run to next instruction (for skipping past loops).
+
+// TODO Add bitmap window extensions.
+// 	- Show progress in GUI.
+// 	- Restore previous strings when dialog shown.
 
 // TODO Future extensions.
 // 	- Watch window.
@@ -69,6 +73,14 @@ UIWindow *themeEditorWindow;
 UIColorPicker *themeEditorColorPicker;
 UITable *themeEditorTable;
 int themeEditorSelectedColor;
+
+// Add bitmap dialog:
+
+UIWindow *addBitmapDialog;
+UITextbox *addBitmapPointer;
+UITextbox *addBitmapWidth;
+UITextbox *addBitmapHeight;
+UITextbox *addBitmapStride;
 
 // Dynamic arrays:
 
@@ -892,6 +904,58 @@ void PrintErrorMessage(const char *message) {
 	UIElementRefresh(&displayOutput->e);
 }
 
+void AddBitmapInternal(const char *pointerString, const char *widthString, const char *heightString, const char *strideString) {
+	const char *widthResult = EvaluateExpression(widthString);
+	if (!widthResult) { PrintErrorMessage("Could not evaluate width.\n"); return; }
+	int width = atoi(widthResult + 1);
+	const char *heightResult = EvaluateExpression(heightString);
+	if (!heightResult) { PrintErrorMessage("Could not evaluate height.\n"); return; }
+	int height = atoi(heightResult + 1);
+	int stride = width * 4;
+
+	if (strideString) {
+		const char *strideResult = EvaluateExpression(strideString);
+		if (!strideResult) { PrintErrorMessage("Could not evaluate stride.\n"); return; }
+		stride = atoi(strideResult + 1);
+	}
+
+	uint32_t *bits = (uint32_t *) malloc(stride * height * 4);
+	int index = 0;
+
+#define BITMAP_BLOCK_SIZE (131072)
+
+	for (int block = 0; block < stride * height; block += BITMAP_BLOCK_SIZE) {
+		int size = BITMAP_BLOCK_SIZE;
+		if (block + size > stride * height) size = stride * height - block;
+
+		printf("%d%%\n", block * 100 / (stride * height));
+
+		char buffer[1024];
+		snprintf(buffer, sizeof(buffer), "x/%dxw (((uint8_t *) (%s)) + %d)", size / 4, pointerString, block);
+		EvaluateCommand(buffer);
+		char *position = evaluateResult;
+
+		for (int j = 0; j < size / 4; j++) {
+			position = strstr(position, "\t0x");
+
+			if (!position) {
+				PrintErrorMessage("Could not read bits.\n");
+				free(bits);
+				return;
+			}
+
+			position += 3;
+			bits[index++] = strtoul(position, NULL, 16);
+		}
+	}
+
+	UIImageDisplayCreate(&UIMDIChildCreate(&dataWindow->e,
+				UI_MDI_CHILD_CLOSE_BUTTON, UI_RECT_1(0),
+				"Bitmap", -1)->e, 0, bits, width, height, stride);
+	UIElementRefresh(&dataWindow->e);
+	free(bits);
+}
+
 void AddDataWindow() {
 	tabPaneWatchData->active = 2;
 	UIElementRefresh(&tabPaneWatchData->e);
@@ -921,56 +985,7 @@ void AddDataWindow() {
 			PrintErrorMessage("Usage: bitmap [pointer] [width] [height] [stride]\n");
 			return;
 		} else {
-			char *pointerString = tokens[1], *widthString = tokens[2], *heightString = tokens[3], *strideString = tokenCount == 5 ? tokens[4] : nullptr;
-			const char *widthResult = EvaluateExpression(widthString);
-			if (!widthResult) { PrintErrorMessage("Could not evaluate width.\n"); return; }
-			int width = atoi(widthResult + 1);
-			const char *heightResult = EvaluateExpression(heightString);
-			if (!heightResult) { PrintErrorMessage("Could not evaluate height.\n"); return; }
-			int height = atoi(heightResult + 1);
-			int stride = width * 4;
-
-			if (strideString) {
-				const char *strideResult = EvaluateExpression(strideString);
-				if (!strideResult) { PrintErrorMessage("Could not evaluate stride.\n"); return; }
-				stride = atoi(strideResult + 1);
-			}
-
-			uint32_t *bits = (uint32_t *) malloc(stride * height * 4);
-			int index = 0;
-
-#define BITMAP_BLOCK_SIZE (131072)
-
-			for (int block = 0; block < stride * height; block += BITMAP_BLOCK_SIZE) {
-				int size = BITMAP_BLOCK_SIZE;
-				if (block + size > stride * height) size = stride * height - block;
-
-				printf("%d%%\n", block * 100 / (stride * height));
-
-				char buffer[1024];
-				snprintf(buffer, sizeof(buffer), "x/%dxw (((uint8_t *) (%s)) + %d)", size / 4, pointerString, block);
-				EvaluateCommand(buffer);
-				char *position = evaluateResult;
-
-				for (int j = 0; j < size / 4; j++) {
-					position = strstr(position, "\t0x");
-
-					if (!position) {
-						PrintErrorMessage("Could not read bits.\n");
-						free(bits);
-						return;
-					}
-
-					position += 3;
-					bits[index++] = strtoul(position, NULL, 16);
-				}
-			}
-
-			UIImageDisplayCreate(&UIMDIChildCreate(&dataWindow->e,
-						UI_MDI_CHILD_CLOSE_BUTTON, UI_RECT_1(0),
-						"Bitmap", -1)->e, 0, bits, width, height, stride);
-			UIElementRefresh(&dataWindow->e);
-			free(bits);
+			AddBitmapInternal(tokens[1], tokens[2], tokens[3], tokenCount == 5 ? tokens[4] : nullptr);
 		}
 	} else {
 		PrintErrorMessage("Unknown command.\n");
@@ -979,6 +994,52 @@ void AddDataWindow() {
 
 	UITextboxClear(textboxInput, false);
 	UIElementRefresh(&textboxInput->e);
+}
+
+int AddBitmapDialogMessage(UIElement *element, UIMessage message, int di, void *dp) {
+	if (message == UI_MSG_WINDOW_CLOSE) {
+		UIElementDestroy(element);
+		addBitmapDialog = NULL;
+		return 1;
+	}
+
+	return 0;
+}
+
+void AddBitmap(void *) {
+	char stringPointer[256];
+	snprintf(stringPointer, sizeof(stringPointer), "%.*s", (int) addBitmapPointer->bytes, addBitmapPointer->string);
+	char stringWidth[256];
+	snprintf(stringWidth, sizeof(stringWidth), "%.*s", (int) addBitmapWidth->bytes, addBitmapWidth->string);
+	char stringHeight[256];
+	snprintf(stringHeight, sizeof(stringHeight), "%.*s", (int) addBitmapHeight->bytes, addBitmapHeight->string);
+	char stringStride[256];
+	snprintf(stringStride, sizeof(stringStride), "%.*s", (int) addBitmapStride->bytes, addBitmapStride->string);
+	AddBitmapInternal(stringPointer, stringWidth, stringHeight, stringStride[0] ? stringStride : nullptr);
+	UIElementDestroy(&addBitmapDialog->e);
+	addBitmapDialog = nullptr;
+}
+
+void AddBitmapDialog(void *) {
+	if (addBitmapDialog) return;
+	addBitmapDialog = UIWindowCreate(0, 0, "Add Bitmap", 0, 0);
+	addBitmapDialog->scale = uiScale;
+	addBitmapDialog->e.messageUser = AddBitmapDialogMessage;
+
+	UIPanelCreate(&addBitmapDialog->e, UI_PANEL_GRAY | UI_ELEMENT_PARENT_PUSH | UI_PANEL_MEDIUM_SPACING);
+	UILabelCreate(0, UI_ELEMENT_H_FILL, "Pointer to bits: (32bpp, RR GG BB AA)", -1);
+	addBitmapPointer = UITextboxCreate(0, 0);
+	UILabelCreate(0, UI_ELEMENT_H_FILL, "Width:", -1);
+	addBitmapWidth = UITextboxCreate(0, 0);
+	UILabelCreate(0, UI_ELEMENT_H_FILL, "Height:", -1);
+	addBitmapHeight = UITextboxCreate(0, 0);
+	UILabelCreate(0, UI_ELEMENT_H_FILL, "Stride:", -1);
+	addBitmapStride = UITextboxCreate(0, 0);
+	UIButtonCreate(0, 0, "Add", -1)->invoke = AddBitmap;
+	UIParentPop();
+
+	UIElementFocus(&addBitmapPointer->e);
+	UIWindowPack(addBitmapDialog, 0);
 }
 
 int TextboxInputMessage(UIElement *, UIMessage message, int di, void *dp) {
@@ -1524,20 +1585,6 @@ int TrafficLightMessage(UIElement *element, UIMessage message, int di, void *dp)
 	return 0;
 }
 
-int WatchTableMessage(UIElement *element, UIMessage message, int di, void *dp) {
-	if (message == UI_MSG_TABLE_GET_ITEM) {
-		UITableGetItem *m = (UITableGetItem *) dp;
-
-		if (m->column == 0) {
-			return StringFormat(m->buffer, m->bufferBytes, "+ add");
-		} else {
-			return 0;
-		}
-	}
-
-	return 0;
-}
-
 int WindowMessage(UIElement *, UIMessage message, int di, void *dp) {
 	if (message == MSG_RECEIVED_DATA) {
 		programRunning = false;
@@ -1575,11 +1622,10 @@ extern "C" void CreateInterface(UIWindow *_window) {
 	registersWindow = UIPanelCreate(&tabPaneWatchData->e, UI_PANEL_SMALL_SPACING | UI_PANEL_GRAY | UI_PANEL_SCROLL);
 	UIPanel *watchWindow = UIPanelCreate(&tabPaneWatchData->e, UI_PANEL_SMALL_SPACING | UI_PANEL_GRAY);
 	UILabelCreate(&watchWindow->e, UI_ELEMENT_H_FILL, "(Work in progress.)", -1);
-	// UITable *watchTable = UITableCreate(&watchWindow->e, UI_ELEMENT_V_FILL | UI_ELEMENT_H_FILL, "Expression\tValue");
-	// UITableResizeColumns(watchTable);
-	// watchTable->itemCount = 1;
-	// watchTable->e.messageUser = WatchTableMessage;
-	dataWindow = UIMDIClientCreate(&tabPaneWatchData->e, 0);
+	UIPanel *panel4 = UIPanelCreate(&tabPaneWatchData->e, UI_PANEL_EXPAND);
+	UIPanel *panel5 = UIPanelCreate(&panel4->e, UI_PANEL_GRAY | UI_PANEL_HORIZONTAL);
+	UIButtonCreate(&panel5->e, 0, "Add bitmap...", -1)->invoke = AddBitmapDialog;
+	dataWindow = UIMDIClientCreate(&panel4->e, UI_ELEMENT_V_FILL);
 	displayOutput = UICodeCreate(&panel2->e, UI_CODE_NO_MARGIN | UI_ELEMENT_V_FILL);
 	UIPanel *panel3 = UIPanelCreate(&panel2->e, UI_PANEL_HORIZONTAL | UI_PANEL_EXPAND | UI_PANEL_GRAY);
 	panel3->border = UI_RECT_1(5);
