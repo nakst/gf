@@ -3948,8 +3948,8 @@ UIWindow *UIWindowCreate(UIWindow *owner, uint32_t flags, const char *cTitle, in
 	_UIWindowAdd(window);
 	if (owner) window->scale = owner->scale;
 
-	int width = (flags & UI_WINDOW_MENU) ? 0 : _width ? _width : 800;
-	int height = (flags & UI_WINDOW_MENU) ? 0 : _height ? _height : 600;
+	int width = (flags & UI_WINDOW_MENU) ? 1 : _width ? _width : 800;
+	int height = (flags & UI_WINDOW_MENU) ? 1 : _height ? _height : 600;
 
 	window->window = XCreateWindow(ui.display, DefaultRootWindow(ui.display), 0, 0, width, height, 0, 0, 
 		InputOutput, CopyFromParent, 0, 0);
