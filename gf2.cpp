@@ -912,6 +912,13 @@ void AddBitmapInternal(const char *pointerString, const char *widthString, const
 	if (!heightResult) { PrintErrorMessage("Could not evaluate height.\n"); return; }
 	int height = atoi(heightResult + 1);
 	int stride = width * 4;
+	const char *pointerResult = EvaluateExpression(pointerString);
+	if (!pointerResult) { PrintErrorMessage("Could not evaluate pointer.\n"); return; }
+	char _pointerResult[1024];
+	snprintf(_pointerResult, sizeof(_pointerResult), "%s", pointerResult);
+	pointerResult = strstr(_pointerResult, " 0x");
+	if (!pointerResult) { PrintErrorMessage("Pointer to image bits does not look like an address!\n"); return; }
+	pointerResult++;
 
 	if (strideString) {
 		const char *strideResult = EvaluateExpression(strideString);
@@ -920,39 +927,28 @@ void AddBitmapInternal(const char *pointerString, const char *widthString, const
 	}
 
 	uint32_t *bits = (uint32_t *) malloc(stride * height * 4);
-	int index = 0;
 
-#define BITMAP_BLOCK_SIZE (131072)
+	char buffer[1024];
+	snprintf(buffer, sizeof(buffer), "dump binary memory .bitmap.gf (%s) (%s+%d)", pointerResult, pointerResult, stride * height);
+	EvaluateCommand(buffer);
 
-	for (int block = 0; block < stride * height; block += BITMAP_BLOCK_SIZE) {
-		int size = BITMAP_BLOCK_SIZE;
-		if (block + size > stride * height) size = stride * height - block;
+	FILE *f = fopen(".bitmap.gf", "rb");
 
-		printf("%d%%\n", block * 100 / (stride * height));
-
-		char buffer[1024];
-		snprintf(buffer, sizeof(buffer), "x/%dxw (((uint8_t *) (%s)) + %d)", size / 4, pointerString, block);
-		EvaluateCommand(buffer);
-		char *position = evaluateResult;
-
-		for (int j = 0; j < size / 4; j++) {
-			position = strstr(position, "\t0x");
-
-			if (!position) {
-				PrintErrorMessage("Could not read bits.\n");
-				free(bits);
-				return;
-			}
-
-			position += 3;
-			bits[index++] = strtoul(position, NULL, 16);
-		}
+	if (f) {
+		fread(bits, 1, stride * height * 4, f);
+		fclose(f);
+		unlink(".bitmap.gf");
 	}
 
-	UIImageDisplayCreate(&UIMDIChildCreate(&dataWindow->e,
-				UI_MDI_CHILD_CLOSE_BUTTON, UI_RECT_1(0),
-				"Bitmap", -1)->e, 0, bits, width, height, stride);
-	UIElementRefresh(&dataWindow->e);
+	if (!f || strstr(evaluateResult, "access")) {
+		PrintErrorMessage("Could not read the image bits!\n");
+	} else {
+		UIImageDisplayCreate(&UIMDIChildCreate(&dataWindow->e,
+					UI_MDI_CHILD_CLOSE_BUTTON, UI_RECT_1(0),
+					"Bitmap", -1)->e, 0, bits, width, height, stride);
+		UIElementRefresh(&dataWindow->e);
+	}
+
 	free(bits);
 }
 

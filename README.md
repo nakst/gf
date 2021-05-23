@@ -12,6 +12,10 @@ And compile the application.
 
     ./build.sh
 
+## Support
+
+To help support development, you can donate to my Patreon: https://www.patreon.com/nakst.
+
 ## Settings
 
 On startup, settings are loaded from `~/.config/gf2_config.ini`, followed by `.project.gf`. This is an INI-style file.
@@ -45,4 +49,4 @@ You can change the font size and user interface scaling in the `[ui]` section. F
 
 You can run the application with `./gf2`. Any additional command line arguments passed to `gf` will be forwarded to GDB.
 
-You can view RGBA bitmaps with the command `bitmap <pointer> <width> <height> <stride>` and pressing Shift+Enter. Large bitmaps will take a while to load from GDB.
+To view RGBA bitmaps, select the `Data` tab and then select `Add bitmap...`.
