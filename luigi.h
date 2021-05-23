@@ -2979,7 +2979,7 @@ int _UIMDIChildMessage(UIElement *element, UIMessage message, int di, void *dp) 
 		while (child && child->next) {
 			int width = UIElementMessage(child, UI_MSG_GET_WIDTH, 0, 0);
 			UIElementMove(child, UI_RECT_4(position - width, position, title.t, title.b), false);
-			child = child->next;
+			position -= width, child = child->next;
 		}
 
 		if (child) {
@@ -3096,7 +3096,7 @@ UIMDIChild *UIMDIChildCreate(UIElement *parent, uint32_t flags, UIRectangle init
 	mdiClient->active = mdiChild;
 
 	if (flags & UI_MDI_CHILD_CLOSE_BUTTON) {
-		UIButton *closeButton = UIButtonCreate(&mdiChild->e, UI_BUTTON_SMALL, "X", 1);
+		UIButton *closeButton = UIButtonCreate(&mdiChild->e, UI_BUTTON_SMALL | UI_ELEMENT_NON_CLIENT, "X", 1);
 		closeButton->invoke = _UIMDIChildCloseButton;
 		closeButton->e.cp = mdiChild;
 	}

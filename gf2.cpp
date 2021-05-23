@@ -7,9 +7,10 @@
 // 	- Jump to line and run to line.
 // 	- Shift+F10: run to next instruction (for skipping past loops).
 
-// TODO Add bitmap window extensions.
-// 	- Show progress in GUI.
-// 	- Restore previous strings when dialog shown.
+// TODO Data window extensions.
+// 	- View data windows in the whole of the main window.
+// 	- Use error dialogs for bitmap errors.
+// 	- Copy bitmap to clipboard, or save to file.
 
 // TODO Future extensions.
 // 	- Watch window.
@@ -74,13 +75,24 @@ UIColorPicker *themeEditorColorPicker;
 UITable *themeEditorTable;
 int themeEditorSelectedColor;
 
-// Add bitmap dialog:
+// Bitmap viewer:
+
+struct BitmapViewer {
+	char pointer[256];
+	char width[256];
+	char height[256];
+	char stride[256];
+};
 
 UIWindow *addBitmapDialog;
 UITextbox *addBitmapPointer;
 UITextbox *addBitmapWidth;
 UITextbox *addBitmapHeight;
 UITextbox *addBitmapStride;
+char addBitmapPointerString[256];
+char addBitmapWidthString[256];
+char addBitmapHeightString[256];
+char addBitmapStrideString[256];
 
 // Dynamic arrays:
 
@@ -904,7 +916,26 @@ void PrintErrorMessage(const char *message) {
 	UIElementRefresh(&displayOutput->e);
 }
 
-void AddBitmapInternal(const char *pointerString, const char *widthString, const char *heightString, const char *strideString) {
+int BitmapViewerWindowMessage(UIElement *element, UIMessage message, int di, void *dp) {
+	if (message == UI_MSG_DESTROY) {
+		free(element->cp);
+	}
+	
+	return 0;
+}
+
+void AddBitmapInternal(const char *pointerString, const char *widthString, const char *heightString, const char *strideString, UIElement *owner = nullptr);
+
+int BitmapViewerRefreshMessage(UIElement *element, UIMessage message, int di, void *dp) {
+	if (message == UI_MSG_CLICKED) {
+		BitmapViewer *bitmap = (BitmapViewer *) element->parent->cp;
+		AddBitmapInternal(bitmap->pointer, bitmap->width, bitmap->height, bitmap->stride, element->parent);
+	}
+
+	return 0;
+}
+
+void AddBitmapInternal(const char *pointerString, const char *widthString, const char *heightString, const char *strideString, UIElement *owner) {
 	const char *widthResult = EvaluateExpression(widthString);
 	if (!widthResult) { PrintErrorMessage("Could not evaluate width.\n"); return; }
 	int width = atoi(widthResult + 1);
@@ -920,7 +951,7 @@ void AddBitmapInternal(const char *pointerString, const char *widthString, const
 	if (!pointerResult) { PrintErrorMessage("Pointer to image bits does not look like an address!\n"); return; }
 	pointerResult++;
 
-	if (strideString) {
+	if (strideString && *strideString) {
 		const char *strideResult = EvaluateExpression(strideString);
 		if (!strideResult) { PrintErrorMessage("Could not evaluate stride.\n"); return; }
 		stride = atoi(strideResult + 1);
@@ -943,9 +974,26 @@ void AddBitmapInternal(const char *pointerString, const char *widthString, const
 	if (!f || strstr(evaluateResult, "access")) {
 		PrintErrorMessage("Could not read the image bits!\n");
 	} else {
-		UIImageDisplayCreate(&UIMDIChildCreate(&dataWindow->e,
-					UI_MDI_CHILD_CLOSE_BUTTON, UI_RECT_1(0),
-					"Bitmap", -1)->e, 0, bits, width, height, stride);
+		BitmapViewer *bitmap = (BitmapViewer *) calloc(1, sizeof(BitmapViewer));
+		strcpy(bitmap->pointer, pointerString);
+		strcpy(bitmap->width, widthString);
+		strcpy(bitmap->height, heightString);
+		if (strideString) strcpy(bitmap->stride, strideString);
+
+		if (!owner) {
+			UIMDIChild *window = UIMDIChildCreate(&dataWindow->e, UI_MDI_CHILD_CLOSE_BUTTON, UI_RECT_1(0), "Bitmap", -1);
+			window->e.messageUser = BitmapViewerWindowMessage;
+			window->e.cp = bitmap;
+			UIButtonCreate(&window->e, UI_BUTTON_SMALL | UI_ELEMENT_NON_CLIENT, "Refresh", -1)->e.messageUser = BitmapViewerRefreshMessage;
+			owner = &window->e;
+		} else {
+			free(owner->cp);
+			owner->cp = bitmap;
+			UIElementDestroyDescendents(owner);
+		}
+
+		UIImageDisplayCreate(owner, 0, bits, width, height, stride);
+		UIElementRefresh(owner);
 		UIElementRefresh(&dataWindow->e);
 	}
 
@@ -1003,15 +1051,11 @@ int AddBitmapDialogMessage(UIElement *element, UIMessage message, int di, void *
 }
 
 void AddBitmap(void *) {
-	char stringPointer[256];
-	snprintf(stringPointer, sizeof(stringPointer), "%.*s", (int) addBitmapPointer->bytes, addBitmapPointer->string);
-	char stringWidth[256];
-	snprintf(stringWidth, sizeof(stringWidth), "%.*s", (int) addBitmapWidth->bytes, addBitmapWidth->string);
-	char stringHeight[256];
-	snprintf(stringHeight, sizeof(stringHeight), "%.*s", (int) addBitmapHeight->bytes, addBitmapHeight->string);
-	char stringStride[256];
-	snprintf(stringStride, sizeof(stringStride), "%.*s", (int) addBitmapStride->bytes, addBitmapStride->string);
-	AddBitmapInternal(stringPointer, stringWidth, stringHeight, stringStride[0] ? stringStride : nullptr);
+	snprintf(addBitmapPointerString, sizeof(addBitmapPointerString), "%.*s", (int) addBitmapPointer->bytes, addBitmapPointer->string);
+	snprintf(addBitmapWidthString, sizeof(addBitmapWidthString), "%.*s", (int) addBitmapWidth->bytes, addBitmapWidth->string);
+	snprintf(addBitmapHeightString, sizeof(addBitmapHeightString), "%.*s", (int) addBitmapHeight->bytes, addBitmapHeight->string);
+	snprintf(addBitmapStrideString, sizeof(addBitmapStrideString), "%.*s", (int) addBitmapStride->bytes, addBitmapStride->string);
+	AddBitmapInternal(addBitmapPointerString, addBitmapWidthString, addBitmapHeightString, addBitmapStrideString[0] ? addBitmapStrideString : nullptr);
 	UIElementDestroy(&addBitmapDialog->e);
 	addBitmapDialog = nullptr;
 }
@@ -1025,12 +1069,16 @@ void AddBitmapDialog(void *) {
 	UIPanelCreate(&addBitmapDialog->e, UI_PANEL_GRAY | UI_ELEMENT_PARENT_PUSH | UI_PANEL_MEDIUM_SPACING);
 	UILabelCreate(0, UI_ELEMENT_H_FILL, "Pointer to bits: (32bpp, RR GG BB AA)", -1);
 	addBitmapPointer = UITextboxCreate(0, 0);
+	UITextboxReplace(addBitmapPointer, addBitmapPointerString, -1, false);
 	UILabelCreate(0, UI_ELEMENT_H_FILL, "Width:", -1);
 	addBitmapWidth = UITextboxCreate(0, 0);
+	UITextboxReplace(addBitmapWidth, addBitmapWidthString, -1, false);
 	UILabelCreate(0, UI_ELEMENT_H_FILL, "Height:", -1);
 	addBitmapHeight = UITextboxCreate(0, 0);
-	UILabelCreate(0, UI_ELEMENT_H_FILL, "Stride:", -1);
+	UITextboxReplace(addBitmapHeight, addBitmapHeightString, -1, false);
+	UILabelCreate(0, UI_ELEMENT_H_FILL, "Stride: (optional)", -1);
 	addBitmapStride = UITextboxCreate(0, 0);
+	UITextboxReplace(addBitmapStride, addBitmapStrideString, -1, false);
 	UIButtonCreate(0, 0, "Add", -1)->invoke = AddBitmap;
 	UIParentPop();
 
