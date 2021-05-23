@@ -8,7 +8,6 @@
 // 	- Shift+F10: run to next instruction (for skipping past loops).
 
 // TODO Data window extensions.
-// 	- View data windows in the whole of the main window.
 // 	- Use error dialogs for bitmap errors.
 // 	- Copy bitmap to clipboard, or save to file.
 
@@ -67,6 +66,9 @@ UISpacer *trafficLight;
 UIMDIClient *dataWindow;
 UITabPane *tabPaneWatchData;
 UIPanel *registersWindow;
+UIPanel *rootPanel;
+UIButton *buttonFillWindow;
+UIPanel *dataTab;
 
 // Theme editor:
 
@@ -700,6 +702,30 @@ void CommandToggleDisassembly(void *) {
 	UIElementRefresh(&displayCode->e);
 }
 
+void CommandToggleFillDataTab(void *) {
+	// HACK.
+
+	static UIElement *oldParent;
+	
+	if (window->e.children == &dataTab->e) {
+		window->e.children = &rootPanel->e;
+		dataTab->e.parent = oldParent;
+		buttonFillWindow->e.flags &= ~UI_BUTTON_CHECKED;
+		UIElementRefresh(&window->e);
+		UIElementRefresh(&rootPanel->e);
+		UIElementRefresh(oldParent);
+	} else {
+		tabPaneWatchData->active = 2;
+		UIElementRefresh(&tabPaneWatchData->e);
+		window->e.children = &dataTab->e;
+		oldParent = dataTab->e.parent;
+		dataTab->e.parent = &window->e;
+		buttonFillWindow->e.flags |= UI_BUTTON_CHECKED;
+		UIElementRefresh(&window->e);
+		UIElementRefresh(&dataTab->e);
+	}
+}
+
 void ShowMenu(void *) {
 	UIMenu *menu = UIMenuCreate(&buttonMenu->e, UI_MENU_PLACE_ABOVE);
 	UIMenuAddItem(menu, 0, "Run\tShift+F5", -1, CommandSendToGDB, (void *) "r");
@@ -733,6 +759,7 @@ void RegisterShortcuts() {
 	UIWindowRegisterShortcut(window, { .code = UI_KEYCODE_F9, .invoke = CommandToggleBreakpoint, .cp = NULL });
 	UIWindowRegisterShortcut(window, { .code = UI_KEYCODE_F2, .invoke = CommandSyncWithGvim, .cp = NULL });
 	UIWindowRegisterShortcut(window, { .code = UI_KEYCODE_LETTER('D'), .ctrl = true, .invoke = CommandToggleDisassembly, .cp = NULL });
+	UIWindowRegisterShortcut(window, { .code = UI_KEYCODE_LETTER('B'), .ctrl = true, .invoke = CommandToggleFillDataTab, .cp = NULL });
 }
 
 int RunSystemWithOutput(const char *command) {
@@ -1657,8 +1684,8 @@ extern "C" void CreateInterface(UIWindow *_window) {
 	window->scale = uiScale;
 	window->e.messageUser = WindowMessage;
 
-	UIPanel *panel1 = UIPanelCreate(&window->e, UI_PANEL_EXPAND);
-	UISplitPane *split1 = UISplitPaneCreate(&panel1->e, UI_SPLIT_PANE_VERTICAL | UI_ELEMENT_V_FILL, 0.75f);
+	rootPanel = UIPanelCreate(&window->e, UI_PANEL_EXPAND);
+	UISplitPane *split1 = UISplitPaneCreate(&rootPanel->e, UI_SPLIT_PANE_VERTICAL | UI_ELEMENT_V_FILL, 0.75f);
 	UISplitPane *split2 = UISplitPaneCreate(&split1->e, /* horizontal */ 0, 0.80f);
 	UISplitPane *split4 = UISplitPaneCreate(&split1->e, /* horizontal */ 0, 0.65f);
 	UIPanel *panel2 = UIPanelCreate(&split4->e, UI_PANEL_EXPAND);
@@ -1666,10 +1693,12 @@ extern "C" void CreateInterface(UIWindow *_window) {
 	registersWindow = UIPanelCreate(&tabPaneWatchData->e, UI_PANEL_SMALL_SPACING | UI_PANEL_GRAY | UI_PANEL_SCROLL);
 	UIPanel *watchWindow = UIPanelCreate(&tabPaneWatchData->e, UI_PANEL_SMALL_SPACING | UI_PANEL_GRAY);
 	UILabelCreate(&watchWindow->e, UI_ELEMENT_H_FILL, "(Work in progress.)", -1);
-	UIPanel *panel4 = UIPanelCreate(&tabPaneWatchData->e, UI_PANEL_EXPAND);
-	UIPanel *panel5 = UIPanelCreate(&panel4->e, UI_PANEL_GRAY | UI_PANEL_HORIZONTAL);
-	UIButtonCreate(&panel5->e, 0, "Add bitmap...", -1)->invoke = AddBitmapDialog;
-	dataWindow = UIMDIClientCreate(&panel4->e, UI_ELEMENT_V_FILL);
+	dataTab = UIPanelCreate(&tabPaneWatchData->e, UI_PANEL_EXPAND);
+	UIPanel *panel5 = UIPanelCreate(&dataTab->e, UI_PANEL_GRAY | UI_PANEL_HORIZONTAL | UI_PANEL_SMALL_SPACING);
+	buttonFillWindow = UIButtonCreate(&panel5->e, UI_BUTTON_SMALL, "Fill window", -1);
+	buttonFillWindow->invoke = CommandToggleFillDataTab;
+	UIButtonCreate(&panel5->e, UI_BUTTON_SMALL, "Add bitmap...", -1)->invoke = AddBitmapDialog;
+	dataWindow = UIMDIClientCreate(&dataTab->e, UI_ELEMENT_V_FILL);
 	displayOutput = UICodeCreate(&panel2->e, UI_CODE_NO_MARGIN | UI_ELEMENT_V_FILL);
 	UIPanel *panel3 = UIPanelCreate(&panel2->e, UI_PANEL_HORIZONTAL | UI_PANEL_EXPAND | UI_PANEL_GRAY);
 	panel3->border = UI_RECT_1(5);
