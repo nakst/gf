@@ -55,6 +55,10 @@ int disassemblyPreviousSourceLine;
 
 // User interface:
 
+#define TAB_REGISTERS (0)
+#define TAB_WATCH (1)
+#define TAB_DATA (2)
+
 UIWindow *window;
 UICode *displayCode;
 UICode *displayOutput;
@@ -112,6 +116,7 @@ struct BitmapViewer {
 };
 
 Array<UIElement *> autoUpdateBitmapViewers;
+bool autoUpdateBitmapViewersQueued;
 
 UIWindow *addBitmapDialog;
 UITextbox *addBitmapPointer;
@@ -719,7 +724,7 @@ void CommandToggleFillDataTab(void *) {
 		UIElementRefresh(&rootPanel->e);
 		UIElementRefresh(oldParent);
 	} else {
-		tabPaneWatchData->active = 2;
+		tabPaneWatchData->active = TAB_DATA;
 		UIElementRefresh(&tabPaneWatchData->e);
 		window->e.children = &dataTab->e;
 		oldParent = dataTab->e.parent;
@@ -1047,7 +1052,7 @@ void AddBitmapInternal(const char *pointerString, const char *widthString, const
 			UIElementDestroyDescendents(owner);
 		}
 
-		UIImageDisplayCreate(owner, 0, bits, width, height, stride);
+		UIImageDisplayCreate(owner, UI_ELEMENT_H_FILL | UI_ELEMENT_V_FILL, bits, width, height, stride);
 		UIElementRefresh(owner);
 		UIElementRefresh(&dataWindow->e);
 	}
@@ -1056,7 +1061,7 @@ void AddBitmapInternal(const char *pointerString, const char *widthString, const
 }
 
 void AddDataWindow() {
-	tabPaneWatchData->active = 2;
+	tabPaneWatchData->active = TAB_DATA;
 	UIElementRefresh(&tabPaneWatchData->e);
 
 	char buffer[1024];
@@ -1586,11 +1591,15 @@ void Update(const char *data) {
 		registerData = newRegisterData;
 	}
 
-	// Update bitmaps.
+	// Update bitmap viewers.
 
-	for (int i = 0; i < autoUpdateBitmapViewers.Length(); i++) {
-		BitmapViewer *bitmap = (BitmapViewer *) autoUpdateBitmapViewers[i]->cp;
-		AddBitmapInternal(bitmap->pointer, bitmap->width, bitmap->height, bitmap->stride, autoUpdateBitmapViewers[i]);
+	if (tabPaneWatchData->active == TAB_DATA) {
+		for (int i = 0; i < autoUpdateBitmapViewers.Length(); i++) {
+			BitmapViewer *bitmap = (BitmapViewer *) autoUpdateBitmapViewers[i]->cp;
+			AddBitmapInternal(bitmap->pointer, bitmap->width, bitmap->height, bitmap->stride, autoUpdateBitmapViewers[i]);
+		}
+	} else if (autoUpdateBitmapViewers.Length()) {
+		autoUpdateBitmapViewersQueued = true;
 	}
 }
 
@@ -1687,6 +1696,27 @@ int DisplayCodeMessage(UIElement *element, UIMessage message, int di, void *dp) 
 	return 0;
 }
 
+int TabPaneWatchDataMessage(UIElement *element, UIMessage message, int di, void *dp) {
+	if (message == UI_MSG_LAYOUT) {
+		static int lastActive = 0;
+
+		if (tabPaneWatchData->active != lastActive && tabPaneWatchData->active == TAB_DATA && autoUpdateBitmapViewersQueued) {
+			// If we've switched to the data tab, we may need to update the bitmap viewers.
+
+			for (int i = 0; i < autoUpdateBitmapViewers.Length(); i++) {
+				BitmapViewer *bitmap = (BitmapViewer *) autoUpdateBitmapViewers[i]->cp;
+				AddBitmapInternal(bitmap->pointer, bitmap->width, bitmap->height, bitmap->stride, autoUpdateBitmapViewers[i]);
+			}
+
+			autoUpdateBitmapViewersQueued = false;
+		}
+
+		lastActive = tabPaneWatchData->active;
+	}
+
+	return 0;
+}
+
 int TrafficLightMessage(UIElement *element, UIMessage message, int di, void *dp) {
 	if (message == UI_MSG_PAINT) {
 		UIDrawRectangle((UIPainter *) dp, element->bounds, programRunning ? 0xFF0000 : 0x00FF00, ui.theme.border, UI_RECT_1(1));
@@ -1729,6 +1759,7 @@ extern "C" void CreateInterface(UIWindow *_window) {
 	UISplitPane *split4 = UISplitPaneCreate(&split1->e, /* horizontal */ 0, 0.65f);
 	UIPanel *panel2 = UIPanelCreate(&split4->e, UI_PANEL_EXPAND);
 	tabPaneWatchData = UITabPaneCreate(&split4->e, 0, "Registers\tWatch\tData");
+	tabPaneWatchData->e.messageUser = TabPaneWatchDataMessage;
 	registersWindow = UIPanelCreate(&tabPaneWatchData->e, UI_PANEL_SMALL_SPACING | UI_PANEL_GRAY | UI_PANEL_SCROLL);
 	UIPanel *watchWindow = UIPanelCreate(&tabPaneWatchData->e, UI_PANEL_SMALL_SPACING | UI_PANEL_GRAY);
 	UILabelCreate(&watchWindow->e, UI_ELEMENT_H_FILL, "(Work in progress.)", -1);
