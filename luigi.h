@@ -510,9 +510,17 @@ typedef struct UIExpandPane {
 } UIExpandPane;
 
 typedef struct UIImageDisplay {
+#define UI_IMAGE_DISPLAY_INTERACTIVE (1 << 0)
+#define _UI_IMAGE_DISPLAY_ZOOM_FIT (1 << 1)
+
 	UIElement e;
 	uint32_t *bits;
 	int width, height;
+	float panX, panY, zoom;
+	
+	// Internals:
+	int previousWidth, previousHeight;
+	int previousPanPointX, previousPanPointY;
 } UIImageDisplay;
 
 void UIInitialise();
@@ -525,7 +533,6 @@ UIButton *UIButtonCreate(UIElement *parent, uint32_t flags, const char *label, p
 UIColorPicker *UIColorPickerCreate(UIElement *parent, uint32_t flags);
 UIExpandPane *UIExpandPaneCreate(UIElement *parent, uint32_t flags, const char *label, ptrdiff_t labelBytes, uint32_t panelFlags);
 UIGauge *UIGaugeCreate(UIElement *parent, uint32_t flags);
-UIImageDisplay *UIImageDisplayCreate(UIElement *parent, uint32_t flags, uint32_t *bits, size_t width, size_t height, size_t stride);
 UIMDIClient *UIMDIClientCreate(UIElement *parent, uint32_t flags);
 UIMDIChild *UIMDIChildCreate(UIElement *parent, uint32_t flags, UIRectangle initialBounds, const char *title, ptrdiff_t titleBytes);
 UIPanel *UIPanelCreate(UIElement *parent, uint32_t flags);
@@ -537,6 +544,9 @@ UITabPane *UITabPaneCreate(UIElement *parent, uint32_t flags, const char *tabs /
 
 UILabel *UILabelCreate(UIElement *parent, uint32_t flags, const char *label, ptrdiff_t labelBytes);
 void UILabelSetContent(UILabel *code, const char *content, ptrdiff_t byteCount);
+
+UIImageDisplay *UIImageDisplayCreate(UIElement *parent, uint32_t flags, uint32_t *bits, size_t width, size_t height, size_t stride);
+void UIImageDisplaySetContent(UIImageDisplay *display, uint32_t *bits, size_t width, size_t height, size_t stride);
 
 UIWindow *UIWindowCreate(UIWindow *owner, uint32_t flags, const char *cTitle, int width, int height);
 void UIWindowRegisterShortcut(UIWindow *window, UIShortcut shortcut);
@@ -917,6 +927,12 @@ float _UIArcTan2Float(float y, float x) {
 	else if (x > 0) return _UIArcTanFloat(y / x);
 	else if (y >= 0) return 3.141592654f + _UIArcTanFloat(y / x);
 	else return -3.141592654f + _UIArcTanFloat(y / x);
+}
+
+float _UILinearMap(float value, float inFrom, float inTo, float outFrom, float outTo) {
+	float inRange = inTo - inFrom, outRange = outTo - outFrom;
+	float normalisedValue = (value - inFrom) / inRange;
+	return normalisedValue * outRange + outFrom;
 }
 
 bool UIColorToHSV(uint32_t rgb, float *hue, float *saturation, float *value) {
@@ -3167,6 +3183,29 @@ UIExpandPane *UIExpandPaneCreate(UIElement *parent, uint32_t flags, const char *
 	return pane;
 }
 
+void _UIImageDisplayUpdateViewport(UIImageDisplay *display) {
+	UIRectangle bounds = display->e.bounds;
+	bounds.r -= bounds.l, bounds.b -= bounds.t;
+	
+	float minimumZoomX = 1, minimumZoomY = 1;
+	if (display->width  > bounds.r) minimumZoomX = (float) bounds.r / display->width;
+	if (display->height > bounds.b) minimumZoomY = (float) bounds.b / display->height;
+	float minimumZoom = minimumZoomX < minimumZoomY ? minimumZoomX : minimumZoomY;
+	
+	if (display->zoom < minimumZoom || (display->e.flags & _UI_IMAGE_DISPLAY_ZOOM_FIT)) {
+		display->zoom = minimumZoom;
+		display->e.flags |= _UI_IMAGE_DISPLAY_ZOOM_FIT;
+	}
+	
+	if (display->panX < 0) display->panX = 0;
+	if (display->panY < 0) display->panY = 0;
+	if (display->panX > display->width  - bounds.r / display->zoom) display->panX = display->width  - bounds.r / display->zoom;
+	if (display->panY > display->height - bounds.b / display->zoom) display->panY = display->height - bounds.b / display->zoom;
+	
+	if (bounds.r && display->width  * display->zoom <= bounds.r) display->panX = display->width  / 2 - bounds.r / display->zoom / 2;
+	if (bounds.b && display->height * display->zoom <= bounds.b) display->panY = display->height / 2 - bounds.b / display->zoom / 2;
+}
+
 int _UIImageDisplayMessage(UIElement *element, UIMessage message, int di, void *dp) {
 	UIImageDisplay *display = (UIImageDisplay *) element;
 	
@@ -3178,37 +3217,87 @@ int _UIImageDisplayMessage(UIElement *element, UIMessage message, int di, void *
 		UI_FREE(display->bits);
 	} else if (message == UI_MSG_PAINT) {
 		UIPainter *painter = (UIPainter *) dp;
-		UIRectangle image = UI_RECT_4(display->e.bounds.l, display->e.bounds.l + display->width, display->e.bounds.t, display->e.bounds.t + display->height);
-		UIRectangle extra1 = UI_RECT_4(display->e.bounds.l + display->width, display->e.bounds.r, display->e.bounds.t, display->e.bounds.b);
-		UIRectangle extra2 = UI_RECT_4(display->e.bounds.l, display->e.bounds.l + display->width, display->e.bounds.t + display->height, display->e.bounds.b);
+		
+		int w = UI_RECT_WIDTH(element->bounds), h = UI_RECT_HEIGHT(element->bounds);
+		int x = _UILinearMap(0, display->panX, display->panX + w / display->zoom, 0, w) + element->bounds.l;
+		int y = _UILinearMap(0, display->panY, display->panY + h / display->zoom, 0, h) + element->bounds.t;
+		
+		UIRectangle image = UI_RECT_4(x, x + (int) (display->width * display->zoom), y, (int) (y + display->height * display->zoom));
 		UIRectangle bounds = UIRectangleIntersection(painter->clip, UIRectangleIntersection(display->e.bounds, image));
-
-		UIDrawBlock(painter, extra1, ui.theme.panel1);
-		UIDrawBlock(painter, extra2, ui.theme.panel1);
-
-		if (UI_RECT_VALID(bounds)) {
+		if (!UI_RECT_VALID(bounds)) return 0;
+		
+		if (display->zoom == 1) {
 			uint32_t *lineStart = (uint32_t *) painter->bits + bounds.t * painter->width + bounds.l;
-			uint32_t *sourceLineStart = display->bits + (bounds.l - display->e.bounds.l) + display->width * (bounds.t - display->e.bounds.t);
-
+			uint32_t *sourceLineStart = display->bits + (bounds.l - image.l) + display->width * (bounds.t - image.t);
+	
 			for (int i = 0; i < bounds.b - bounds.t; i++, lineStart += painter->width, sourceLineStart += display->width) {
 				uint32_t *destination = lineStart;
 				uint32_t *source = sourceLineStart;
 				int j = bounds.r - bounds.l;
-
+	
 				do {
 					*destination = *source;
 					destination++;
 					source++;
 				} while (--j);
 			}
+		} else {
+			float zr = 1.0f / display->zoom;
+			uint32_t *destination = (uint32_t *) painter->bits;
+			
+			for (int i = bounds.t; i < bounds.b; i++) {
+				int ty = (i - image.t) * zr;
+				
+				for (int j = bounds.l; j < bounds.r; j++) {
+					int tx = (j - image.l) * zr;
+					destination[i * painter->width + j] = display->bits[ty * display->width + tx];
+				}
+			}
 		}
+	} else if (message == UI_MSG_MOUSE_WHEEL && (element->flags & UI_IMAGE_DISPLAY_INTERACTIVE)) {
+		display->e.flags &= ~_UI_IMAGE_DISPLAY_ZOOM_FIT;
+		int divisions = -di / 72;
+		float factor = 1;
+		float perDivision = element->window->ctrl ? 2.0f : element->window->alt ? 1.01f : 1.2f;
+		while (divisions > 0) factor *= perDivision, divisions--;
+		while (divisions < 0) factor /= perDivision, divisions++;
+		if (display->zoom * factor > 64) factor = 64 / display->zoom;
+		int mx = element->window->cursorX - element->bounds.l;
+		int my = element->window->cursorY - element->bounds.t;
+		display->zoom *= factor;
+		display->panX -= mx / display->zoom * (1 - factor);
+		display->panY -= my / display->zoom * (1 - factor);
+		_UIImageDisplayUpdateViewport(display);
+		UIElementRepaint(&display->e, NULL);
+	} else if (message == UI_MSG_LAYOUT && (element->flags & UI_IMAGE_DISPLAY_INTERACTIVE)) {
+		UIRectangle bounds = display->e.bounds;
+		bounds.r -= bounds.l, bounds.b -= bounds.t;
+		display->panX -= (bounds.r - display->previousWidth ) / 2 / display->zoom;
+		display->panY -= (bounds.b - display->previousHeight) / 2 / display->zoom;
+		display->previousWidth = bounds.r, display->previousHeight = bounds.b;
+		_UIImageDisplayUpdateViewport(display);
+	} else if (message == UI_MSG_GET_CURSOR && (element->flags & UI_IMAGE_DISPLAY_INTERACTIVE)
+			&& (UI_RECT_WIDTH(element->bounds) < display->width * display->zoom 
+				|| UI_RECT_HEIGHT(element->bounds) < display->height * display->zoom)) {
+		return UI_CURSOR_HAND;
+	} else if (message == UI_MSG_MOUSE_DRAG) {
+		display->panX -= (element->window->cursorX - display->previousPanPointX) / display->zoom;
+		display->panY -= (element->window->cursorY - display->previousPanPointY) / display->zoom;
+		_UIImageDisplayUpdateViewport(display);
+		display->previousPanPointX = element->window->cursorX;
+		display->previousPanPointY = element->window->cursorY;
+		UIElementRepaint(element, NULL);
+	} else if (message == UI_MSG_LEFT_DOWN) {           
+		display->e.flags &= ~_UI_IMAGE_DISPLAY_ZOOM_FIT;  
+		display->previousPanPointX = element->window->cursorX;
+		display->previousPanPointY = element->window->cursorY;
 	}
 
 	return 0;
 }
 
-UIImageDisplay *UIImageDisplayCreate(UIElement *parent, uint32_t flags, uint32_t *bits, size_t width, size_t height, size_t stride) {
-	UIImageDisplay *display = (UIImageDisplay *) UIElementCreate(sizeof(UIImageDisplay), parent, flags, _UIImageDisplayMessage, "ImageDisplay");
+void UIImageDisplaySetContent(UIImageDisplay *display, uint32_t *bits, size_t width, size_t height, size_t stride) {
+	UI_FREE(display->bits);
 
 	display->bits = (uint32_t *) UI_MALLOC(width * height * 4);
 	display->width = width;
@@ -3222,7 +3311,12 @@ UIImageDisplay *UIImageDisplayCreate(UIElement *parent, uint32_t flags, uint32_t
 			*destination++ = source[i];
 		}
 	}
+}
 
+UIImageDisplay *UIImageDisplayCreate(UIElement *parent, uint32_t flags, uint32_t *bits, size_t width, size_t height, size_t stride) {
+	UIImageDisplay *display = (UIImageDisplay *) UIElementCreate(sizeof(UIImageDisplay), parent, flags, _UIImageDisplayMessage, "ImageDisplay");
+	display->zoom = 1.0f;
+	UIImageDisplaySetContent(display, bits, width, height, stride);
 	return display;
 }
 

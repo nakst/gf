@@ -113,6 +113,7 @@ struct BitmapViewer {
 	char height[256];
 	char stride[256];
 	UIButton *autoToggle;
+	UIImageDisplay *display;
 };
 
 Array<UIElement *> autoUpdateBitmapViewers;
@@ -1048,11 +1049,13 @@ void AddBitmapInternal(const char *pointerString, const char *widthString, const
 			bitmap->autoToggle->e.messageUser = BitmapViewerAutoMessage;
 			UIButtonCreate(&window->e, UI_BUTTON_SMALL | UI_ELEMENT_NON_CLIENT, "Refresh", -1)->e.messageUser = BitmapViewerRefreshMessage;
 			owner = &window->e;
-		} else {
-			UIElementDestroyDescendents(owner);
+
+			bitmap->display = UIImageDisplayCreate(owner, UI_IMAGE_DISPLAY_INTERACTIVE | UI_ELEMENT_H_FILL | UI_ELEMENT_V_FILL, bits, width, height, stride);
 		}
 
-		UIImageDisplayCreate(owner, UI_ELEMENT_H_FILL | UI_ELEMENT_V_FILL, bits, width, height, stride);
+		BitmapViewer *bitmap = (BitmapViewer *) owner->cp;
+		UIImageDisplaySetContent(bitmap->display, bits, width, height, stride);
+		UIElementRefresh(&bitmap->display->e);
 		UIElementRefresh(owner);
 		UIElementRefresh(&dataWindow->e);
 	}
