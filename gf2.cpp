@@ -77,25 +77,6 @@ UIColorPicker *themeEditorColorPicker;
 UITable *themeEditorTable;
 int themeEditorSelectedColor;
 
-// Bitmap viewer:
-
-struct BitmapViewer {
-	char pointer[256];
-	char width[256];
-	char height[256];
-	char stride[256];
-};
-
-UIWindow *addBitmapDialog;
-UITextbox *addBitmapPointer;
-UITextbox *addBitmapWidth;
-UITextbox *addBitmapHeight;
-UITextbox *addBitmapStride;
-char addBitmapPointerString[256];
-char addBitmapWidthString[256];
-char addBitmapHeightString[256];
-char addBitmapStrideString[256];
-
 // Dynamic arrays:
 
 template <class T>
@@ -117,7 +98,30 @@ struct Array {
 	inline T &Last() { return array[length - 1]; }
 	inline T &operator[](uintptr_t index) { return array[index]; }
 	inline void Pop() { length--; }
+	inline void DeleteSwap(uintptr_t index) { if (index != length - 1) array[index] = Last(); Pop(); }
 };
+
+// Bitmap viewer:
+
+struct BitmapViewer {
+	char pointer[256];
+	char width[256];
+	char height[256];
+	char stride[256];
+	UIButton *autoToggle;
+};
+
+Array<UIElement *> autoUpdateBitmapViewers;
+
+UIWindow *addBitmapDialog;
+UITextbox *addBitmapPointer;
+UITextbox *addBitmapWidth;
+UITextbox *addBitmapHeight;
+UITextbox *addBitmapStride;
+char addBitmapPointerString[256];
+char addBitmapWidthString[256];
+char addBitmapHeightString[256];
+char addBitmapStrideString[256];
 
 // Call stack:
 
@@ -962,6 +966,30 @@ int BitmapViewerRefreshMessage(UIElement *element, UIMessage message, int di, vo
 	return 0;
 }
 
+int BitmapViewerAutoMessage(UIElement *element, UIMessage message, int di, void *dp) {
+	if (message == UI_MSG_CLICKED) {
+		element->flags ^= UI_BUTTON_CHECKED;
+
+		if (element->flags & UI_BUTTON_CHECKED) {
+			autoUpdateBitmapViewers.Add(element->parent);
+		} else {
+			bool found = false;
+
+			for (int i = 0; i < autoUpdateBitmapViewers.Length(); i++) {
+				if (autoUpdateBitmapViewers[i] == element->parent) {
+					autoUpdateBitmapViewers.DeleteSwap(i);
+					found = true;
+					break;
+				}
+			}
+
+			assert(found);
+		}
+	}
+
+	return 0;
+}
+
 void AddBitmapInternal(const char *pointerString, const char *widthString, const char *heightString, const char *strideString, UIElement *owner) {
 	const char *widthResult = EvaluateExpression(widthString);
 	if (!widthResult) { PrintErrorMessage("Could not evaluate width.\n"); return; }
@@ -1001,21 +1029,21 @@ void AddBitmapInternal(const char *pointerString, const char *widthString, const
 	if (!f || strstr(evaluateResult, "access")) {
 		PrintErrorMessage("Could not read the image bits!\n");
 	} else {
-		BitmapViewer *bitmap = (BitmapViewer *) calloc(1, sizeof(BitmapViewer));
-		strcpy(bitmap->pointer, pointerString);
-		strcpy(bitmap->width, widthString);
-		strcpy(bitmap->height, heightString);
-		if (strideString) strcpy(bitmap->stride, strideString);
-
 		if (!owner) {
+			BitmapViewer *bitmap = (BitmapViewer *) calloc(1, sizeof(BitmapViewer));
+			strcpy(bitmap->pointer, pointerString);
+			strcpy(bitmap->width, widthString);
+			strcpy(bitmap->height, heightString);
+			if (strideString) strcpy(bitmap->stride, strideString);
+
 			UIMDIChild *window = UIMDIChildCreate(&dataWindow->e, UI_MDI_CHILD_CLOSE_BUTTON, UI_RECT_1(0), "Bitmap", -1);
 			window->e.messageUser = BitmapViewerWindowMessage;
 			window->e.cp = bitmap;
+			bitmap->autoToggle = UIButtonCreate(&window->e, UI_BUTTON_SMALL | UI_ELEMENT_NON_CLIENT, "Auto", -1);
+			bitmap->autoToggle->e.messageUser = BitmapViewerAutoMessage;
 			UIButtonCreate(&window->e, UI_BUTTON_SMALL | UI_ELEMENT_NON_CLIENT, "Refresh", -1)->e.messageUser = BitmapViewerRefreshMessage;
 			owner = &window->e;
 		} else {
-			free(owner->cp);
-			owner->cp = bitmap;
 			UIElementDestroyDescendents(owner);
 		}
 
@@ -1229,7 +1257,7 @@ void Update(const char *data) {
 			if (line[0] == '\n' || line == data) {
 				int i = line == data ? 0 : 1, number = 0;
 
-				while (true) {
+				while (line[i]) {
 					if (line[i] == '\t') {
 						break;
 					} else if (isdigit(line[i])) {
@@ -1238,6 +1266,10 @@ void Update(const char *data) {
 					} else {
 						goto tryNext;
 					}
+				}
+
+				if (!line[i]) {
+					break;
 				}
 
 				if (number) {
@@ -1285,7 +1317,7 @@ void Update(const char *data) {
 
 	bool changedSourceLine = SetPosition(fileChanged ? newFile : NULL, lineChanged ? newLine : -1, true);
 
-	if (changedSourceLine && currentLine < displayCode->lineCount) {
+	if (changedSourceLine && currentLine < displayCode->lineCount && currentLine > 0) {
 		// If there is an auto-print expression from the previous line, evaluate it.
 
 		if (autoPrintExpression[0]) {
@@ -1552,6 +1584,13 @@ void Update(const char *data) {
 		UIElementRefresh(&registersWindow->e);
 		registerData.Free();
 		registerData = newRegisterData;
+	}
+
+	// Update bitmaps.
+
+	for (int i = 0; i < autoUpdateBitmapViewers.Length(); i++) {
+		BitmapViewer *bitmap = (BitmapViewer *) autoUpdateBitmapViewers[i]->cp;
+		AddBitmapInternal(bitmap->pointer, bitmap->width, bitmap->height, bitmap->stride, autoUpdateBitmapViewers[i]);
 	}
 }
 

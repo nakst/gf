@@ -14,7 +14,7 @@ And compile the application.
 
 ## Support
 
-To help support development, you can donate to my Patreon: https://www.patreon.com/nakst.
+To support development, you can donate to my Patreon: https://www.patreon.com/nakst.
 
 ## Settings
 
