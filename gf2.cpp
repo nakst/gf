@@ -186,6 +186,7 @@ bool evaluateMode;
 bool programRunning;
 char **gdbArgv;
 int gdbArgc;
+const char *gdbPath = "gdb";
 
 int StringFormat(char *buffer, size_t bufferSize, const char *format, ...) {
 	va_list arguments;
@@ -207,7 +208,6 @@ void *DebuggerThread(void *) {
 	pipe(outputPipe);
 	pipe(inputPipe);
 
-	// char *const argv[] = { (char *) "gdb", NULL };
 	posix_spawn_file_actions_t actions = {};
 	posix_spawn_file_actions_adddup2(&actions, inputPipe[0],  0);
 	posix_spawn_file_actions_adddup2(&actions, outputPipe[1], 1);
@@ -217,7 +217,7 @@ void *DebuggerThread(void *) {
 	posix_spawnattr_init(&attrs);
 	posix_spawnattr_setflags(&attrs, POSIX_SPAWN_SETSID);
 
-	posix_spawnp((pid_t *) &gdbPID, "gdb", &actions, &attrs, gdbArgv, environ);
+	posix_spawnp((pid_t *) &gdbPID, gdbPath, &actions, &attrs, gdbArgv, environ);
 
 	pipeToGDB = inputPipe[1];
 
@@ -924,6 +924,8 @@ void LoadSettings(bool earlyPass) {
 					gdbArgv = (char **) realloc(gdbArgv, sizeof(char *) * (gdbArgc + 1));
 					gdbArgv[gdbArgc - 1] = state.value;
 					gdbArgv[gdbArgc] = nullptr;
+				} else if (0 == strcmp(state.key, "path")) {
+					gdbPath = state.value;
 				}
 			}
 		}

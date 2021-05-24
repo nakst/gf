@@ -28,6 +28,11 @@ You can pass additional arguments to GDB in the `[gdb]` section. For example,
     argument=-nx
     argument=-ex record
 
+You can also change the location of the GDB executable. For example,
+
+    [gdb]
+    path=/home/a/opt/gdb
+
 ### Custom keyboard shortcuts
 
 Keyboard shortcuts are placed in the `[shortcuts]` section. For example,
