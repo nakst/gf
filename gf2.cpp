@@ -1,6 +1,8 @@
 // Build with: g++ gf2.cpp -lX11 -Wall -Wextra -Wno-unused-parameter -Wno-missing-field-initializers -Wno-format-truncation -o gf2 -g -pthread
 // Add the following flags to use FreeType: -lfreetype -D UI_FREETYPE -I /usr/include/freetype2 -D UI_FONT_PATH=/usr/share/fonts/TTF/DejaVuSansMono.ttf
 
+// TODO Rearrange UI layout; the breakpoint window takes up too much space.
+
 // TODO Disassembly window extensions.
 // 	- Split source and disassembly view.
 // 	- Setting/clearing/showing breakpoints.
@@ -11,8 +13,11 @@
 // 	- Use error dialogs for bitmap errors.
 // 	- Copy bitmap to clipboard, or save to file.
 
+// TODO Watch window.
+//	- Better toggle buttons.
+// 	- Improve performance if possible?
+
 // TODO Future extensions.
-// 	- Watch window.
 // 	- Memory window.
 // 	- Hover to view value.
 // 	- Thread selection.
@@ -86,17 +91,26 @@ int themeEditorSelectedColor;
 template <class T>
 struct Array {
 	T *array;
-	size_t length;
+	size_t length, allocated;
 
 	inline void Insert(T item, uintptr_t index) {
+		if (length == allocated) {
+			allocated = length * 2 + 1;
+			array = (T *) realloc(array, allocated * sizeof(T));
+		}
+
 		length++;
-		array = (T *) realloc(array, length * sizeof(T));
 		memmove(array + index + 1, array + index, (length - index - 1) * sizeof(T));
 		array[index] = item;
 	}
 
+	inline void Delete(uintptr_t index, size_t count = 1) { 
+		memmove(array + index, array + index + count, (length - index - count) * sizeof(T)); 
+		length -= count;
+	}
+
 	inline void Add(T item) { Insert(item, length); }
-	inline void Free() { free(array); array = nullptr; length = 0; }
+	inline void Free() { free(array); array = nullptr; length = allocated = 0; }
 	inline int Length() { return length; }
 	inline T &First() { return array[0]; }
 	inline T &Last() { return array[length - 1]; }
@@ -187,6 +201,83 @@ bool programRunning;
 char **gdbArgv;
 int gdbArgc;
 const char *gdbPath = "gdb";
+
+// Watch window:
+
+struct Watch {
+	bool open, hasFields, loadedFields, isArray;
+	uint8_t depth;
+	uintptr_t arrayIndex;
+	char *key, *value, *type;
+	Array<Watch *> fields;
+	Watch *parent;
+	uint64_t updateIndex;
+};
+
+Array<Watch *> watchRows;
+Array<Watch *> watchBaseExpressions;
+UIElement *watchWindow;
+UITextbox *watchTextbox;
+int watchSelectedRow;
+uint64_t watchUpdateIndex;
+
+// Python code:
+
+const char *pythonCode = R"(py
+
+def _gf_value(expression):
+    try:
+        value = gdb.parse_and_eval(expression[0])
+        for index in expression[1:]:
+            value = value[index]
+        return value
+    except gdb.error:
+        print('??')
+        return None
+
+def gf_typeof(expression):
+    value = _gf_value(expression)
+    if value == None: return
+    print(value.type)
+
+def gf_valueof(expression):
+    value = _gf_value(expression)
+    if value == None: return
+    result = ''
+    while True:
+        basic_type = gdb.types.get_basic_type(value.type)
+        if basic_type.code != gdb.TYPE_CODE_PTR: break
+        try:
+            result = result + '(' + str(value) + ') '
+            value = value.dereference()
+        except:
+            break
+    try:
+        result = result + value.format_string(max_elements=10,max_depth=3)[0:200]
+    except:
+        result = result + '??'
+    print(result)
+
+def _gf_fields_recurse(type):
+    if type.code == gdb.TYPE_CODE_STRUCT or type.code == gdb.TYPE_CODE_UNION:
+        for field in gdb.types.deep_items(type):
+            if field[1].is_base_class:
+                _gf_fields_recurse(field[1].type)
+            else:
+                print(field[0])
+    elif type.code == gdb.TYPE_CODE_ARRAY:
+        print('(array)',type.range()[1])
+
+def gf_fields(expression):
+    value = _gf_value(expression)
+    if value == None: return
+    basic_type = gdb.types.get_basic_type(value.type)
+    if basic_type.code == gdb.TYPE_CODE_PTR:
+        basic_type = gdb.types.get_basic_type(basic_type.target())
+    _gf_fields_recurse(basic_type)
+
+end
+)";
 
 int StringFormat(char *buffer, size_t bufferSize, const char *format, ...) {
 	va_list arguments;
@@ -1184,7 +1275,7 @@ int TextboxInputMessage(UIElement *, UIMessage message, int di, void *dp) {
 			return 1;
 		} else if (m->code == UI_KEYCODE_ENTER && window->shift) {
 			AddDataWindow();
-		} else if (m->code == UI_KEYCODE_TAB) {
+		} else if (m->code == UI_KEYCODE_TAB && textboxInput->bytes && !window->shift) {
 			char buffer[4096];
 			snprintf(buffer, sizeof(buffer), "complete %.*s", lastKeyWasTab ? lastTabBytes : (int) textboxInput->bytes, textboxInput->string);
 			for (int i = 0; buffer[i]; i++) if (buffer[i] == '\\') buffer[i] = ' ';
@@ -1254,7 +1345,381 @@ int ModifiedRowMessage(UIElement *element, UIMessage message, int di, void *dp) 
 	return 0;
 }
 
+int WatchTextboxMessage(UIElement *element, UIMessage message, int di, void *dp) {
+	if (message == UI_MSG_UPDATE) {
+		if (element->window->focused != element) {
+			UIElementDestroy(element);
+			watchTextbox = nullptr;
+		}
+	}
+
+	return 0;
+}
+
+void WatchDestroyTextbox() {
+	if (!watchTextbox) return;
+	UIElementDestroy(&watchTextbox->e);
+	watchTextbox = nullptr;
+	UIElementFocus(watchWindow);
+}
+
+void WatchFree(Watch *watch) {
+	for (int i = 0; i < watch->fields.Length(); i++) {
+		WatchFree(watch->fields[i]);
+		if (!watch->isArray) free(watch->fields[i]);
+	}
+
+	if (watch->isArray) free(watch->fields[0]);
+	free(watch->key);
+	free(watch->value);
+	free(watch->type);
+	watch->fields.Free();
+}
+
+void WatchDeleteExpression() {
+	WatchDestroyTextbox();
+	if (watchSelectedRow == watchRows.Length()) return;
+	int end = watchSelectedRow + 1;
+
+	for (; end < watchRows.Length(); end++) {
+		if (watchRows[watchSelectedRow]->depth >= watchRows[end]->depth) {
+			break;
+		}
+	}
+
+	bool found = false;
+	Watch *w = watchRows[watchSelectedRow];
+
+	for (int i = 0; i < watchBaseExpressions.Length(); i++) {
+		if (w == watchBaseExpressions[i]) {
+			found = true;
+			watchBaseExpressions.Delete(i);
+			break;
+		}
+	}
+
+	assert(found);
+	watchRows.Delete(watchSelectedRow, end - watchSelectedRow);
+	WatchFree(w);
+	free(w);
+}
+
+void WatchEvaluate(const char *function, Watch *watch) {
+	char buffer[4096];
+	uintptr_t position = 0;
+
+	position += snprintf(buffer + position, sizeof(buffer) - position, "py %s([", function);
+	if (position > sizeof(buffer)) position = sizeof(buffer);
+
+	Watch *stack[32];
+	int stackCount = 0;
+	stack[0] = watch;
+
+	while (stack[stackCount]) {
+		stack[stackCount + 1] = stack[stackCount]->parent;
+		stackCount++;
+		if (stackCount == 32) break;
+	}
+
+	bool first = true;
+
+	while (stackCount) {
+		stackCount--;
+
+		if (!first) {
+			position += snprintf(buffer + position, sizeof(buffer) - position, ",");
+			if (position > sizeof(buffer)) position = sizeof(buffer);
+		} else {
+			first = false;
+		}
+
+		if (stack[stackCount]->key) {
+			position += snprintf(buffer + position, sizeof(buffer) - position, "'%s'", stack[stackCount]->key);
+		} else {
+			position += snprintf(buffer + position, sizeof(buffer) - position, "%lu", stack[stackCount]->arrayIndex);
+		}
+
+		if (position > sizeof(buffer)) position = sizeof(buffer);
+	}
+
+	position += snprintf(buffer + position, sizeof(buffer) - position, "])");
+	if (position > sizeof(buffer)) position = sizeof(buffer);
+
+	EvaluateCommand(buffer);
+}
+
+bool WatchHasFields(Watch *watch) {
+	WatchEvaluate("gf_fields", watch);
+
+	if (strstr(evaluateResult, "(array)")) {
+		return true;
+	} else {
+		char *position = evaluateResult;
+		char *end = strchr(position, '\n');
+		if (!end) return false;
+		*end = 0;
+		if (strstr(position, "(gdb)")) return false;
+		return true;
+	}
+}
+
+void WatchAddFields(Watch *watch) {
+	if (watch->loadedFields) {
+		return;
+	}
+
+	watch->loadedFields = true;
+
+	WatchEvaluate("gf_fields", watch);
+
+	if (strstr(evaluateResult, "(array)")) {
+		int count = atoi(evaluateResult + 7) + 1;
+
+		if (count > 10000000) {
+			count = 10000000;
+		}
+
+		Watch *fields = (Watch *) calloc(count, sizeof(Watch));
+		watch->isArray = true;
+		bool hasSubFields = false;
+
+		for (int i = 0; i < count; i++) {
+			fields[i].parent = watch;
+			fields[i].arrayIndex = i;
+			watch->fields.Add(&fields[i]);
+			if (!i) hasSubFields = WatchHasFields(&fields[i]);
+			fields[i].hasFields = hasSubFields;
+			fields[i].depth = watch->depth + 1;
+		}
+	} else {
+		char *start = strdup(evaluateResult);
+		char *position = start;
+
+		while (true) {
+			char *end = strchr(position, '\n');
+			if (!end) break;
+			*end = 0;
+			if (strstr(position, "(gdb)")) break;
+			Watch *field = (Watch *) calloc(1, sizeof(Watch));
+			field->depth = watch->depth + 1;
+			field->parent = watch;
+			field->key = (char *) malloc(end - position + 1);
+			strcpy(field->key, position);
+			watch->fields.Add(field);
+			field->hasFields = WatchHasFields(field);
+			position = end + 1;
+		}
+
+		free(start);
+	}
+}
+
+void WatchInsertFieldRows(Watch *watch, int *position) {
+	for (int i = 0; i < watch->fields.Length(); i++) {
+		watchRows.Insert(watch->fields[i], *position);
+		*position = *position + 1;
+
+		if (watch->fields[i]->open) {
+			WatchInsertFieldRows(watch->fields[i], position);
+		}
+	}
+}
+
+void WatchEnsureRowVisible(int index) {
+	if (watchSelectedRow < 0) watchSelectedRow = 0;
+	else if (watchSelectedRow > watchRows.Length()) watchSelectedRow = watchRows.Length();
+	UIScrollBar *scroll = ((UIPanel *) watchWindow->parent)->scrollBar;
+	int rowHeight = (int) (UI_SIZE_TEXTBOX_HEIGHT * window->scale);
+	int start = index * rowHeight, end = (index + 1) * rowHeight, height = UI_RECT_HEIGHT(watchWindow->parent->bounds);
+	bool unchanged = false;
+	if (end >= scroll->position + height) scroll->position = end - height;
+	else if (start <= scroll->position) scroll->position = start;
+	else unchanged = true;
+	if (!unchanged) UIElementRefresh(watchWindow->parent);
+}
+
+void WatchAddExpression(char *string = nullptr) {
+	Watch *watch = (Watch *) calloc(1, sizeof(Watch));
+
+	if (string) {
+		watch->key = string;
+	} else {
+		watch->key = (char *) malloc(watchTextbox->bytes + 1);
+		watch->key[watchTextbox->bytes] = 0;
+		memcpy(watch->key, watchTextbox->string, watchTextbox->bytes);
+	}
+
+	WatchDeleteExpression(); // Deletes textbox.
+	watchRows.Insert(watch, watchSelectedRow);
+	watchBaseExpressions.Add(watch);
+	watchSelectedRow++;
+
+	WatchEvaluate("gf_typeof", watch);
+
+	if (!strstr(evaluateResult, "??")) {
+		watch->type = strdup(evaluateResult);
+		char *end = strchr(watch->type, '\n');
+		if (end) *end = 0;
+		watch->hasFields = WatchHasFields(watch);
+	}
+}
+
+int WatchWindowMessage(UIElement *element, UIMessage message, int di, void *dp) {
+	int rowHeight = (int) (UI_SIZE_TEXTBOX_HEIGHT * element->window->scale);
+	int result = 0;
+
+	if (message == UI_MSG_PAINT) {
+		UIPainter *painter = (UIPainter *) dp;
+
+		for (int i = (painter->clip.t - element->bounds.t) / rowHeight; i <= watchRows.Length(); i++) {
+			UIRectangle row = element->bounds;
+			row.t += i * rowHeight, row.b = row.t + rowHeight;
+
+			UIRectangle intersection = UIRectangleIntersection(row, painter->clip);
+			if (!UI_RECT_VALID(intersection)) break;
+
+			bool focused = i == watchSelectedRow && element->window->focused == element;
+
+			if (focused) UIDrawBlock(painter, row, ui.theme.tableSelected);
+			UIDrawBorder(painter, row, ui.theme.border, UI_RECT_4(1, 1, 0, 1));
+
+			row.l += UI_SIZE_TEXTBOX_MARGIN;
+			row.r -= UI_SIZE_TEXTBOX_MARGIN;
+
+			if (i != watchRows.Length()) {
+				Watch *watch = watchRows[i];
+				char buffer[256];
+
+				if ((!watch->value || watch->updateIndex != watchUpdateIndex) && !watch->open) {
+					free(watch->value);
+					watch->updateIndex = watchUpdateIndex;
+					WatchEvaluate("gf_valueof", watch);
+					watch->value = strdup(evaluateResult);
+					char *end = strchr(watch->value, '\n');
+					if (end) *end = 0;
+				}
+
+				char keyIndex[64];
+
+				if (!watch->key) {
+					snprintf(keyIndex, sizeof(keyIndex), "[%lu]", watch->arrayIndex);
+				}
+
+				snprintf(buffer, sizeof(buffer), "%.*s%s%s%s%s", 
+						watch->depth * 2, "                                ",
+						watch->open ? "v " : watch->hasFields ? "> " : "", 
+						watch->key ?: keyIndex, 
+						watch->open ? "" : " = ", 
+						watch->open ? "" : watch->value);
+
+				if (focused) {
+					UIDrawString(painter, row, buffer, -1, ui.theme.tableSelectedText, UI_ALIGN_LEFT, nullptr);
+				} else {
+					UIDrawStringHighlighted(painter, row, buffer, -1, 1);
+				}
+			}
+		}
+	} else if (message == UI_MSG_GET_HEIGHT) {
+		return (watchRows.Length() + 1) * rowHeight;
+	} else if (message == UI_MSG_LEFT_DOWN) {
+		watchSelectedRow = (element->window->cursorY - element->bounds.t) / rowHeight;
+		UIElementFocus(element);
+		UIElementRepaint(element, NULL);
+	} else if (message == UI_MSG_UPDATE) {
+		UIElementRepaint(element, NULL);
+	} else if (message == UI_MSG_KEY_TYPED) {
+		UIKeyTyped *m = (UIKeyTyped *) dp;
+		result = 1;
+
+		if (m->code == UI_KEYCODE_DELETE && !watchTextbox
+				&& watchSelectedRow != watchRows.Length() && !watchRows[watchSelectedRow]->parent) {
+			WatchDeleteExpression();
+		} else if (m->textBytes && m->code != UI_KEYCODE_TAB && !watchTextbox 
+				&& (watchSelectedRow == watchRows.Length() || !watchRows[watchSelectedRow]->parent)) {
+			UIRectangle row = element->bounds;
+			row.t += watchSelectedRow * rowHeight, row.b = row.t + rowHeight;
+			watchTextbox = UITextboxCreate(element, 0);
+			watchTextbox->e.messageUser = WatchTextboxMessage;
+			UIElementMove(&watchTextbox->e, row, true);
+			UIElementFocus(&watchTextbox->e);
+			UIElementMessage(&watchTextbox->e, message, di, dp);
+		} else if (m->code == UI_KEYCODE_ENTER && watchTextbox) {
+			WatchAddExpression();
+		} else if (m->code == UI_KEYCODE_UP) {
+			WatchDestroyTextbox();
+			watchSelectedRow--;
+		} else if (m->code == UI_KEYCODE_DOWN) {
+			WatchDestroyTextbox();
+			watchSelectedRow++;
+		} else if (m->code == UI_KEYCODE_HOME) {
+			watchSelectedRow = 0;
+		} else if (m->code == UI_KEYCODE_END) {
+			watchSelectedRow = watchRows.Length();
+		} else if (m->code == UI_KEYCODE_RIGHT && !watchTextbox
+				&& watchSelectedRow != watchRows.Length() && watchRows[watchSelectedRow]->hasFields
+				&& !watchRows[watchSelectedRow]->open) {
+			Watch *watch = watchRows[watchSelectedRow];
+			watch->open = true;
+			WatchAddFields(watch);
+			int position = watchSelectedRow + 1;
+			WatchInsertFieldRows(watch, &position);
+			WatchEnsureRowVisible(position - 1);
+		} else if (m->code == UI_KEYCODE_LEFT && !watchTextbox
+				&& watchSelectedRow != watchRows.Length() && watchRows[watchSelectedRow]->hasFields
+				&& watchRows[watchSelectedRow]->open) {
+			int end = watchSelectedRow + 1;
+
+			for (; end < watchRows.Length(); end++) {
+				if (watchRows[watchSelectedRow]->depth >= watchRows[end]->depth) {
+					break;
+				}
+			}
+
+			watchRows.Delete(watchSelectedRow + 1, end - watchSelectedRow - 1);
+			watchRows[watchSelectedRow]->open = false;
+		} else if (m->code == UI_KEYCODE_LEFT && !watchTextbox 
+				&& watchSelectedRow != watchRows.Length() && !watchRows[watchSelectedRow]->open) {
+			for (int i = 0; i < watchRows.Length(); i++) {
+				if (watchRows[watchSelectedRow]->parent == watchRows[i]) {
+					watchSelectedRow = i;
+					break;
+				}
+			}
+		} else {
+			result = 0;
+		}
+
+		WatchEnsureRowVisible(watchSelectedRow);
+		UIElementRefresh(element->parent);
+		UIElementRefresh(element);
+	}
+
+	if (watchSelectedRow < 0) {
+		watchSelectedRow = 0;
+	} else if (watchSelectedRow > watchRows.Length()) {
+		watchSelectedRow = watchRows.Length();
+	}
+
+	return result;
+}
+
+int WatchPanelMessage(UIElement *element, UIMessage message, int di, void *dp) {
+	if (message == UI_MSG_LEFT_DOWN) {
+		UIElementFocus(watchWindow);
+		UIElementRepaint(watchWindow, NULL);
+	}
+
+	return 0;
+}
+
 void Update(const char *data) {
+	static bool firstUpdate = true;
+
+	if (firstUpdate) {
+		firstUpdate = false;
+		EvaluateCommand(pythonCode);
+	}
+
 	// Parse the current line.
 
 	bool lineChanged = false;
@@ -1606,6 +2071,37 @@ void Update(const char *data) {
 	} else if (autoUpdateBitmapViewers.Length()) {
 		autoUpdateBitmapViewersQueued = true;
 	}
+
+	// Update watch display.
+
+	for (int i = 0; i < watchBaseExpressions.Length(); i++) {
+		Watch *watch = watchBaseExpressions[i];
+		WatchEvaluate("gf_typeof", watch);
+		char *result = strdup(evaluateResult);
+		char *end = strchr(result, '\n');
+		if (end) *end = 0;
+		const char *oldType = watch->type ?: "??";
+
+		if (strcmp(result, oldType)) {
+			free(watch->type);
+			watch->type = result;
+
+			for (int j = 0; j < watchRows.Length(); j++) {
+				if (watchRows[j] == watch) {
+					watchSelectedRow = j;
+					WatchAddExpression(strdup(watch->key));
+					watchSelectedRow = watchRows.Length(), i--;
+					break;
+				}
+			}
+		} else {
+			free(result);
+		}
+	}
+
+	watchUpdateIndex++;
+	UIElementRefresh(watchWindow->parent);
+	UIElementRefresh(watchWindow);
 }
 
 int TableStackMessage(UIElement *element, UIMessage message, int di, void *dp) {
@@ -1763,11 +2259,12 @@ extern "C" void CreateInterface(UIWindow *_window) {
 	UISplitPane *split2 = UISplitPaneCreate(&split1->e, /* horizontal */ 0, 0.80f);
 	UISplitPane *split4 = UISplitPaneCreate(&split1->e, /* horizontal */ 0, 0.65f);
 	UIPanel *panel2 = UIPanelCreate(&split4->e, UI_PANEL_EXPAND);
-	tabPaneWatchData = UITabPaneCreate(&split4->e, 0, "Registers\tWatch\tData");
+	tabPaneWatchData = UITabPaneCreate(&split4->e, 0, "Watch\tRegisters\tData");
 	tabPaneWatchData->e.messageUser = TabPaneWatchDataMessage;
+	UIPanel *watchPanel = UIPanelCreate(&tabPaneWatchData->e, UI_PANEL_SCROLL | UI_PANEL_GRAY);
+	watchPanel->e.messageUser = WatchPanelMessage;
+	watchWindow = UIElementCreate(sizeof(UIElement), &watchPanel->e, UI_ELEMENT_H_FILL | UI_ELEMENT_TAB_STOP, WatchWindowMessage, "Watch");
 	registersWindow = UIPanelCreate(&tabPaneWatchData->e, UI_PANEL_SMALL_SPACING | UI_PANEL_GRAY | UI_PANEL_SCROLL);
-	UIPanel *watchWindow = UIPanelCreate(&tabPaneWatchData->e, UI_PANEL_SMALL_SPACING | UI_PANEL_GRAY);
-	UILabelCreate(&watchWindow->e, UI_ELEMENT_H_FILL, "(Work in progress.)", -1);
 	dataTab = UIPanelCreate(&tabPaneWatchData->e, UI_PANEL_EXPAND);
 	UIPanel *panel5 = UIPanelCreate(&dataTab->e, UI_PANEL_GRAY | UI_PANEL_HORIZONTAL | UI_PANEL_SMALL_SPACING);
 	buttonFillWindow = UIButtonCreate(&panel5->e, UI_BUTTON_SMALL, "Fill window", -1);

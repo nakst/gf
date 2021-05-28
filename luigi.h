@@ -579,6 +579,7 @@ void UIDrawGlyph(UIPainter *painter, int x, int y, int c, uint32_t color);
 void UIDrawRectangle(UIPainter *painter, UIRectangle r, uint32_t mainColor, uint32_t borderColor, UIRectangle borderSize);
 void UIDrawBorder(UIPainter *painter, UIRectangle r, uint32_t borderColor, UIRectangle borderSize);
 void UIDrawString(UIPainter *painter, UIRectangle r, const char *string, ptrdiff_t bytes, uint32_t color, int align, UIStringSelection *selection);
+int UIDrawStringHighlighted(UIPainter *painter, UIRectangle r, const char *string, ptrdiff_t bytes, int tabSize);
 
 int UIMeasureStringWidth(const char *string, ptrdiff_t bytes);
 int UIMeasureStringHeight();
@@ -2109,6 +2110,90 @@ int UICodeHitTest(UICode *code, int x, int y) {
 	}
 }
 
+int UIDrawStringHighlighted(UIPainter *painter, UIRectangle lineBounds, const char *string, ptrdiff_t bytes, int tabSize) {
+	if (bytes == -1) bytes = _UIStringLength(string);
+
+	uint32_t colors[] = {
+		ui.theme.codeDefault,
+		ui.theme.codeComment,
+		ui.theme.codeString,
+		ui.theme.codeNumber,
+		ui.theme.codeOperator,
+		ui.theme.codePreprocessor,
+	};
+
+	int x = lineBounds.l;
+	int y = (lineBounds.t + lineBounds.b - UIMeasureStringHeight()) / 2;
+	int ti = 0;
+	int lexState = 0;
+	bool inComment = false, inIdentifier = false, inChar = false, startedString = false;
+	uint32_t last = 0;
+
+	while (bytes--) {
+		char c = *string++;
+
+		last <<= 8;
+		last |= c;
+
+		if (lexState == 4) {
+			lexState = 0;
+		} else if (lexState == 1) {
+			if ((last & 0xFF0000) == ('*' << 16) && (last & 0xFF00) == ('/' << 8) && inComment) {
+				lexState = 0, inComment = false;
+			}
+		} else if (lexState == 3) {
+			if (!_UICharIsAlpha(c) && !_UICharIsDigit(c)) {
+				lexState = 0;
+			}
+		} else if (lexState == 2) {
+			if (!startedString) {
+				if (!inChar && ((last >> 8) & 0xFF) == '"' && ((last >> 16) & 0xFF) != '\\') {
+					lexState = 0;
+				} else if (inChar && ((last >> 8) & 0xFF) == '\'' && ((last >> 16) & 0xFF) != '\\') {
+					lexState = 0;
+				}
+			}
+
+			startedString = false;
+		}
+
+		if (lexState == 0) {
+			if (c == '#') {
+				lexState = 5;
+			} else if (c == '/' && *string == '/') {
+				lexState = 1;
+			} else if (c == '/' && *string == '*') {
+				lexState = 1, inComment = true;
+			} else if (c == '"') {
+				lexState = 2;
+				inChar = false;
+				startedString = true;
+			} else if (c == '\'') {
+				lexState = 2;
+				inChar = true;
+				startedString = true;
+			} else if (_UICharIsDigit(c) && !inIdentifier) {
+				lexState = 3;
+			} else if (!_UICharIsAlpha(c) && !_UICharIsDigit(c)) {
+				lexState = 4;
+				inIdentifier = false;
+			} else {
+				inIdentifier = true;
+			}
+		}
+
+		if (c == '\t') {
+			x += ui.glyphWidth, ti++;
+			while (ti % tabSize) x += ui.glyphWidth, ti++;
+		} else {
+			UIDrawGlyph(painter, x, y, c, colors[lexState]);
+			x += ui.glyphWidth, ti++;
+		}
+	}
+
+	return x;
+}
+
 int _UICodeMessage(UIElement *element, UIMessage message, int di, void *dp) {
 	UICode *code = (UICode *) element;
 	
@@ -2135,15 +2220,6 @@ int _UICodeMessage(UIElement *element, UIMessage message, int di, void *dp) {
 		lineBounds.t -= (int64_t) code->vScroll->position % lineHeight;
 
 		UIDrawBlock(painter, element->bounds, ui.theme.codeBackground);
-
-		uint32_t colors[] = {
-			ui.theme.codeDefault,
-			ui.theme.codeComment,
-			ui.theme.codeString,
-			ui.theme.codeNumber,
-			ui.theme.codeOperator,
-			ui.theme.codePreprocessor,
-		};
 
 		for (int i = code->vScroll->position / lineHeight; i < code->lineCount; i++) {
 			if (lineBounds.t > element->clip.b) {
@@ -2179,76 +2255,8 @@ int _UICodeMessage(UIElement *element, UIMessage message, int di, void *dp) {
 				UIDrawBlock(painter, lineBounds, ui.theme.codeFocused);
 			}
 
-			const char *string = code->content + code->lines[i].offset;
-			size_t bytes = code->lines[i].bytes;
-			int x = lineBounds.l;
+			int x = UIDrawStringHighlighted(painter, lineBounds, code->content + code->lines[i].offset, code->lines[i].bytes, code->tabSize);
 			int y = (lineBounds.t + lineBounds.b - UIMeasureStringHeight()) / 2;
-			int ti = 0;
-			int lexState = 0;
-			bool inComment = false, inIdentifier = false, inChar = false, startedString = false;
-			uint32_t last = 0;
-
-			while (bytes--) {
-				char c = *string++;
-
-				last <<= 8;
-				last |= c;
-
-				if (lexState == 4) {
-					lexState = 0;
-				} else if (lexState == 1) {
-					if ((last & 0xFF0000) == ('*' << 16) && (last & 0xFF00) == ('/' << 8) && inComment) {
-						lexState = 0, inComment = false;
-					}
-				} else if (lexState == 3) {
-					if (!_UICharIsAlpha(c) && !_UICharIsDigit(c)) {
-						lexState = 0;
-					}
-				} else if (lexState == 2) {
-					if (!startedString) {
-						if (!inChar && ((last >> 8) & 0xFF) == '"' && ((last >> 16) & 0xFF) != '\\') {
-							lexState = 0;
-						} else if (inChar && ((last >> 8) & 0xFF) == '\'' && ((last >> 16) & 0xFF) != '\\') {
-							lexState = 0;
-						}
-					}
-
-					startedString = false;
-				}
-
-				if (lexState == 0) {
-					if (c == '#') {
-						lexState = 5;
-					} else if (c == '/' && *string == '/') {
-						lexState = 1;
-					} else if (c == '/' && *string == '*') {
-						lexState = 1, inComment = true;
-					} else if (c == '"') {
-						lexState = 2;
-						inChar = false;
-						startedString = true;
-					} else if (c == '\'') {
-						lexState = 2;
-						inChar = true;
-						startedString = true;
-					} else if (_UICharIsDigit(c) && !inIdentifier) {
-						lexState = 3;
-					} else if (!_UICharIsAlpha(c) && !_UICharIsDigit(c)) {
-						lexState = 4;
-						inIdentifier = false;
-					} else {
-						inIdentifier = true;
-					}
-				}
-
-				if (c == '\t') {
-					x += ui.glyphWidth, ti++;
-					while (ti % code->tabSize) x += ui.glyphWidth, ti++;
-				} else {
-					UIDrawGlyph(painter, x, y, c, colors[lexState]);
-					x += ui.glyphWidth, ti++;
-				}
-			}
 			
 			{
 				char buffer[128];
@@ -3500,6 +3508,10 @@ void UIElementFocus(UIElement *element) {
 	element->window->focused = element;
 	if (previous) UIElementMessage(previous, UI_MSG_UPDATE, UI_UPDATE_FOCUSED, 0);
 	if (element) UIElementMessage(element, UI_MSG_UPDATE, UI_UPDATE_FOCUSED, 0);
+
+#ifdef UI_DEBUG
+	_UIInspectorRefresh();
+#endif
 }
 
 void _UIWindowSetPressed(UIWindow *window, UIElement *element, int button) {
@@ -3778,7 +3790,7 @@ void _UIWindowInputEvent(UIWindow *window, UIMessage message, int di, void *dp) 
 					UIElement *element = start;
 
 					do {
-						if (element->children) {
+						if (element->children && (~element->flags & UI_ELEMENT_HIDE)) {
 							element = window->shift ? _UIElementLastChild(element) : element->children;
 							continue;
 						} 
@@ -3907,7 +3919,7 @@ int _UIInspectorTableMessage(UIElement *element, UIMessage message, int di, void
 		} else if (m->column == 1) {
 			return snprintf(m->buffer, m->bufferBytes, "%d:%d, %d:%d", UI_RECT_ALL(element->bounds));
 		} else if (m->column == 2) {
-			return snprintf(m->buffer, m->bufferBytes, "%d", element->id);
+			return snprintf(m->buffer, m->bufferBytes, "%d%c", element->id, element->window->focused == element ? '*' : ' ');
 		}
 	} else if (message == UI_MSG_MOUSE_MOVE) {
 		int index = UITableHitTest(ui.inspectorTable, element->window->cursorX, element->window->cursorY);
