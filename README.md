@@ -1,6 +1,7 @@
 # **gf** – A GDB Frontend
 
-![Screenshot of the debugger's interface, showing the source view, breakpoints list, call stack and command prompt.](https://cdn.discordapp.com/attachments/462643277321994245/795277703943159818/image.png)
+![Screenshot of the debugger's interface, showing the source view, breakpoints list, call stack, watch window and command prompt.](https://cdn.discordapp.com/attachments/462643277321994245/848264595621675068/sc1.png)
+![Another screenshot, showing the bitmap viewer, and a different color scheme.](https://cdn.discordapp.com/attachments/462643277321994245/848264598673948672/sc2.png)
 
 ## Building
 
@@ -52,6 +53,6 @@ You can change the font size and user interface scaling in the `[ui]` section. F
 
 ## Tips
 
-You can run the application with `./gf2`. Any additional command line arguments passed to `gf` will be forwarded to GDB.
-
-To view RGBA bitmaps, select the `Data` tab and then select `Add bitmap...`.
+- You can run the application with `./gf2`. Any additional command line arguments passed to `gf` will be forwarded to GDB.
+- To view RGBA bitmaps, select the `Data` tab and then select `Add bitmap...`.
+- Ctrl+Click a line in the source view to run "until" that line. Alt+Click a line in the source view to skip to it without executing the code in between.
