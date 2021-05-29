@@ -1708,6 +1708,8 @@ int WatchWindowMessage(UIElement *element, UIMessage message, int di, void *dp) 
 			UIElementMessage(&watchTextbox->e, message, di, dp);
 		} else if (m->code == UI_KEYCODE_ENTER && watchTextbox) {
 			WatchAddExpression();
+		} else if (m->code == UI_KEYCODE_ESCAPE) {
+			WatchDestroyTextbox();
 		} else if (m->code == UI_KEYCODE_UP) {
 			WatchDestroyTextbox();
 			watchSelectedRow--;
