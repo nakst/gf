@@ -754,7 +754,7 @@ void CommandThemeEditor(void *) {
 	UIButtonCreate(&panel->e, 0, "Dark", -1)->invoke = ColorPresetDark;
 	UIButtonCreate(&panel->e, 0, "Classic", -1)->invoke = ColorPresetClassic;
 	UIButtonCreate(&panel->e, 0, "Ice", -1)->invoke = ColorPresetIce;
-	UIButtonCreate(&panel->e, 0, "Pink", -1)->invoke = ColorPresetPink;
+	UIButtonCreate(&panel->e, 0, "Lotus", -1)->invoke = ColorPresetPink;
 	themeEditorTable = UITableCreate(&splitPane->e, 0, "Item\tColor");
 	themeEditorTable->itemCount = sizeof(themeItems) / sizeof(themeItems[0]);
 	themeEditorTable->e.messageUser = ThemeEditorTableMessage;
