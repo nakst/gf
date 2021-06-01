@@ -16,6 +16,7 @@
 // TODO Watch window.
 //	- Better toggle buttons.
 // 	- Improve performance if possible?
+// 	- Tab completion!
 
 // TODO Future extensions.
 // 	- Memory window.
@@ -1694,7 +1695,17 @@ int WatchWindowMessage(UIElement *element, UIMessage message, int di, void *dp) 
 		UIKeyTyped *m = (UIKeyTyped *) dp;
 		result = 1;
 
-		if (m->code == UI_KEYCODE_DELETE && !watchTextbox
+		if ((m->code == UI_KEYCODE_ENTER || m->code == UI_KEYCODE_BACKSPACE) 
+				&& watchSelectedRow != watchRows.Length() && !watchTextbox
+				&& !watchRows[watchSelectedRow]->parent) {
+			UIRectangle row = element->bounds;
+			row.t += watchSelectedRow * rowHeight, row.b = row.t + rowHeight;
+			watchTextbox = UITextboxCreate(element, 0);
+			watchTextbox->e.messageUser = WatchTextboxMessage;
+			UIElementMove(&watchTextbox->e, row, true);
+			UIElementFocus(&watchTextbox->e);
+			UITextboxReplace(watchTextbox, watchRows[watchSelectedRow]->key, -1, false);
+		} else if (m->code == UI_KEYCODE_DELETE && !watchTextbox
 				&& watchSelectedRow != watchRows.Length() && !watchRows[watchSelectedRow]->parent) {
 			WatchDeleteExpression();
 		} else if (m->textBytes && m->code != UI_KEYCODE_TAB && !watchTextbox && !window->ctrl && !window->alt
