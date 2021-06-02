@@ -51,6 +51,16 @@ You can change the font size and user interface scaling in the `[ui]` section. F
     scale=1.5
     font_size=20
 
+### Preset commands
+
+You can create a list of quickly accessible commands, available in the "Commands" tab in the UI. Separate individual commands using a semicolon. For example,
+
+    [commands]
+    Compile=shell gcc -o bin/app src/main.c
+    Run normal=file bin/app;run
+    Run tests=file bin/app;run test_cases.txt
+    Set breakpoints=b main;b LoadFile;b AssertionFailure
+
 ## Tips
 
 - You can run the application with `./gf2`. Any additional command line arguments passed to `gf` will be forwarded to GDB.

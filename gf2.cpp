@@ -46,6 +46,11 @@ extern "C" {
 
 #define MSG_RECEIVED_DATA ((UIMessage) (UI_MSG_USER + 1))
 
+struct INIState {
+	char *buffer, *section, *key, *value;
+	size_t bytes, sectionBytes, keyBytes, valueBytes;
+};
+
 FILE *commandLog;
 char emptyString;
 
@@ -65,20 +70,24 @@ int disassemblyPreviousSourceLine;
 #define TAB_WATCH (1)
 #define TAB_DATA (2)
 
-UIWindow *window;
+UIButton *buttonFillWindow;
+UIButton *buttonMenu;
 UICode *displayCode;
 UICode *displayOutput;
-UITable *tableBreakpoints;
-UITable *tableStack;
-UITextbox *textboxInput;
-UIButton *buttonMenu;
-UISpacer *trafficLight;
+UICode *displayStruct;
 UIMDIClient *dataWindow;
-UITabPane *tabPaneWatchData;
+UIPanel *dataTab;
+UIPanel *panelPresetCommands;
 UIPanel *registersWindow;
 UIPanel *rootPanel;
-UIButton *buttonFillWindow;
-UIPanel *dataTab;
+UISpacer *trafficLight;
+UITabPane *tabPaneWatchData;
+UITable *tableBreakpoints;
+UITable *tableCommands;
+UITable *tableStack;
+UITextbox *textboxInput;
+UITextbox *textboxStructName;
+UIWindow *window;
 
 // Theme editor:
 
@@ -185,6 +194,10 @@ struct RegisterData {
 };
 
 Array<RegisterData> registerData;
+
+// Preset commands:
+
+Array<INIState> presetCommands;
 
 // GDB process:
 
@@ -376,7 +389,7 @@ void SendToGDB(const char *string, bool echo) {
 	write(pipeToGDB, &newline, 1);
 }
 
-void EvaluateCommand(const char *command) {
+void EvaluateCommand(const char *command, bool echo = false) {
 	if (programRunning) {
 		kill(gdbPID, SIGINT);
 		usleep(1000 * 1000);
@@ -385,7 +398,7 @@ void EvaluateCommand(const char *command) {
 
 	evaluateMode = true;
 	pthread_mutex_lock(&evaluateMutex);
-	SendToGDB(command, false);
+	SendToGDB(command, echo);
 	struct timespec timeout;
 	clock_gettime(CLOCK_REALTIME, &timeout);
 	timeout.tv_sec++;
@@ -964,11 +977,6 @@ void CustomCommand(void *_command) {
 	}
 }
 
-struct INIState {
-	char *buffer, *section, *key, *value;
-	size_t bytes, sectionBytes, keyBytes, valueBytes;
-};
-
 bool INIParse(INIState *s) {
 #define INI_READ(destination, counter, c1, c2) \
 	s->destination = s->buffer, s->counter = 0; \
@@ -1077,6 +1085,8 @@ void LoadSettings(bool earlyPass) {
 				} else if (0 == strcmp(state.key, "path")) {
 					gdbPath = state.value;
 				}
+			} else if (0 == strcmp(state.section, "commands") && earlyPass && state.keyBytes && state.valueBytes) {
+				presetCommands.Add(state);
 			}
 		}
 	}
@@ -2319,6 +2329,44 @@ int WindowMessage(UIElement *, UIMessage message, int di, void *dp) {
 	return 0;
 }
 
+void PresetCommandInvoke(void *_index) {
+	char *copy = strdup(presetCommands[(intptr_t) _index].value);
+	char *position = copy;
+
+	while (true) {
+		char *end = strchr(position, ';');
+		if (end) *end = 0;
+		EvaluateCommand(position, true);
+		UICodeInsertContent(displayOutput, evaluateResult, -1, false);
+		if (end) position = end + 1;
+		else break;
+	}
+
+	UIElementRefresh(&displayOutput->e);
+	free(copy);
+}
+
+int TextboxStructNameMessage(UIElement *element, UIMessage message, int di, void *dp) {
+	if (message == UI_MSG_KEY_TYPED) {
+		UIKeyTyped *m = (UIKeyTyped *) dp;
+
+		if (m->code == UI_KEYCODE_ENTER) {
+			char buffer[4096];
+			snprintf(buffer, sizeof(buffer), "ptype /o %.*s", (int) textboxStructName->bytes, textboxStructName->string);
+			EvaluateCommand(buffer);
+			char *end = strstr(evaluateResult, "\n(gdb)");
+			if (end) *end = 0;
+			UICodeInsertContent(displayStruct, evaluateResult, -1, true);
+			UITextboxClear(textboxStructName, false);
+			UIElementRefresh(&displayStruct->e);
+			UIElementRefresh(element);
+			return 1;
+		}
+	}
+
+	return 0;
+}
+
 extern "C" void CreateInterface(UIWindow *_window) {
 #ifdef LOG_COMMANDS
 	{
@@ -2364,10 +2412,24 @@ extern "C" void CreateInterface(UIWindow *_window) {
 	displayCode = UICodeCreate(&split2->e, 0);
 	displayCode->e.messageUser = DisplayCodeMessage;
 	UISplitPane *split3 = UISplitPaneCreate(&split2->e, UI_SPLIT_PANE_VERTICAL, 0.50f);
-	tableBreakpoints = UITableCreate(&split3->e, 0, "File\tLine");
+	UITabPane *tabPane1 = UITabPaneCreate(&split3->e, 0, "Breakpoints\tCommands\tStruct");
+	tableBreakpoints = UITableCreate(&tabPane1->e, 0, "File\tLine");
 	tableBreakpoints->e.messageUser = TableBreakpointsMessage;
+	panelPresetCommands = UIPanelCreate(&tabPane1->e, UI_PANEL_GRAY | UI_PANEL_SMALL_SPACING | UI_PANEL_EXPAND | UI_PANEL_SCROLL);
+	if (!presetCommands.Length()) UILabelCreate(&panelPresetCommands->e, 0, "No preset commands found in config file!", -1);
+	UIPanel *panel6 = UIPanelCreate(&tabPane1->e, UI_PANEL_GRAY | UI_PANEL_EXPAND);
+	textboxStructName = UITextboxCreate(&panel6->e, 0);
+	textboxStructName->e.messageUser = TextboxStructNameMessage;
+	displayStruct = UICodeCreate(&panel6->e, UI_ELEMENT_V_FILL | UI_CODE_NO_MARGIN);
+	UICodeInsertContent(displayStruct, "Type the name of a struct\nto view its layout.", -1, false);
 	tableStack = UITableCreate(&split3->e, 0, "Index\tFunction\tLocation\tAddress");
 	tableStack->e.messageUser = TableStackMessage;
+
+	for (int i = 0; i < presetCommands.Length(); i++) {
+		UIButton *button = UIButtonCreate(&panelPresetCommands->e, 0, presetCommands[i].key, -1);
+		button->e.cp = (void *) (intptr_t) i;
+		button->invoke = PresetCommandInvoke;
+	}
 
 	RegisterShortcuts();
 	LoadSettings(false);
