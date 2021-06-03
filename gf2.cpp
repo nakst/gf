@@ -2445,8 +2445,17 @@ extern "C" void CloseDebugger() {
 	pthread_cancel(gdbThread);
 }
 
+void HandleSigInt(int sig) {
+	CloseDebugger();
+	exit(0);
+}
+
 #ifndef EMBED_GF
 int main(int argc, char **argv) {
+	struct sigaction sigintHandler = {};
+	sigintHandler.sa_handler = HandleSigInt;
+	sigaction(SIGINT, &sigintHandler, NULL);
+
 	// Setup GDB arguments.
 	gdbArgv = (char **) malloc(sizeof(char *) * (argc + 1));
 	gdbArgv[0] = (char *) "gdb";
