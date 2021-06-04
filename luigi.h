@@ -161,6 +161,7 @@ typedef enum UIMessage {
 	UI_MSG_CODE_GET_MARGIN_COLOR, // di = line index (starts at 1); return color
 	UI_MSG_CODE_GET_LINE_HINT, // dp = pointer to UITableGetItem (line in index field); return string length
 	UI_MSG_WINDOW_CLOSE, // return 1 to prevent default (process exit for UIWindow; close for UIMDIChild)
+	UI_MSG_TAB_SELECTED, // sent to the tab that was selected (not the tab pane itself)
 
 	UI_MSG_USER,
 } UIMessage;
@@ -1873,6 +1874,7 @@ int _UITabPaneMessage(UIElement *element, UIMessage message, int di, void *dp) {
 			if (tabPane->active == index) {
 				child->flags &= ~UI_ELEMENT_HIDE;
 				UIElementMove(child, content, false);
+				UIElementMessage(child, UI_MSG_TAB_SELECTED, 0, 0);
 			} else {
 				child->flags |= UI_ELEMENT_HIDE;
 			}

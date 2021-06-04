@@ -1,7 +1,11 @@
 // Build with: g++ gf2.cpp -lX11 -Wall -Wextra -Wno-unused-parameter -Wno-missing-field-initializers -Wno-format-truncation -o gf2 -g -pthread
 // Add the following flags to use FreeType: -lfreetype -D UI_FREETYPE -I /usr/include/freetype2 -D UI_FONT_PATH=/usr/share/fonts/TTF/DejaVuSansMono.ttf
 
-// TODO Rearrange UI layout; the breakpoint window takes up too much space.
+// TODO Config file security concerns.
+// 	We should probably ask the user if they trust the local config file the first time it's seen, and each time it's modified.
+// 	Otherwise opening the application in the wrong directory could be dangerous (you can easily get GDB to run shell commands).
+
+// TODO Rearrange default UI layout; the breakpoint window takes up too much space.
 
 // TODO Disassembly window extensions.
 // 	- Split source and disassembly view.
@@ -33,6 +37,8 @@
 #include <ctype.h>
 #include <sys/stat.h>
 #include <stdarg.h>
+
+char *layoutString = (char *) "v(75,h(80,Source,v(50,t(Breakpoints,Commands,Struct),Stack)),h(65,Console,t(Watch,Registers,Data)))";
 
 int fontSize = 13;
 float uiScale = 1;
@@ -81,7 +87,6 @@ UIPanel *panelPresetCommands;
 UIPanel *registersWindow;
 UIPanel *rootPanel;
 UISpacer *trafficLight;
-UITabPane *tabPaneWatchData;
 UITable *tableBreakpoints;
 UITable *tableCommands;
 UITable *tableStack;
@@ -888,8 +893,8 @@ void CommandToggleFillDataTab(void *) {
 		UIElementRefresh(&rootPanel->e);
 		UIElementRefresh(oldParent);
 	} else {
-		tabPaneWatchData->active = TAB_DATA;
-		UIElementRefresh(&tabPaneWatchData->e);
+		dataTab->e.flags &= ~UI_ELEMENT_HIDE;
+		UIElementMessage(&dataTab->e, UI_MSG_TAB_SELECTED, 0, 0);
 		window->e.children = &dataTab->e;
 		oldParent = dataTab->e.parent;
 		dataTab->e.parent = &window->e;
@@ -1075,6 +1080,8 @@ void LoadSettings(bool earlyPass) {
 					fontSize = atoi(state.value);
 				} else if (0 == strcmp(state.key, "scale")) {
 					uiScale = atof(state.value);
+				} else if (0 == strcmp(state.key, "layout")) {
+					layoutString = state.value;
 				}
 			} else if (0 == strcmp(state.section, "gdb") && !earlyPass) {
 				if (0 == strcmp(state.key, "argument")) {
@@ -1226,9 +1233,6 @@ void AddBitmapInternal(const char *pointerString, const char *widthString, const
 }
 
 void AddDataWindow() {
-	tabPaneWatchData->active = TAB_DATA;
-	UIElementRefresh(&tabPaneWatchData->e);
-
 	char buffer[1024];
 	StringFormat(buffer, 1024, "%.*s", (int) textboxInput->bytes, textboxInput->string);
 
@@ -2147,7 +2151,7 @@ void Update(const char *data) {
 
 	// Update bitmap viewers.
 
-	if (tabPaneWatchData->active == TAB_DATA) {
+	if (~dataTab->e.flags & UI_ELEMENT_HIDE) {
 		for (int i = 0; i < autoUpdateBitmapViewers.Length(); i++) {
 			BitmapViewer *bitmap = (BitmapViewer *) autoUpdateBitmapViewers[i]->cp;
 			AddBitmapInternal(bitmap->pointer, bitmap->width, bitmap->height, bitmap->stride, autoUpdateBitmapViewers[i]);
@@ -2281,22 +2285,16 @@ int DisplayCodeMessage(UIElement *element, UIMessage message, int di, void *dp) 
 	return 0;
 }
 
-int TabPaneWatchDataMessage(UIElement *element, UIMessage message, int di, void *dp) {
-	if (message == UI_MSG_LAYOUT) {
-		static int lastActive = 0;
+int DataTabMessage(UIElement *element, UIMessage message, int di, void *dp) {
+	if (message == UI_MSG_TAB_SELECTED && autoUpdateBitmapViewersQueued) {
+		// If we've switched to the data tab, we may need to update the bitmap viewers.
 
-		if (tabPaneWatchData->active != lastActive && tabPaneWatchData->active == TAB_DATA && autoUpdateBitmapViewersQueued) {
-			// If we've switched to the data tab, we may need to update the bitmap viewers.
-
-			for (int i = 0; i < autoUpdateBitmapViewers.Length(); i++) {
-				BitmapViewer *bitmap = (BitmapViewer *) autoUpdateBitmapViewers[i]->cp;
-				AddBitmapInternal(bitmap->pointer, bitmap->width, bitmap->height, bitmap->stride, autoUpdateBitmapViewers[i]);
-			}
-
-			autoUpdateBitmapViewersQueued = false;
+		for (int i = 0; i < autoUpdateBitmapViewers.Length(); i++) {
+			BitmapViewer *bitmap = (BitmapViewer *) autoUpdateBitmapViewers[i]->cp;
+			AddBitmapInternal(bitmap->pointer, bitmap->width, bitmap->height, bitmap->stride, autoUpdateBitmapViewers[i]);
 		}
 
-		lastActive = tabPaneWatchData->active;
+		autoUpdateBitmapViewersQueued = false;
 	}
 
 	return 0;
@@ -2367,6 +2365,93 @@ int TextboxStructNameMessage(UIElement *element, UIMessage message, int di, void
 	return 0;
 }
 
+void LayoutCreate(UIElement *parent) {
+	UIElement *container = nullptr;
+
+#define CHECK_LAYOUT_TOKEN(x) } else if (strlen(layoutString) > strlen(x) && 0 == memcmp(layoutString, x, strlen(x)) && \
+		(layoutString[strlen(x)] == ',' || layoutString[strlen(x)] == ')')) { layoutString += strlen(x);
+
+	if (layoutString[0] == 'h' && layoutString[1] == '(') {
+		layoutString += 2;
+		container = &UISplitPaneCreate(parent, UI_ELEMENT_V_FILL | UI_ELEMENT_H_FILL, strtol(layoutString, &layoutString, 10) * 0.01f)->e;
+		layoutString++;
+	} else if (layoutString[0] == 'v' && layoutString[1] == '(') {
+		layoutString += 2;
+		container = &UISplitPaneCreate(parent, UI_SPLIT_PANE_VERTICAL | UI_ELEMENT_V_FILL | UI_ELEMENT_H_FILL, strtol(layoutString, &layoutString, 10) * 0.01f)->e;
+		layoutString++;
+	} else if (layoutString[0] == 't' && layoutString[1] == '(') {
+		layoutString += 2;
+		char *copy = strdup(layoutString);
+		for (uintptr_t i = 0; copy[i]; i++) if (copy[i] == ',') copy[i] = '\t'; else if (copy[i] == ')') copy[i] = 0;
+		container = &UITabPaneCreate(parent, UI_ELEMENT_V_FILL | UI_ELEMENT_H_FILL, copy)->e;
+	CHECK_LAYOUT_TOKEN("Source")
+		displayCode = UICodeCreate(parent, 0);
+		displayCode->e.messageUser = DisplayCodeMessage;
+	CHECK_LAYOUT_TOKEN("Watch")
+		UIPanel *watchPanel = UIPanelCreate(parent, UI_PANEL_SCROLL | UI_PANEL_GRAY);
+		watchPanel->e.messageUser = WatchPanelMessage;
+		watchWindow = UIElementCreate(sizeof(UIElement), &watchPanel->e, UI_ELEMENT_H_FILL | UI_ELEMENT_TAB_STOP, WatchWindowMessage, "Watch");
+	CHECK_LAYOUT_TOKEN("Console")
+		UIPanel *panel2 = UIPanelCreate(parent, UI_PANEL_EXPAND);
+		displayOutput = UICodeCreate(&panel2->e, UI_CODE_NO_MARGIN | UI_ELEMENT_V_FILL);
+		UIPanel *panel3 = UIPanelCreate(&panel2->e, UI_PANEL_HORIZONTAL | UI_PANEL_EXPAND | UI_PANEL_GRAY);
+		panel3->border = UI_RECT_1(5);
+		panel3->gap = 5;
+		trafficLight = UISpacerCreate(&panel3->e, 0, 30, 30);
+		trafficLight->e.messageUser = TrafficLightMessage;
+		buttonMenu = UIButtonCreate(&panel3->e, 0, "Menu", -1);
+		buttonMenu->invoke = ShowMenu;
+		UIButtonCreate(&panel3->e, 0, "Donate", -1)->invoke = DonateLink;
+		textboxInput = UITextboxCreate(&panel3->e, UI_ELEMENT_H_FILL);
+		textboxInput->e.messageUser = TextboxInputMessage;
+		UIElementFocus(&textboxInput->e);
+	CHECK_LAYOUT_TOKEN("Breakpoints")
+		tableBreakpoints = UITableCreate(parent, 0, "File\tLine");
+		tableBreakpoints->e.messageUser = TableBreakpointsMessage;
+	CHECK_LAYOUT_TOKEN("Stack")
+		tableStack = UITableCreate(parent, 0, "Index\tFunction\tLocation\tAddress");
+		tableStack->e.messageUser = TableStackMessage;
+	CHECK_LAYOUT_TOKEN("Registers")
+		registersWindow = UIPanelCreate(parent, UI_PANEL_SMALL_SPACING | UI_PANEL_GRAY | UI_PANEL_SCROLL);
+	CHECK_LAYOUT_TOKEN("Data")
+		dataTab = UIPanelCreate(parent, UI_PANEL_EXPAND);
+		UIPanel *panel5 = UIPanelCreate(&dataTab->e, UI_PANEL_GRAY | UI_PANEL_HORIZONTAL | UI_PANEL_SMALL_SPACING);
+		buttonFillWindow = UIButtonCreate(&panel5->e, UI_BUTTON_SMALL, "Fill window", -1);
+		buttonFillWindow->invoke = CommandToggleFillDataTab;
+		UIButtonCreate(&panel5->e, UI_BUTTON_SMALL, "Add bitmap...", -1)->invoke = AddBitmapDialog;
+		dataWindow = UIMDIClientCreate(&dataTab->e, UI_ELEMENT_V_FILL);
+		dataTab->e.messageUser = DataTabMessage;
+	CHECK_LAYOUT_TOKEN("Commands")
+		panelPresetCommands = UIPanelCreate(parent, UI_PANEL_GRAY | UI_PANEL_SMALL_SPACING | UI_PANEL_EXPAND | UI_PANEL_SCROLL);
+		if (!presetCommands.Length()) UILabelCreate(&panelPresetCommands->e, 0, "No preset commands found in config file!", -1);
+
+		for (int i = 0; i < presetCommands.Length(); i++) {
+			UIButton *button = UIButtonCreate(&panelPresetCommands->e, 0, presetCommands[i].key, -1);
+			button->e.cp = (void *) (intptr_t) i;
+			button->invoke = PresetCommandInvoke;
+		}
+	CHECK_LAYOUT_TOKEN("Struct")
+		UIPanel *panel6 = UIPanelCreate(parent, UI_PANEL_GRAY | UI_PANEL_EXPAND);
+		textboxStructName = UITextboxCreate(&panel6->e, 0);
+		textboxStructName->e.messageUser = TextboxStructNameMessage;
+		displayStruct = UICodeCreate(&panel6->e, UI_ELEMENT_V_FILL | UI_CODE_NO_MARGIN);
+		UICodeInsertContent(displayStruct, "Type the name of a struct\nto view its layout.", -1, false);
+	} else {
+		assert(false);
+	}
+
+	while (container) {
+		if (layoutString[0] == ',') {
+			layoutString++;
+		} else if (layoutString[0] == ')') {
+			layoutString++;
+			return;
+		} else {
+			LayoutCreate(container);
+		}
+	}
+}
+
 extern "C" void CreateInterface(UIWindow *_window) {
 #ifdef LOG_COMMANDS
 	{
@@ -2381,55 +2466,7 @@ extern "C" void CreateInterface(UIWindow *_window) {
 	window->e.messageUser = WindowMessage;
 
 	rootPanel = UIPanelCreate(&window->e, UI_PANEL_EXPAND);
-	UISplitPane *split1 = UISplitPaneCreate(&rootPanel->e, UI_SPLIT_PANE_VERTICAL | UI_ELEMENT_V_FILL, 0.75f);
-	UISplitPane *split2 = UISplitPaneCreate(&split1->e, /* horizontal */ 0, 0.80f);
-	UISplitPane *split4 = UISplitPaneCreate(&split1->e, /* horizontal */ 0, 0.65f);
-	UIPanel *panel2 = UIPanelCreate(&split4->e, UI_PANEL_EXPAND);
-	tabPaneWatchData = UITabPaneCreate(&split4->e, 0, "Watch\tRegisters\tData");
-	tabPaneWatchData->e.messageUser = TabPaneWatchDataMessage;
-	UIPanel *watchPanel = UIPanelCreate(&tabPaneWatchData->e, UI_PANEL_SCROLL | UI_PANEL_GRAY);
-	watchPanel->e.messageUser = WatchPanelMessage;
-	watchWindow = UIElementCreate(sizeof(UIElement), &watchPanel->e, UI_ELEMENT_H_FILL | UI_ELEMENT_TAB_STOP, WatchWindowMessage, "Watch");
-	registersWindow = UIPanelCreate(&tabPaneWatchData->e, UI_PANEL_SMALL_SPACING | UI_PANEL_GRAY | UI_PANEL_SCROLL);
-	dataTab = UIPanelCreate(&tabPaneWatchData->e, UI_PANEL_EXPAND);
-	UIPanel *panel5 = UIPanelCreate(&dataTab->e, UI_PANEL_GRAY | UI_PANEL_HORIZONTAL | UI_PANEL_SMALL_SPACING);
-	buttonFillWindow = UIButtonCreate(&panel5->e, UI_BUTTON_SMALL, "Fill window", -1);
-	buttonFillWindow->invoke = CommandToggleFillDataTab;
-	UIButtonCreate(&panel5->e, UI_BUTTON_SMALL, "Add bitmap...", -1)->invoke = AddBitmapDialog;
-	dataWindow = UIMDIClientCreate(&dataTab->e, UI_ELEMENT_V_FILL);
-	displayOutput = UICodeCreate(&panel2->e, UI_CODE_NO_MARGIN | UI_ELEMENT_V_FILL);
-	UIPanel *panel3 = UIPanelCreate(&panel2->e, UI_PANEL_HORIZONTAL | UI_PANEL_EXPAND | UI_PANEL_GRAY);
-	panel3->border = UI_RECT_1(5);
-	panel3->gap = 5;
-	trafficLight = UISpacerCreate(&panel3->e, 0, 30, 30);
-	trafficLight->e.messageUser = TrafficLightMessage;
-	buttonMenu = UIButtonCreate(&panel3->e, 0, "Menu", -1);
-	buttonMenu->invoke = ShowMenu;
-	UIButtonCreate(&panel3->e, 0, "Donate", -1)->invoke = DonateLink;
-	textboxInput = UITextboxCreate(&panel3->e, UI_ELEMENT_H_FILL);
-	textboxInput->e.messageUser = TextboxInputMessage;
-	UIElementFocus(&textboxInput->e);
-	displayCode = UICodeCreate(&split2->e, 0);
-	displayCode->e.messageUser = DisplayCodeMessage;
-	UISplitPane *split3 = UISplitPaneCreate(&split2->e, UI_SPLIT_PANE_VERTICAL, 0.50f);
-	UITabPane *tabPane1 = UITabPaneCreate(&split3->e, 0, "Breakpoints\tCommands\tStruct");
-	tableBreakpoints = UITableCreate(&tabPane1->e, 0, "File\tLine");
-	tableBreakpoints->e.messageUser = TableBreakpointsMessage;
-	panelPresetCommands = UIPanelCreate(&tabPane1->e, UI_PANEL_GRAY | UI_PANEL_SMALL_SPACING | UI_PANEL_EXPAND | UI_PANEL_SCROLL);
-	if (!presetCommands.Length()) UILabelCreate(&panelPresetCommands->e, 0, "No preset commands found in config file!", -1);
-	UIPanel *panel6 = UIPanelCreate(&tabPane1->e, UI_PANEL_GRAY | UI_PANEL_EXPAND);
-	textboxStructName = UITextboxCreate(&panel6->e, 0);
-	textboxStructName->e.messageUser = TextboxStructNameMessage;
-	displayStruct = UICodeCreate(&panel6->e, UI_ELEMENT_V_FILL | UI_CODE_NO_MARGIN);
-	UICodeInsertContent(displayStruct, "Type the name of a struct\nto view its layout.", -1, false);
-	tableStack = UITableCreate(&split3->e, 0, "Index\tFunction\tLocation\tAddress");
-	tableStack->e.messageUser = TableStackMessage;
-
-	for (int i = 0; i < presetCommands.Length(); i++) {
-		UIButton *button = UIButtonCreate(&panelPresetCommands->e, 0, presetCommands[i].key, -1);
-		button->e.cp = (void *) (intptr_t) i;
-		button->invoke = PresetCommandInvoke;
-	}
+	LayoutCreate(&rootPanel->e);
 
 	RegisterShortcuts();
 	LoadSettings(false);
