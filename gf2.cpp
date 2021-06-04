@@ -450,7 +450,7 @@ extern "C" bool SetPosition(const char *file, int line, bool useGDBToGetFullPath
 	const char *originalFile = file;
 
 	if (file && file[0] == '~') {
-		snprintf(buffer, sizeof(buffer), "%s/%s", getenv("HOME"), 1 + file);
+		StringFormat(buffer, sizeof(buffer), "%s/%s", getenv("HOME"), 1 + file);
 		file = buffer;
 	} else if (file && file[0] != '/' && useGDBToGetFullPath) {
 		EvaluateCommand("info source");
@@ -461,7 +461,7 @@ extern "C" bool SetPosition(const char *file, int line, bool useGDBToGetFullPath
 			const char *end = strchr(f, '\n');
 
 			if (end) {
-				snprintf(buffer, sizeof(buffer), "%.*s", (int) (end - f), f);
+				StringFormat(buffer, sizeof(buffer), "%.*s", (int) (end - f), f);
 				file = buffer;
 			}
 		}
@@ -487,7 +487,7 @@ extern "C" bool SetPosition(const char *file, int line, bool useGDBToGetFullPath
 
 	if (reloadFile) {
 		currentLine = 0;
-		snprintf(currentFile, 4096, "%s", originalFile);
+		StringFormat(currentFile, 4096, "%s", originalFile);
 
 		printf("attempting to load '%s' (from '%s')\n", file, originalFile);
 
@@ -496,7 +496,7 @@ extern "C" bool SetPosition(const char *file, int line, bool useGDBToGetFullPath
 
 		if (!buffer2) {
 			char buffer3[4096];
-			snprintf(buffer3, 4096, "The file '%s' (from '%s') could not be loaded.", file, originalFile);
+			StringFormat(buffer3, 4096, "The file '%s' (from '%s') could not be loaded.", file, originalFile);
 			UICodeInsertContent(displayCode, buffer3, -1, true);
 		} else {
 			UICodeInsertContent(displayCode, buffer2, bytes, true);
@@ -540,7 +540,7 @@ void CommandDeleteBreakpoint(void *_index) {
 	int index = (int) (intptr_t) _index;
 	Breakpoint *breakpoint = &breakpoints[index];
 	char buffer[1024];
-	snprintf(buffer, 1024, "clear %s:%d", breakpoint->file, breakpoint->line);
+	StringFormat(buffer, 1024, "clear %s:%d", breakpoint->file, breakpoint->line);
 	SendToGDB(buffer, true);
 }
 
@@ -600,14 +600,14 @@ void CommandToggleBreakpoint(void *_line) {
 	for (int i = 0; i < breakpoints.Length(); i++) {
 		if (breakpoints[i].line == line && 0 == strcmp(breakpoints[i].file, currentFile)) {
 			char buffer[1024];
-			snprintf(buffer, 1024, "clear %s:%d", currentFile, line);
+			StringFormat(buffer, 1024, "clear %s:%d", currentFile, line);
 			SendToGDB(buffer, true);
 			return;
 		}
 	}
 
 	char buffer[1024];
-	snprintf(buffer, 1024, "b %s:%d", currentFile, line);
+	StringFormat(buffer, 1024, "b %s:%d", currentFile, line);
 	SendToGDB(buffer, true);
 }
 
@@ -663,7 +663,7 @@ int ThemeEditorColorPickerMessage(UIElement *element, UIMessage message, int di,
 
 void CommandLoadTheme(void *) {
 	char buffer[4096];
-	snprintf(buffer, 4096, "%s/.config/gf2_theme.dat", getenv("HOME"));
+	StringFormat(buffer, 4096, "%s/.config/gf2_theme.dat", getenv("HOME"));
 	FILE *f = fopen(buffer, "rb");
 
 	if (f) {
@@ -682,7 +682,7 @@ void CommandLoadTheme(void *) {
 
 void CommandSaveTheme(void *) {
 	char buffer[4096];
-	snprintf(buffer, 4096, "%s/.config/gf2_theme.dat", getenv("HOME"));
+	StringFormat(buffer, 4096, "%s/.config/gf2_theme.dat", getenv("HOME"));
 	FILE *f = fopen(buffer, "wb");
 
 	if (f) {
@@ -937,9 +937,9 @@ void RegisterShortcuts() {
 
 int RunSystemWithOutput(const char *command) {
 	char buffer[4096];
-	snprintf(buffer, 4096, "Running shell command \"%s\"...\n", command);
+	StringFormat(buffer, 4096, "Running shell command \"%s\"...\n", command);
 	UICodeInsertContent(displayOutput, buffer, -1, false);
-	snprintf(buffer, 4096, "%s > .output.gf 2>&1", command);
+	StringFormat(buffer, 4096, "%s > .output.gf 2>&1", command);
 	int start = time(NULL);
 	int result = system(buffer);
 	size_t bytes;
@@ -961,7 +961,7 @@ int RunSystemWithOutput(const char *command) {
 	UICodeInsertContent(displayOutput, copy, j, false);
 	free(output);
 	free(copy);
-	snprintf(buffer, 4096, "(exit code: %d; time: %ds)\n", result, (int) (time(NULL) - start));
+	StringFormat(buffer, 4096, "(exit code: %d; time: %ds)\n", result, (int) (time(NULL) - start));
 	UICodeInsertContent(displayOutput, buffer, -1, false);
 	UIElementRefresh(&displayOutput->e);
 	return result;
@@ -1013,7 +1013,7 @@ bool INIParse(INIState *s) {
 
 void LoadSettings(bool earlyPass) {
 	char globalConfigPath[4096];
-	snprintf(globalConfigPath, 4096, "%s/.config/gf2_config.ini", getenv("HOME"));
+	StringFormat(globalConfigPath, 4096, "%s/.config/gf2_config.ini", getenv("HOME"));
 
 	for (int i = 0; i < 2; i++) {
 		INIState state = { .buffer = LoadFile(i ? ".project.gf" : globalConfigPath, &state.bytes) };
@@ -1094,7 +1094,7 @@ void LoadSettings(bool earlyPass) {
 
 const char *EvaluateExpression(const char *expression) {
 	char buffer[1024];
-	snprintf(buffer, sizeof(buffer), "p %s", expression);
+	StringFormat(buffer, sizeof(buffer), "p %s", expression);
 	EvaluateCommand(buffer);
 	char *result = strchr(evaluateResult, '=');
 
@@ -1169,7 +1169,7 @@ void AddBitmapInternal(const char *pointerString, const char *widthString, const
 	const char *pointerResult = EvaluateExpression(pointerString);
 	if (!pointerResult) { PrintErrorMessage("Could not evaluate pointer.\n"); return; }
 	char _pointerResult[1024];
-	snprintf(_pointerResult, sizeof(_pointerResult), "%s", pointerResult);
+	StringFormat(_pointerResult, sizeof(_pointerResult), "%s", pointerResult);
 	pointerResult = strstr(_pointerResult, " 0x");
 	if (!pointerResult) { PrintErrorMessage("Pointer to image bits does not look like an address!\n"); return; }
 	pointerResult++;
@@ -1183,7 +1183,7 @@ void AddBitmapInternal(const char *pointerString, const char *widthString, const
 	uint32_t *bits = (uint32_t *) malloc(stride * height * 4);
 
 	char buffer[1024];
-	snprintf(buffer, sizeof(buffer), "dump binary memory .bitmap.gf (%s) (%s+%d)", pointerResult, pointerResult, stride * height);
+	StringFormat(buffer, sizeof(buffer), "dump binary memory .bitmap.gf (%s) (%s+%d)", pointerResult, pointerResult, stride * height);
 	EvaluateCommand(buffer);
 
 	FILE *f = fopen(".bitmap.gf", "rb");
@@ -1230,7 +1230,7 @@ void AddDataWindow() {
 	UIElementRefresh(&tabPaneWatchData->e);
 
 	char buffer[1024];
-	snprintf(buffer, 1024, "%.*s", (int) textboxInput->bytes, textboxInput->string);
+	StringFormat(buffer, 1024, "%.*s", (int) textboxInput->bytes, textboxInput->string);
 
 	char *tokens[16];
 	size_t tokenCount = 0;
@@ -1276,10 +1276,10 @@ int AddBitmapDialogMessage(UIElement *element, UIMessage message, int di, void *
 }
 
 void AddBitmap(void *) {
-	snprintf(addBitmapPointerString, sizeof(addBitmapPointerString), "%.*s", (int) addBitmapPointer->bytes, addBitmapPointer->string);
-	snprintf(addBitmapWidthString, sizeof(addBitmapWidthString), "%.*s", (int) addBitmapWidth->bytes, addBitmapWidth->string);
-	snprintf(addBitmapHeightString, sizeof(addBitmapHeightString), "%.*s", (int) addBitmapHeight->bytes, addBitmapHeight->string);
-	snprintf(addBitmapStrideString, sizeof(addBitmapStrideString), "%.*s", (int) addBitmapStride->bytes, addBitmapStride->string);
+	StringFormat(addBitmapPointerString, sizeof(addBitmapPointerString), "%.*s", (int) addBitmapPointer->bytes, addBitmapPointer->string);
+	StringFormat(addBitmapWidthString, sizeof(addBitmapWidthString), "%.*s", (int) addBitmapWidth->bytes, addBitmapWidth->string);
+	StringFormat(addBitmapHeightString, sizeof(addBitmapHeightString), "%.*s", (int) addBitmapHeight->bytes, addBitmapHeight->string);
+	StringFormat(addBitmapStrideString, sizeof(addBitmapStrideString), "%.*s", (int) addBitmapStride->bytes, addBitmapStride->string);
 	AddBitmapInternal(addBitmapPointerString, addBitmapWidthString, addBitmapHeightString, addBitmapStrideString[0] ? addBitmapStrideString : nullptr);
 	UIElementDestroy(&addBitmapDialog->e);
 	addBitmapDialog = nullptr;
@@ -1323,7 +1323,7 @@ int TextboxInputMessage(UIElement *, UIMessage message, int di, void *dp) {
 
 		if (m->code == UI_KEYCODE_ENTER && !window->shift) {
 			char buffer[1024];
-			snprintf(buffer, 1024, "%.*s", (int) textboxInput->bytes, textboxInput->string);
+			StringFormat(buffer, 1024, "%.*s", (int) textboxInput->bytes, textboxInput->string);
 			if (commandLog) fprintf(commandLog, "%s\n", buffer);
 			SendToGDB(buffer, true);
 
@@ -1346,7 +1346,7 @@ int TextboxInputMessage(UIElement *, UIMessage message, int di, void *dp) {
 			AddDataWindow();
 		} else if (m->code == UI_KEYCODE_TAB && textboxInput->bytes && !window->shift) {
 			char buffer[4096];
-			snprintf(buffer, sizeof(buffer), "complete %.*s", lastKeyWasTab ? lastTabBytes : (int) textboxInput->bytes, textboxInput->string);
+			StringFormat(buffer, sizeof(buffer), "complete %.*s", lastKeyWasTab ? lastTabBytes : (int) textboxInput->bytes, textboxInput->string);
 			for (int i = 0; buffer[i]; i++) if (buffer[i] == '\\') buffer[i] = ' ';
 			EvaluateCommand(buffer);
 
@@ -1477,7 +1477,7 @@ void WatchEvaluate(const char *function, Watch *watch) {
 	char buffer[4096];
 	uintptr_t position = 0;
 
-	position += snprintf(buffer + position, sizeof(buffer) - position, "py %s([", function);
+	position += StringFormat(buffer + position, sizeof(buffer) - position, "py %s([", function);
 	if (position > sizeof(buffer)) position = sizeof(buffer);
 
 	Watch *stack[32];
@@ -1496,22 +1496,22 @@ void WatchEvaluate(const char *function, Watch *watch) {
 		stackCount--;
 
 		if (!first) {
-			position += snprintf(buffer + position, sizeof(buffer) - position, ",");
+			position += StringFormat(buffer + position, sizeof(buffer) - position, ",");
 			if (position > sizeof(buffer)) position = sizeof(buffer);
 		} else {
 			first = false;
 		}
 
 		if (stack[stackCount]->key) {
-			position += snprintf(buffer + position, sizeof(buffer) - position, "'%s'", stack[stackCount]->key);
+			position += StringFormat(buffer + position, sizeof(buffer) - position, "'%s'", stack[stackCount]->key);
 		} else {
-			position += snprintf(buffer + position, sizeof(buffer) - position, "%lu", stack[stackCount]->arrayIndex);
+			position += StringFormat(buffer + position, sizeof(buffer) - position, "%lu", stack[stackCount]->arrayIndex);
 		}
 
 		if (position > sizeof(buffer)) position = sizeof(buffer);
 	}
 
-	position += snprintf(buffer + position, sizeof(buffer) - position, "])");
+	position += StringFormat(buffer + position, sizeof(buffer) - position, "])");
 	if (position > sizeof(buffer)) position = sizeof(buffer);
 
 	EvaluateCommand(buffer);
@@ -1676,10 +1676,10 @@ int WatchWindowMessage(UIElement *element, UIMessage message, int di, void *dp) 
 				char keyIndex[64];
 
 				if (!watch->key) {
-					snprintf(keyIndex, sizeof(keyIndex), "[%lu]", watch->arrayIndex);
+					StringFormat(keyIndex, sizeof(keyIndex), "[%lu]", watch->arrayIndex);
 				}
 
-				snprintf(buffer, sizeof(buffer), "%.*s%s%s%s%s", 
+				StringFormat(buffer, sizeof(buffer), "%.*s%s%s%s%s", 
 						watch->depth * 2, "                                ",
 						watch->open ? "v " : watch->hasFields ? "> " : "", 
 						watch->key ?: keyIndex, 
@@ -1860,7 +1860,7 @@ void Update(const char *data) {
 			const char *end = strchr(file, ':');
 
 			if (end && isdigit(end[1])) {
-				snprintf(newFile, sizeof(newFile), "%.*s", (int) (end - file), file);
+				StringFormat(newFile, sizeof(newFile), "%.*s", (int) (end - file), file);
 				fileChanged = true;
 			}
 		}
@@ -1881,13 +1881,13 @@ void Update(const char *data) {
 
 		if (autoPrintExpression[0]) {
 			char buffer[1024];
-			snprintf(buffer, sizeof(buffer), "p %s", autoPrintExpression);
+			StringFormat(buffer, sizeof(buffer), "p %s", autoPrintExpression);
 			EvaluateCommand(buffer);
 			const char *result = strchr(evaluateResult, '=');
 
 			if (result) {
 				autoPrintResultLine = autoPrintExpressionLine;
-				snprintf(autoPrintResult, sizeof(autoPrintResult), "%s", result);
+				StringFormat(autoPrintResult, sizeof(autoPrintResult), "%s", result);
 				char *end = strchr(autoPrintResult, '\n');
 				if (end) *end = 0;
 			} else {
@@ -1952,7 +1952,7 @@ void Update(const char *data) {
 		}
 
 		if (position != bytes && text[position] == '=') {
-			snprintf(autoPrintExpression, sizeof(autoPrintExpression), "%.*s",
+			StringFormat(autoPrintExpression, sizeof(autoPrintExpression), "%.*s",
 				(int) (expressionEnd - expressionStart), text + expressionStart);
 		}
 
@@ -1996,7 +1996,7 @@ void Update(const char *data) {
 
 				if (end && isdigit(end[1])) {
 					if (file[0] == '.' && file[1] == '/') file += 2;
-					snprintf(breakpoint.file, sizeof(breakpoint.file), "%.*s", (int) (end - file), file);
+					StringFormat(breakpoint.file, sizeof(breakpoint.file), "%.*s", (int) (end - file), file);
 					breakpoint.line = atoi(end + 1);
 				} else recognised = false;
 			} else recognised = false;
@@ -2049,7 +2049,7 @@ void Update(const char *data) {
 			const char *functionName = position;
 			position = strchr(position, ' ');
 			if (!position || position >= next) break;
-			snprintf(entry.function, sizeof(entry.function), "%.*s", (int) (position - functionName), functionName);
+			StringFormat(entry.function, sizeof(entry.function), "%.*s", (int) (position - functionName), functionName);
 
 			const char *file = strstr(position, " at ");
 
@@ -2057,7 +2057,7 @@ void Update(const char *data) {
 				file += 4;
 				const char *end = file;
 				while (*end != '\n' && end < next) end++;
-				snprintf(entry.location, sizeof(entry.location), "%.*s", (int) (end - file), file);
+				StringFormat(entry.location, sizeof(entry.location), "%.*s", (int) (end - file), file);
 			}
 
 			stack.Add(entry);
@@ -2100,7 +2100,7 @@ void Update(const char *data) {
 			char *stringEnd = format2End;
 
 			RegisterData data;
-			snprintf(data.string, sizeof(data.string), "%.*s",
+			StringFormat(data.string, sizeof(data.string), "%.*s",
 					(int) (stringEnd - stringStart), stringStart);
 			bool modified = false;
 
@@ -2130,11 +2130,11 @@ void Update(const char *data) {
 					anyChanges = true;
 				} else {
 					int position = strlen(autoPrintResult);
-					snprintf(autoPrintResult + position, sizeof(autoPrintResult) - position, ", ");
+					StringFormat(autoPrintResult + position, sizeof(autoPrintResult) - position, ", ");
 				}
 
 				int position = strlen(autoPrintResult);
-				snprintf(autoPrintResult + position, sizeof(autoPrintResult) - position, "%.*s=%.*s",
+				StringFormat(autoPrintResult + position, sizeof(autoPrintResult) - position, "%.*s=%.*s",
 						(int) (nameEnd - nameStart), nameStart,
 						(int) (format1End - format1Start), format1Start);
 			}
@@ -2208,7 +2208,7 @@ int TableStackMessage(UIElement *element, UIMessage message, int di, void *dp) {
 
 		if (index != -1 && stackSelected != index) {
 			char buffer[64];
-			snprintf(buffer, 64, "frame %d", index);
+			StringFormat(buffer, 64, "frame %d", index);
 			SendToGDB(buffer, false);
 			stackSelected = index;
 			stackJustSelected = true;
@@ -2254,13 +2254,13 @@ int DisplayCodeMessage(UIElement *element, UIMessage message, int di, void *dp) 
 
 			if (element->window->ctrl) {
 				char buffer[1024];
-				snprintf(buffer, 1024, "until %d", line);
+				StringFormat(buffer, 1024, "until %d", line);
 				SendToGDB(buffer, true);
 			} else if (element->window->alt) {
 				char buffer[1024];
-				snprintf(buffer, 1024, "tbreak %d", line);
+				StringFormat(buffer, 1024, "tbreak %d", line);
 				EvaluateCommand(buffer);
-				snprintf(buffer, 1024, "jump %d", line);
+				StringFormat(buffer, 1024, "jump %d", line);
 				SendToGDB(buffer, true);
 			}
 		}
@@ -2352,7 +2352,7 @@ int TextboxStructNameMessage(UIElement *element, UIMessage message, int di, void
 
 		if (m->code == UI_KEYCODE_ENTER) {
 			char buffer[4096];
-			snprintf(buffer, sizeof(buffer), "ptype /o %.*s", (int) textboxStructName->bytes, textboxStructName->string);
+			StringFormat(buffer, sizeof(buffer), "ptype /o %.*s", (int) textboxStructName->bytes, textboxStructName->string);
 			EvaluateCommand(buffer);
 			char *end = strstr(evaluateResult, "\n(gdb)");
 			if (end) *end = 0;
@@ -2371,7 +2371,7 @@ extern "C" void CreateInterface(UIWindow *_window) {
 #ifdef LOG_COMMANDS
 	{
 		char path[4096];
-		snprintf(path, sizeof(path), "%s/gf_log.txt", getenv("HOME"));
+		StringFormat(path, sizeof(path), "%s/gf_log.txt", getenv("HOME"));
 		commandLog = fopen(path, "ab");
 	}
 #endif
