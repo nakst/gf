@@ -21,6 +21,8 @@
 //	- Better toggle buttons.
 // 	- Improve performance if possible?
 // 	- Tab completion!
+// 	- Lock pointer address.
+// 	- Record a log of everytime the value changes.
 
 // TODO Future extensions.
 // 	- Memory window.
@@ -543,14 +545,25 @@ void CommandSendToGDBStep(void *_string) {
 
 void CommandStepOutOfBlock(void *) {
 	if (currentLine - 1 >= displayCode->lineCount) return;
-	char *target1 = strstr(displayCode->content + displayCode->lines[currentLine - 1].offset, "}\n");
-	if (!target1) return;
-	int target2 = target1 - displayCode->content;
 
-	for (int i = currentLine; i < displayCode->lineCount; i++) {
-		if (target2 >= displayCode->lines[i].offset && target2 < displayCode->lines[i].offset + displayCode->lines[i].bytes) {
+	int tabs = 0;
+
+	for (int i = 0; i < displayCode->lines[currentLine - 1].bytes; i++) {
+		if (displayCode->content[displayCode->lines[currentLine - 1].offset + i] == '\t') tabs++;
+		else break;
+	}
+
+	for (int j = currentLine; j < displayCode->lineCount; j++) {
+		int t = 0;
+
+		for (int i = 0; i < displayCode->lines[j].bytes - 1; i++) {
+			if (displayCode->content[displayCode->lines[j].offset + i] == '\t') t++;
+			else break;
+		}
+
+		if (t < tabs && displayCode->content[displayCode->lines[j].offset + t] == '}') {
 			char buffer[256];
-			StringFormat(buffer, sizeof(buffer), "until %d", i + 1);
+			StringFormat(buffer, sizeof(buffer), "until %d", j + 1);
 			SendToGDB(buffer, true);
 			return;
 		}
