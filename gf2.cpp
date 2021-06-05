@@ -541,6 +541,22 @@ void CommandSendToGDBStep(void *_string) {
 	SendToGDB(command, true);
 }
 
+void CommandStepOutOfBlock(void *) {
+	if (currentLine - 1 >= displayCode->lineCount) return;
+	char *target1 = strstr(displayCode->content + displayCode->lines[currentLine - 1].offset, "}\n");
+	if (!target1) return;
+	int target2 = target1 - displayCode->content;
+
+	for (int i = currentLine; i < displayCode->lineCount; i++) {
+		if (target2 >= displayCode->lines[i].offset && target2 < displayCode->lines[i].offset + displayCode->lines[i].bytes) {
+			char buffer[256];
+			StringFormat(buffer, sizeof(buffer), "until %d", i + 1);
+			SendToGDB(buffer, true);
+			return;
+		}
+	}
+}
+
 void CommandDeleteBreakpoint(void *_index) {
 	int index = (int) (intptr_t) _index;
 	Breakpoint *breakpoint = &breakpoints[index];
@@ -913,6 +929,7 @@ void ShowMenu(void *) {
 	UIMenuAddItem(menu, 0, "Connect\tF4", -1, CommandSendToGDB, (void *) "target remote :1234");
 	UIMenuAddItem(menu, 0, "Continue\tF5", -1, CommandSendToGDB, (void *) "c");
 	UIMenuAddItem(menu, 0, "Step over\tF10", -1, CommandSendToGDBStep, (void *) "n");
+	UIMenuAddItem(menu, 0, "Step out of block\tShift+F10", -1, CommandStepOutOfBlock, NULL);
 	UIMenuAddItem(menu, 0, "Step in\tF11", -1, CommandSendToGDBStep, (void *) "s");
 	UIMenuAddItem(menu, 0, "Step out\tShift+F11", -1, CommandSendToGDB, (void *) "finish");
 	UIMenuAddItem(menu, 0, "Pause\tF8", -1, CommandPause, NULL);
@@ -931,6 +948,7 @@ void RegisterShortcuts() {
 	UIWindowRegisterShortcut(window, { .code = UI_KEYCODE_F4, .invoke = CommandSendToGDB, .cp = (void *) "target remote :1234" });
 	UIWindowRegisterShortcut(window, { .code = UI_KEYCODE_F5, .invoke = CommandSendToGDB, .cp = (void *) "c" });
 	UIWindowRegisterShortcut(window, { .code = UI_KEYCODE_F10, .invoke = CommandSendToGDBStep, .cp = (void *) "n" });
+	UIWindowRegisterShortcut(window, { .code = UI_KEYCODE_F10, .shift = true, .invoke = CommandStepOutOfBlock });
 	UIWindowRegisterShortcut(window, { .code = UI_KEYCODE_F11, .invoke = CommandSendToGDBStep, .cp = (void *) "s" });
 	UIWindowRegisterShortcut(window, { .code = UI_KEYCODE_F11, .shift = true, .invoke = CommandSendToGDB, .cp = (void *) "finish" });
 	UIWindowRegisterShortcut(window, { .code = UI_KEYCODE_F8, .invoke = CommandPause, .cp = NULL });
