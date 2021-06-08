@@ -39,8 +39,9 @@
 #include <ctype.h>
 #include <sys/stat.h>
 #include <stdarg.h>
+#include <dirent.h>
 
-char *layoutString = (char *) "v(75,h(80,Source,v(50,t(Breakpoints,Commands,Struct),Stack)),h(65,Console,t(Watch,Registers,Data)))";
+char *layoutString = (char *) "v(75,h(80,Source,v(50,t(Breakpoints,Commands,Struct),t(Stack,Files))),h(65,Console,t(Watch,Registers,Data)))";
 
 int fontSize = 13;
 float uiScale = 1;
@@ -85,6 +86,7 @@ UICode *displayOutput;
 UICode *displayStruct;
 UIMDIClient *dataWindow;
 UIPanel *dataTab;
+UIPanel *panelFiles;
 UIPanel *panelPresetCommands;
 UIPanel *registersWindow;
 UIPanel *rootPanel;
@@ -194,17 +196,12 @@ char autoPrintResult[1024];
 int autoPrintExpressionLine;
 int autoPrintResultLine;
 
-// Registers:
+// Other debug windows:
 
-struct RegisterData {
-	char string[128];
-};
-
+struct RegisterData { char string[128]; };
 Array<RegisterData> registerData;
-
-// Preset commands:
-
 Array<INIState> presetCommands;
+char filesDirectory[PATH_MAX];
 
 // GDB process:
 
@@ -2396,6 +2393,57 @@ int TextboxStructNameMessage(UIElement *element, UIMessage message, int di, void
 	return 0;
 }
 
+bool FilesPanelPopulate();
+
+void FilesOpen(void *_name) {
+	const char *name = (const char *) _name;
+	size_t oldLength = strlen(filesDirectory);
+	strcat(filesDirectory, "/");
+	strcat(filesDirectory, name);
+	struct stat s;
+	stat(filesDirectory, &s);
+
+	if (S_ISDIR(s.st_mode)) {
+		if (FilesPanelPopulate()) {
+			char copy[PATH_MAX];
+			realpath(filesDirectory, copy);
+			strcpy(filesDirectory, copy);
+			return;
+		}
+	} else if (S_ISREG(s.st_mode)) {
+		SetPosition(filesDirectory, 1, false);
+	}
+
+	filesDirectory[oldLength] = 0;
+}
+
+bool FilesPanelPopulate() {
+	if (!filesDirectory[0]) getcwd(filesDirectory, sizeof(filesDirectory));
+	DIR *directory = opendir(filesDirectory);
+	struct dirent *entry;
+	if (!directory) return false;
+	Array<char *> names = {};
+	while ((entry = readdir(directory))) names.Add(strdup(entry->d_name));
+	closedir(directory);
+	UIElementDestroyDescendents(&panelFiles->e);
+
+	qsort(names.array, names.Length(), sizeof(char *), [] (const void *a, const void *b) {
+		return strcmp(*(const char **) a, *(const char **) b);
+	});
+
+	for (int i = 0; i < names.Length(); i++) {
+		if (names[i][0] == '.' && names[i][1] == 0) continue;
+		UIButton *button = UIButtonCreate(&panelFiles->e, 0, names[i], -1);
+		button->e.cp = button->label;
+		button->invoke = FilesOpen;
+		free(names[i]);
+	}
+
+	names.Free();
+	UIElementRefresh(&panelFiles->e);
+	return true;
+}
+
 void LayoutCreate(UIElement *parent) {
 	UIElement *container = nullptr;
 
@@ -2467,6 +2515,9 @@ void LayoutCreate(UIElement *parent) {
 		textboxStructName->e.messageUser = TextboxStructNameMessage;
 		displayStruct = UICodeCreate(&panel6->e, UI_ELEMENT_V_FILL | UI_CODE_NO_MARGIN);
 		UICodeInsertContent(displayStruct, "Type the name of a struct\nto view its layout.", -1, false);
+	CHECK_LAYOUT_TOKEN("Files")
+		panelFiles = UIPanelCreate(parent, UI_PANEL_GRAY | UI_PANEL_EXPAND | UI_PANEL_SCROLL);
+		FilesPanelPopulate();
 	} else {
 		assert(false);
 	}
