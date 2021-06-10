@@ -65,13 +65,16 @@ char emptyString;
 
 // Current file and line:
 
-char currentFile[4096];
+char currentFile[PATH_MAX];
+char currentFileFull[PATH_MAX];
 int currentLine;
 time_t currentFileReadTime;
 
 bool showingDisassembly;
 char *disassemblyPreviousSourceFile;
 int disassemblyPreviousSourceLine;
+
+char previousLocation[256];
 
 // User interface:
 
@@ -166,19 +169,20 @@ char addBitmapStrideString[256];
 
 struct StackEntry {
 	char function[64];
-	char location[64];
+	char location[sizeof(previousLocation)];
 	uint64_t address;
 	int id;
 };
 
 Array<StackEntry> stack;
 int stackSelected;
-bool stackJustSelected;
+bool simpleUpdate;
 
 // Breakpoints:
 
 struct Breakpoint {
 	char file[64];
+	char fileFull[PATH_MAX];
 	int line;
 };
 
@@ -492,6 +496,7 @@ extern "C" bool SetPosition(const char *file, int line, bool useGDBToGetFullPath
 	if (reloadFile) {
 		currentLine = 0;
 		StringFormat(currentFile, 4096, "%s", originalFile);
+		realpath(currentFile, currentFileFull);
 
 		printf("attempting to load '%s' (from '%s')\n", file, originalFile);
 
@@ -571,6 +576,7 @@ void CommandDeleteBreakpoint(void *_index) {
 	int index = (int) (intptr_t) _index;
 	Breakpoint *breakpoint = &breakpoints[index];
 	char buffer[1024];
+	simpleUpdate = true;
 	StringFormat(buffer, 1024, "clear %s:%d", breakpoint->file, breakpoint->line);
 	SendToGDB(buffer, true);
 }
@@ -629,8 +635,9 @@ void CommandToggleBreakpoint(void *_line) {
 	}
 
 	for (int i = 0; i < breakpoints.Length(); i++) {
-		if (breakpoints[i].line == line && 0 == strcmp(breakpoints[i].file, currentFile)) {
+		if (breakpoints[i].line == line && 0 == strcmp(breakpoints[i].fileFull, currentFileFull)) {
 			char buffer[1024];
+			simpleUpdate = true;
 			StringFormat(buffer, 1024, "clear %s:%d", currentFile, line);
 			SendToGDB(buffer, true);
 			return;
@@ -638,6 +645,7 @@ void CommandToggleBreakpoint(void *_line) {
 	}
 
 	char buffer[1024];
+	simpleUpdate = true;
 	StringFormat(buffer, 1024, "b %s:%d", currentFile, line);
 	SendToGDB(buffer, true);
 }
@@ -1836,77 +1844,82 @@ void Update(const char *data) {
 		EvaluateCommand(pythonCode);
 	}
 
-	// Parse the current line.
-
-	bool lineChanged = false;
-	int newLine = 0;
-
-	{
-		const char *line = data;
-
-		while (*line) {
-			if (line[0] == '\n' || line == data) {
-				int i = line == data ? 0 : 1, number = 0;
-
-				while (line[i]) {
-					if (line[i] == '\t') {
-						break;
-					} else if (isdigit(line[i])) {
-						number = number * 10 + line[i] - '0';
-						i++;
-					} else {
-						goto tryNext;
-					}
-				}
-
-				if (!line[i]) {
-					break;
-				}
-
-				if (number) {
-					lineChanged = true;
-					newLine = number;
-				}
-
-				tryNext:;
-				line += i + 1;
-			} else {
-				line++;
-			}
-		}
-	}
-
-	// Parse the name of the file.
-
-	bool fileChanged = false;
-	char newFile[4096];
-
-	{
-		const char *file = data;
-
-		while (true) {
-			file = strstr(file, " at ");
-			if (!file) break;
-
-			file += 4;
-			const char *end = strchr(file, ':');
-
-			if (end && isdigit(end[1])) {
-				StringFormat(newFile, sizeof(newFile), "%.*s", (int) (end - file), file);
-				fileChanged = true;
-			}
-		}
-	}
-
 	// Get the current address.
 
 	if (showingDisassembly) {
 		UpdateDisassemblyLine();
 	}
 
+	// Get the stack.
+
+	EvaluateCommand("bt 50");
+	stack.Free();
+	if (!simpleUpdate) stackSelected = 0;
+	simpleUpdate = false;
+
+	{
+		const char *position = evaluateResult;
+
+		while (*position == '#') {
+			const char *next = position;
+
+			while (true) {
+				next = strchr(next + 1, '\n');
+				if (!next || next[1] == '#') break;
+			}
+
+			if (!next) next = position + strlen(position);
+
+			StackEntry entry = {};
+
+			entry.id = strtoul(position + 1, (char **) &position, 0);
+
+			while (*position == ' ' && position < next) position++;
+			bool hasAddress = *position == '0';
+
+			if (hasAddress) {
+				entry.address = strtoul(position, (char **) &position, 0);
+				position += 4;
+			}
+
+			while (*position == ' ' && position < next) position++;
+			const char *functionName = position;
+			position = strchr(position, ' ');
+			if (!position || position >= next) break;
+			StringFormat(entry.function, sizeof(entry.function), "%.*s", (int) (position - functionName), functionName);
+
+			const char *file = strstr(position, " at ");
+
+			if (file && file < next) {
+				file += 4;
+				const char *end = file;
+				while (*end != '\n' && end < next) end++;
+				StringFormat(entry.location, sizeof(entry.location), "%.*s", (int) (end - file), file);
+			}
+
+			stack.Add(entry);
+
+			if (!(*next)) break;
+			position = next + 1;
+		}
+	}
+
+	tableStack->itemCount = stack.Length();
+	UITableResizeColumns(tableStack);
+	UIElementRefresh(&tableStack->e);
+
 	// Set the file and line in the source display.
 
-	bool changedSourceLine = SetPosition(fileChanged ? newFile : NULL, lineChanged ? newLine : -1, true);
+	bool changedSourceLine = false;
+	
+	if (stack.Length() > stackSelected && strcmp(stack[stackSelected].location, previousLocation)) {
+		char location[sizeof(previousLocation)];
+		strcpy(previousLocation, stack[stackSelected].location);
+		strcpy(location, stack[stackSelected].location);
+		char *line = strchr(location, ':');
+		if (line) *line = 0;
+		SetPosition(location, line ? atoi(line + 1) : -1, true);
+	}
 
 	if (changedSourceLine && currentLine < displayCode->lineCount && currentLine > 0) {
 		// If there is an auto-print expression from the previous line, evaluate it.
@@ -2034,6 +2047,7 @@ void Update(const char *data) {
 			} else recognised = false;
 
 			if (recognised) {
+				realpath(breakpoint.file, breakpoint.fileFull);
 				breakpoints.Add(breakpoint);
 			}
 
@@ -2044,64 +2058,6 @@ void Update(const char *data) {
 	tableBreakpoints->itemCount = breakpoints.Length();
 	UITableResizeColumns(tableBreakpoints);
 	UIElementRefresh(&tableBreakpoints->e);
-
-	// Get the stack.
-
-	EvaluateCommand("bt 50");
-	stack.Free();
-	if (!stackJustSelected) stackSelected = 0;
-	stackJustSelected = false;
-
-	{
-		const char *position = evaluateResult;
-
-		while (*position == '#') {
-			const char *next = position;
-
-			while (true) {
-				next = strchr(next + 1, '\n');
-				if (!next || next[1] == '#') break;
-			}
-
-			if (!next) next = position + strlen(position);
-
-			StackEntry entry = {};
-
-			entry.id = strtoul(position + 1, (char **) &position, 0);
-
-			while (*position == ' ' && position < next) position++;
-			bool hasAddress = *position == '0';
-
-			if (hasAddress) {
-				entry.address = strtoul(position, (char **) &position, 0);
-				position += 4;
-			}
-
-			while (*position == ' ' && position < next) position++;
-			const char *functionName = position;
-			position = strchr(position, ' ');
-			if (!position || position >= next) break;
-			StringFormat(entry.function, sizeof(entry.function), "%.*s", (int) (position - functionName), functionName);
-
-			const char *file = strstr(position, " at ");
-
-			if (file && file < next) {
-				file += 4;
-				const char *end = file;
-				while (*end != '\n' && end < next) end++;
-				StringFormat(entry.location, sizeof(entry.location), "%.*s", (int) (end - file), file);
-			}
-
-			stack.Add(entry);
-
-			if (!(*next)) break;
-			position = next + 1;
-		}
-	}
-
-	tableStack->itemCount = stack.Length();
-	UITableResizeColumns(tableStack);
-	UIElementRefresh(&tableStack->e);
 
 	// Get registers.
 
@@ -2243,7 +2199,7 @@ int TableStackMessage(UIElement *element, UIMessage message, int di, void *dp) {
 			StringFormat(buffer, 64, "frame %d", index);
 			SendToGDB(buffer, false);
 			stackSelected = index;
-			stackJustSelected = true;
+			simpleUpdate = true;
 			UIElementRepaint(element, NULL);
 		}
 	}
@@ -2298,7 +2254,7 @@ int DisplayCodeMessage(UIElement *element, UIMessage message, int di, void *dp) 
 		}
 	} else if (message == UI_MSG_CODE_GET_MARGIN_COLOR && !showingDisassembly) {
 		for (int i = 0; i < breakpoints.Length(); i++) {
-			if (breakpoints[i].line == di && 0 == strcmp(breakpoints[i].file, currentFile)) {
+			if (breakpoints[i].line == di && 0 == strcmp(breakpoints[i].fileFull, currentFileFull)) {
 				return 0xFF0000;
 			}
 		}
