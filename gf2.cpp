@@ -176,7 +176,7 @@ struct StackEntry {
 
 Array<StackEntry> stack;
 int stackSelected;
-bool simpleUpdate;
+bool stackChanged;
 
 // Breakpoints:
 
@@ -383,62 +383,6 @@ bool StartsWith(const char *string, const char *with) {
 }
 
 void SendToGDB(const char *string, bool echo) {
-	if (!evaluateMode) {
-		// We don't want to ask GDB for the source file again if the command won't run the target.
-		if (StartsWith(string, "actions "))	simpleUpdate = true;
-		if (StartsWith(string, "append "))	simpleUpdate = true;
-		if (StartsWith(string, "b "))    	simpleUpdate = true;
-		if (StartsWith(string, "backtrace "))   simpleUpdate = true;
-		if (StartsWith(string, "break "))	simpleUpdate = true;
-		if (StartsWith(string, "bt "))   	simpleUpdate = true;
-		if (StartsWith(string, "call "))	simpleUpdate = true;
-		if (StartsWith(string, "catch "))	simpleUpdate = true;
-		if (StartsWith(string, "clear "))	simpleUpdate = true;
-		if (StartsWith(string, "collect "))	simpleUpdate = true;
-		if (StartsWith(string, "commands "))	simpleUpdate = true;
-		if (StartsWith(string, "condition "))	simpleUpdate = true;
-		if (StartsWith(string, "delete "))	simpleUpdate = true;
-		if (StartsWith(string, "disable "))	simpleUpdate = true;
-		if (StartsWith(string, "disassemble "))	simpleUpdate = true;
-		if (StartsWith(string, "display "))	simpleUpdate = true;
-		if (StartsWith(string, "down "))	simpleUpdate = true;
-		if (StartsWith(string, "dprintf "))	simpleUpdate = true;
-		if (StartsWith(string, "dump "))	simpleUpdate = true;
-		if (StartsWith(string, "enable "))	simpleUpdate = true;
-		if (StartsWith(string, "explore "))	simpleUpdate = true;
-		if (StartsWith(string, "find "))	simpleUpdate = true;
-		if (StartsWith(string, "frame "))	simpleUpdate = true;
-		if (StartsWith(string, "ignore "))	simpleUpdate = true;
-		if (StartsWith(string, "info ")) 	simpleUpdate = true;
-		if (StartsWith(string, "maintenance "))	simpleUpdate = true;
-		if (StartsWith(string, "p "))    	simpleUpdate = true;
-		if (StartsWith(string, "passcount "))	simpleUpdate = true;
-		if (StartsWith(string, "print "))	simpleUpdate = true;
-		if (StartsWith(string, "printf "))	simpleUpdate = true;
-		if (StartsWith(string, "ptype "))	simpleUpdate = true;
-		if (StartsWith(string, "python "))	simpleUpdate = true;
-		if (StartsWith(string, "record "))	simpleUpdate = true;
-		if (StartsWith(string, "remote "))	simpleUpdate = true;
-		if (StartsWith(string, "restart "))	simpleUpdate = true;
-		if (StartsWith(string, "restore "))	simpleUpdate = true;
-		if (StartsWith(string, "save "))	simpleUpdate = true;
-		if (StartsWith(string, "set "))		simpleUpdate = true;
-		if (StartsWith(string, "show "))	simpleUpdate = true;
-		if (StartsWith(string, "skip "))	simpleUpdate = true;
-		if (StartsWith(string, "strace "))	simpleUpdate = true;
-		if (StartsWith(string, "tbreak "))	simpleUpdate = true;
-		if (StartsWith(string, "tcatch "))	simpleUpdate = true;
-		if (StartsWith(string, "tdump "))	simpleUpdate = true;
-		if (StartsWith(string, "teval "))	simpleUpdate = true;
-		if (StartsWith(string, "tfind "))	simpleUpdate = true;
-		if (StartsWith(string, "trace "))	simpleUpdate = true;
-		if (StartsWith(string, "tstart "))	simpleUpdate = true;
-		if (StartsWith(string, "tstop "))	simpleUpdate = true;
-		if (StartsWith(string, "unset "))	simpleUpdate = true;
-		if (StartsWith(string, "up "))		simpleUpdate = true;
-		if (StartsWith(string, "watch "))	simpleUpdate = true;
-	}
-
 	if (programRunning) {
 		kill(gdbPID, SIGINT);
 	}
@@ -1913,8 +1857,6 @@ void Update(const char *data) {
 
 	EvaluateCommand("bt 50");
 	stack.Free();
-	if (!simpleUpdate) stackSelected = 0;
-	simpleUpdate = false;
 
 	{
 		const char *position = evaluateResult;
@@ -1970,8 +1912,39 @@ void Update(const char *data) {
 	// Set the file and line in the source display.
 
 	bool changedSourceLine = false;
+
+	{
+		const char *line = data;
+
+		while (*line) {
+			if (line[0] == '\n' || line == data) {
+				int i = line == data ? 0 : 1, number = 0;
+
+				while (line[i]) {
+					if (line[i] == '\t') {
+						break;
+					} else if (isdigit(line[i])) {
+						number = number * 10 + line[i] - '0';
+						i++;
+					} else {
+						goto tryNext;
+					}
+				}
+
+				if (!line[i]) break;
+				if (number) changedSourceLine = true;
+				tryNext:;
+				line += i + 1;
+			} else {
+				line++;
+			}
+		}
+	}
+
+	if (!stackChanged && changedSourceLine) stackSelected = 0;
+	stackChanged = false;
 	
-	if (stack.Length() > stackSelected && strcmp(stack[stackSelected].location, previousLocation)) {
+	if (changedSourceLine && stack.Length() > stackSelected && strcmp(stack[stackSelected].location, previousLocation)) {
 		char location[sizeof(previousLocation)];
 		strcpy(previousLocation, stack[stackSelected].location);
 		strcpy(location, stack[stackSelected].location);
@@ -2258,6 +2231,7 @@ int TableStackMessage(UIElement *element, UIMessage message, int di, void *dp) {
 			StringFormat(buffer, 64, "frame %d", index);
 			SendToGDB(buffer, false);
 			stackSelected = index;
+			stackChanged = true;
 			UIElementRepaint(element, NULL);
 		}
 	}
