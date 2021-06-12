@@ -376,7 +376,69 @@ void StartGDBThread() {
 	gdbThread = debuggerThread;
 }
 
+bool StartsWith(const char *string, const char *with) {
+	size_t withLength = strlen(with);
+	if (strlen(string) < strlen(with)) return false;
+	else return 0 == memcmp(string, with, withLength);
+}
+
 void SendToGDB(const char *string, bool echo) {
+	if (!evaluateMode) {
+		// We don't want to ask GDB for the source file again if the command won't run the target.
+		if (StartsWith(string, "actions "))	simpleUpdate = true;
+		if (StartsWith(string, "append "))	simpleUpdate = true;
+		if (StartsWith(string, "b "))    	simpleUpdate = true;
+		if (StartsWith(string, "backtrace "))   simpleUpdate = true;
+		if (StartsWith(string, "break "))	simpleUpdate = true;
+		if (StartsWith(string, "bt "))   	simpleUpdate = true;
+		if (StartsWith(string, "call "))	simpleUpdate = true;
+		if (StartsWith(string, "catch "))	simpleUpdate = true;
+		if (StartsWith(string, "clear "))	simpleUpdate = true;
+		if (StartsWith(string, "collect "))	simpleUpdate = true;
+		if (StartsWith(string, "commands "))	simpleUpdate = true;
+		if (StartsWith(string, "condition "))	simpleUpdate = true;
+		if (StartsWith(string, "delete "))	simpleUpdate = true;
+		if (StartsWith(string, "disable "))	simpleUpdate = true;
+		if (StartsWith(string, "disassemble "))	simpleUpdate = true;
+		if (StartsWith(string, "display "))	simpleUpdate = true;
+		if (StartsWith(string, "down "))	simpleUpdate = true;
+		if (StartsWith(string, "dprintf "))	simpleUpdate = true;
+		if (StartsWith(string, "dump "))	simpleUpdate = true;
+		if (StartsWith(string, "enable "))	simpleUpdate = true;
+		if (StartsWith(string, "explore "))	simpleUpdate = true;
+		if (StartsWith(string, "find "))	simpleUpdate = true;
+		if (StartsWith(string, "frame "))	simpleUpdate = true;
+		if (StartsWith(string, "ignore "))	simpleUpdate = true;
+		if (StartsWith(string, "info ")) 	simpleUpdate = true;
+		if (StartsWith(string, "maintenance "))	simpleUpdate = true;
+		if (StartsWith(string, "p "))    	simpleUpdate = true;
+		if (StartsWith(string, "passcount "))	simpleUpdate = true;
+		if (StartsWith(string, "print "))	simpleUpdate = true;
+		if (StartsWith(string, "printf "))	simpleUpdate = true;
+		if (StartsWith(string, "ptype "))	simpleUpdate = true;
+		if (StartsWith(string, "python "))	simpleUpdate = true;
+		if (StartsWith(string, "record "))	simpleUpdate = true;
+		if (StartsWith(string, "remote "))	simpleUpdate = true;
+		if (StartsWith(string, "restart "))	simpleUpdate = true;
+		if (StartsWith(string, "restore "))	simpleUpdate = true;
+		if (StartsWith(string, "save "))	simpleUpdate = true;
+		if (StartsWith(string, "set "))		simpleUpdate = true;
+		if (StartsWith(string, "show "))	simpleUpdate = true;
+		if (StartsWith(string, "skip "))	simpleUpdate = true;
+		if (StartsWith(string, "strace "))	simpleUpdate = true;
+		if (StartsWith(string, "tbreak "))	simpleUpdate = true;
+		if (StartsWith(string, "tcatch "))	simpleUpdate = true;
+		if (StartsWith(string, "tdump "))	simpleUpdate = true;
+		if (StartsWith(string, "teval "))	simpleUpdate = true;
+		if (StartsWith(string, "tfind "))	simpleUpdate = true;
+		if (StartsWith(string, "trace "))	simpleUpdate = true;
+		if (StartsWith(string, "tstart "))	simpleUpdate = true;
+		if (StartsWith(string, "tstop "))	simpleUpdate = true;
+		if (StartsWith(string, "unset "))	simpleUpdate = true;
+		if (StartsWith(string, "up "))		simpleUpdate = true;
+		if (StartsWith(string, "watch "))	simpleUpdate = true;
+	}
+
 	if (programRunning) {
 		kill(gdbPID, SIGINT);
 	}
@@ -576,7 +638,6 @@ void CommandDeleteBreakpoint(void *_index) {
 	int index = (int) (intptr_t) _index;
 	Breakpoint *breakpoint = &breakpoints[index];
 	char buffer[1024];
-	simpleUpdate = true;
 	StringFormat(buffer, 1024, "clear %s:%d", breakpoint->file, breakpoint->line);
 	SendToGDB(buffer, true);
 }
@@ -637,7 +698,6 @@ void CommandToggleBreakpoint(void *_line) {
 	for (int i = 0; i < breakpoints.Length(); i++) {
 		if (breakpoints[i].line == line && 0 == strcmp(breakpoints[i].fileFull, currentFileFull)) {
 			char buffer[1024];
-			simpleUpdate = true;
 			StringFormat(buffer, 1024, "clear %s:%d", currentFile, line);
 			SendToGDB(buffer, true);
 			return;
@@ -645,7 +705,6 @@ void CommandToggleBreakpoint(void *_line) {
 	}
 
 	char buffer[1024];
-	simpleUpdate = true;
 	StringFormat(buffer, 1024, "b %s:%d", currentFile, line);
 	SendToGDB(buffer, true);
 }
@@ -2199,7 +2258,6 @@ int TableStackMessage(UIElement *element, UIMessage message, int di, void *dp) {
 			StringFormat(buffer, 64, "frame %d", index);
 			SendToGDB(buffer, false);
 			stackSelected = index;
-			simpleUpdate = true;
 			UIElementRepaint(element, NULL);
 		}
 	}
