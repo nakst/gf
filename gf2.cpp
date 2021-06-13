@@ -42,6 +42,7 @@
 #include <dirent.h>
 
 char *layoutString = (char *) "v(75,h(80,Source,v(50,t(Breakpoints,Commands,Struct),t(Stack,Files))),h(65,Console,t(Watch,Registers,Data)))";
+// char *layoutString = (char *) "h(75,v(75,Source,Console),v(50,t(Watch,Breakpoints,Commands,Struct),t(Stack,Files,Registers,Data))))";
 
 int fontSize = 13;
 float uiScale = 1;
@@ -2257,6 +2258,9 @@ int TableBreakpointsMessage(UIElement *element, UIMessage message, int di, void 
 			UIMenuAddItem(menu, 0, "Delete", -1, CommandDeleteBreakpoint, (void *) (intptr_t) index);
 			UIMenuShow(menu);
 		}
+	} else if (message == UI_MSG_LEFT_DOWN) {
+		int index = UITableHitTest((UITable *) element, element->window->cursorX, element->window->cursorY);
+		if (index != -1) SetPosition(breakpoints[index].file, breakpoints[index].line, false);
 	}
 
 	return 0;
