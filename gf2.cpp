@@ -5,6 +5,8 @@
 // 	We should probably ask the user if they trust the local config file the first time it's seen, and each time it's modified.
 // 	Otherwise opening the application in the wrong directory could be dangerous (you can easily get GDB to run shell commands).
 
+// TODO Run until current line reached again, maybe Ctrl+F10? I think "tbreak\nc" should work.
+
 // TODO Rearrange default UI layout; the breakpoint window takes up too much space.
 
 // TODO Disassembly window extensions.
@@ -156,15 +158,10 @@ struct BitmapViewer {
 Array<UIElement *> autoUpdateBitmapViewers;
 bool autoUpdateBitmapViewersQueued;
 
-UIWindow *addBitmapDialog;
-UITextbox *addBitmapPointer;
-UITextbox *addBitmapWidth;
-UITextbox *addBitmapHeight;
-UITextbox *addBitmapStride;
-char addBitmapPointerString[256];
-char addBitmapWidthString[256];
-char addBitmapHeightString[256];
-char addBitmapStrideString[256];
+char *addBitmapPointerString;
+char *addBitmapWidthString;
+char *addBitmapHeightString;
+char *addBitmapStrideString;
 
 // Call stack:
 
@@ -1309,50 +1306,15 @@ void AddDataWindow() {
 	UIElementRefresh(&textboxInput->e);
 }
 
-int AddBitmapDialogMessage(UIElement *element, UIMessage message, int di, void *dp) {
-	if (message == UI_MSG_WINDOW_CLOSE) {
-		UIElementDestroy(element);
-		addBitmapDialog = NULL;
-		return 1;
-	}
-
-	return 0;
-}
-
-void AddBitmap(void *) {
-	StringFormat(addBitmapPointerString, sizeof(addBitmapPointerString), "%.*s", (int) addBitmapPointer->bytes, addBitmapPointer->string);
-	StringFormat(addBitmapWidthString, sizeof(addBitmapWidthString), "%.*s", (int) addBitmapWidth->bytes, addBitmapWidth->string);
-	StringFormat(addBitmapHeightString, sizeof(addBitmapHeightString), "%.*s", (int) addBitmapHeight->bytes, addBitmapHeight->string);
-	StringFormat(addBitmapStrideString, sizeof(addBitmapStrideString), "%.*s", (int) addBitmapStride->bytes, addBitmapStride->string);
-	AddBitmapInternal(addBitmapPointerString, addBitmapWidthString, addBitmapHeightString, addBitmapStrideString[0] ? addBitmapStrideString : nullptr);
-	UIElementDestroy(&addBitmapDialog->e);
-	addBitmapDialog = nullptr;
-}
-
 void AddBitmapDialog(void *) {
-	if (addBitmapDialog) return;
-	addBitmapDialog = UIWindowCreate(0, 0, "Add Bitmap", 0, 0);
-	addBitmapDialog->scale = uiScale;
-	addBitmapDialog->e.messageUser = AddBitmapDialogMessage;
+	const char *result = UIDialogShow(window, 0, 
+			"Add bitmap\n\n%l\n\nPointer to bits: (32bpp, RR GG BB AA)\n%t\nWidth:\n%t\nHeight:\n%t\nStride: (optional)\n%t\n\n%l\n\n%f%b%b",
+			&addBitmapPointerString, &addBitmapWidthString, &addBitmapHeightString, &addBitmapStrideString, "Add", "Cancel");
 
-	UIPanelCreate(&addBitmapDialog->e, UI_PANEL_GRAY | UI_ELEMENT_PARENT_PUSH | UI_PANEL_MEDIUM_SPACING);
-	UILabelCreate(0, UI_ELEMENT_H_FILL, "Pointer to bits: (32bpp, RR GG BB AA)", -1);
-	addBitmapPointer = UITextboxCreate(0, 0);
-	UITextboxReplace(addBitmapPointer, addBitmapPointerString, -1, false);
-	UILabelCreate(0, UI_ELEMENT_H_FILL, "Width:", -1);
-	addBitmapWidth = UITextboxCreate(0, 0);
-	UITextboxReplace(addBitmapWidth, addBitmapWidthString, -1, false);
-	UILabelCreate(0, UI_ELEMENT_H_FILL, "Height:", -1);
-	addBitmapHeight = UITextboxCreate(0, 0);
-	UITextboxReplace(addBitmapHeight, addBitmapHeightString, -1, false);
-	UILabelCreate(0, UI_ELEMENT_H_FILL, "Stride: (optional)", -1);
-	addBitmapStride = UITextboxCreate(0, 0);
-	UITextboxReplace(addBitmapStride, addBitmapStrideString, -1, false);
-	UIButtonCreate(0, 0, "Add", -1)->invoke = AddBitmap;
-	UIParentPop();
-
-	UIElementFocus(&addBitmapPointer->e);
-	UIWindowPack(addBitmapDialog, 0);
+	if (0 == strcmp(result, "Add")) {
+		AddBitmapInternal(addBitmapPointerString, addBitmapWidthString, addBitmapHeightString, 
+				(addBitmapStrideString && addBitmapStrideString[0]) ? addBitmapStrideString : nullptr);
+	}
 }
 
 int TextboxInputMessage(UIElement *, UIMessage message, int di, void *dp) {

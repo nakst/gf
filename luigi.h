@@ -1,13 +1,13 @@
 // TODO UITextbox features - mouse input, multi-line, clipboard, undo, IME support, number dragging.
-// TODO New elements - list view, dialogs, menu bar.
+// TODO New elements - list view, menu bar.
 // TODO Keyboard navigation - menus, dialogs, tables.
 // TODO Easier to use fonts; GDI font support.
 // TODO Formalize the notion of size-stability? See _UIExpandPaneButtonInvoke.
-// TODO UI_ELEMENT_IMGUI - when UIElementRefresh is called, UIElementDestroyDescendents is called and UI_MSG_POPULATE is sent.
 
 #include <stdint.h>
 #include <stddef.h>
 #include <stdbool.h>
+#include <stdarg.h>
 
 #ifdef UI_LINUX
 #include <X11/Xlib.h>
@@ -333,6 +333,8 @@ typedef struct UIWindow {
 
 	UIElement e;
 
+	UIElement *dialog;
+
 	UIShortcut *shortcuts;
 	size_t shortcutCount, shortcutAllocated;
 
@@ -342,7 +344,7 @@ typedef struct UIWindow {
 	int width, height;
 	struct UIWindow *next;
 
-	UIElement *hovered, *pressed, *focused;
+	UIElement *hovered, *pressed, *focused, *dialogOldFocus;
 	int pressedButton;
 
 	int cursorX, cursorY;
@@ -554,6 +556,8 @@ void UIWindowRegisterShortcut(UIWindow *window, UIShortcut shortcut);
 void UIWindowPostMessage(UIWindow *window, UIMessage message, void *dp); // Thread-safe.
 void UIWindowPack(UIWindow *window, int width); // Change the size of the window to best match its contents.
 
+const char *UIDialogShow(UIWindow *window, uint32_t flags, const char *format, ...);
+
 UIMenu *UIMenuCreate(UIElement *parent, uint32_t flags);
 void UIMenuAddItem(UIMenu *menu, uint32_t flags, const char *label, ptrdiff_t labelBytes, void (*invoke)(void *cp), void *cp);
 void UIMenuShow(UIMenu *menu);
@@ -634,6 +638,10 @@ struct {
 	int parentStackCount;
 
 	int glyphWidth, glyphHeight;
+
+	bool quit;
+	const char *dialogResult;
+	UIElement *dialogOldFocus;
 
 #ifdef UI_DEBUG
 	UIWindow *inspector;
@@ -800,7 +808,10 @@ const uint64_t _uiFont[] = {
 void _UIWindowEndPaint(UIWindow *window, UIPainter *painter);
 void _UIWindowSetCursor(UIWindow *window, int cursor);
 void _UIWindowGetScreenPosition(UIWindow *window, int *x, int *y);
+void _UIWindowSetPressed(UIWindow *window, UIElement *element, int button);
+bool _UIMessageLoopSingle(int *result);
 void _UIInspectorRefresh();
+void _UIUpdate();
 
 #ifdef UI_WINDOWS
 void *_UIHeapReAlloc(void *pointer, size_t size);
@@ -1666,7 +1677,7 @@ int _UIButtonMessage(UIElement *element, UIMessage message, int di, void *dp) {
 	} else if (message == UI_MSG_KEY_TYPED) {
 		UIKeyTyped *m = (UIKeyTyped *) dp;
 		
-		if (m->code == UI_KEYCODE_SPACE) {
+		if (m->textBytes == 1 && m->text[0] == ' ') {
 			UIElementMessage(element, UI_MSG_CLICKED, 0, 0);
 			UIElementRepaint(element, NULL);
 		}
@@ -3330,6 +3341,122 @@ UIImageDisplay *UIImageDisplayCreate(UIElement *parent, uint32_t flags, uint32_t
 	return display;
 }
 
+int _UIDialogWrapperMessage(UIElement *element, UIMessage message, int di, void *dp) {
+	if (message == UI_MSG_LAYOUT) {
+		int width = UIElementMessage(element->children, UI_MSG_GET_WIDTH, 0, 0);
+		int height = UIElementMessage(element->children, UI_MSG_GET_HEIGHT, width, 0);
+		int cx = (element->bounds.l + element->bounds.r) / 2;
+		int cy = (element->bounds.t + element->bounds.b) / 2;
+		UIRectangle bounds = UI_RECT_4(cx - (width + 1) / 2, cx + width / 2, cy - (height + 1) / 2, cy + height / 2);
+		UIElementMove(element->children, bounds, false);
+		UIElementRepaint(element, NULL);
+	} else if (message == UI_MSG_PAINT) {
+		UIRectangle bounds = UIRectangleAdd(element->children->bounds, UI_RECT_1I(-1));
+		UIDrawBorder((UIPainter *) dp, bounds, ui.theme.border, UI_RECT_1(1));
+		UIDrawBorder((UIPainter *) dp, UIRectangleAdd(bounds, UI_RECT_1(1)), ui.theme.border, UI_RECT_1(1));
+	}
+
+	return 0;
+}
+
+void _UIDialogButtonInvoke(void *cp) {
+	ui.dialogResult = (const char *) cp;
+}
+
+int _UIDialogTextboxMessage(UIElement *element, UIMessage message, int di, void *dp) {
+	if (message == UI_MSG_VALUE_CHANGED) {
+		UITextbox *textbox = (UITextbox *) element;
+		char **buffer = (char **) element->cp;
+		*buffer = (char *) UI_REALLOC(*buffer, textbox->bytes + 1);
+		(*buffer)[textbox->bytes] = 0;
+
+		for (ptrdiff_t i = 0; i < textbox->bytes; i++) {
+			(*buffer)[i] = textbox->string[i];
+		}
+	}
+
+	return 0;
+}
+
+const char *UIDialogShow(UIWindow *window, uint32_t flags, const char *format, ...) {
+	// TODO Enter, escape, access keys.
+
+	// Create the dialog wrapper and panel.
+
+	UI_ASSERT(!window->dialog);
+	window->dialog = UIElementCreate(sizeof(UIElement), &window->e, 0, _UIDialogWrapperMessage, "DialogWrapper");
+	UIPanel *panel = UIPanelCreate(window->dialog, UI_PANEL_MEDIUM_SPACING | UI_PANEL_GRAY | UI_PANEL_EXPAND);
+	panel->border = UI_RECT_1(UI_SIZE_PANE_MEDIUM_BORDER * 2);
+	window->e.children->flags |= UI_ELEMENT_DISABLED;
+
+	// Create the dialog contents.
+
+	va_list arguments;
+	va_start(arguments, format);
+	UIPanel *row = NULL;
+	UIElement *focus = NULL;
+
+	for (int i = 0; format[i]; i++) {
+		if (i == 0 || format[i - 1] == '\n') {
+			row = UIPanelCreate(&panel->e, UI_PANEL_HORIZONTAL);
+			row->gap = UI_SIZE_PANE_SMALL_GAP;
+		}
+
+		if (format[i] == ' ' || format[i] == '\n') {
+		} else if (format[i] == '%') {
+			i++;
+
+			if (format[i] == 'b') {
+				const char *label = va_arg(arguments, const char *);
+				UIButton *button = UIButtonCreate(&row->e, 0, label, -1);
+				if (!focus) focus = &button->e;
+				button->invoke = _UIDialogButtonInvoke;
+				button->e.cp = (void *) label;
+			} else if (format[i] == 't') {
+				char **buffer = va_arg(arguments, char **);
+				UITextbox *textbox = UITextboxCreate(&row->e, UI_ELEMENT_H_FILL);
+				if (!focus) focus = &textbox->e;
+				if (*buffer) UITextboxReplace(textbox, *buffer, _UIStringLength(*buffer), false);
+				textbox->e.cp = buffer;
+				textbox->e.messageUser = _UIDialogTextboxMessage;
+			} else if (format[i] == 'f') {
+				UISpacerCreate(&row->e, UI_ELEMENT_H_FILL, 0, 0);
+			} else if (format[i] == 'l') {
+				UISpacerCreate(&row->e, UI_SPACER_LINE | UI_ELEMENT_H_FILL, 0, 1);
+			}
+		} else {
+			int j = i;
+			while (format[j] && format[j] != '%' && format[j] != '\n') j++;
+			UILabelCreate(&row->e, 0, format + i, j - i);
+			i = j - 1;
+		}
+	}
+
+	va_end(arguments);
+
+	window->dialogOldFocus = window->focused;
+	UIElementFocus(focus);
+
+	// Run the modal message loop.
+
+	int result;
+	ui.dialogResult = NULL;
+	for (int i = 1; i <= 3; i++) _UIWindowSetPressed(window, NULL, i);
+	UIElementRefresh(&window->e);
+	_UIUpdate();
+	while (!ui.dialogResult && _UIMessageLoopSingle(&result));
+	ui.quit = !ui.dialogResult;
+
+	// Destroy the dialog.
+
+	window->e.children->flags &= ~UI_ELEMENT_DISABLED;
+	UIElementDestroy(window->dialog);
+	window->dialog = NULL;
+	UIElementRefresh(&window->e);
+	if (window->dialogOldFocus) UIElementFocus(window->dialogOldFocus);
+	return ui.dialogResult;
+}
+
 bool _UIMenusClose() {
 	UIWindow *window = ui.windows;
 	bool anyClosed = false;
@@ -3568,6 +3695,10 @@ bool _UIDestroy(UIElement *element) {
 			element->window->focused = NULL;
 		}
 
+		if (element->window->dialogOldFocus == element) {
+			element->window->dialogOldFocus = NULL;
+		}
+
 		if (ui.animating == element) {
 			ui.animating = NULL;
 		}
@@ -3702,15 +3833,21 @@ void _UIWindowInputEvent(UIWindow *window, UIMessage message, int di, void *dp) 
 		} else if (message == UI_MSG_LEFT_UP && window->pressedButton == 1) {
 			if (window->hovered == window->pressed) {
 				UIElementMessage(window->pressed, UI_MSG_CLICKED, di, dp);
+				if (ui.quit) return;
 			}
 
-			UIElementMessage(window->pressed, UI_MSG_LEFT_UP, di, dp);
-			_UIWindowSetPressed(window, NULL, 1);
+			if (window->pressed) {
+				UIElementMessage(window->pressed, UI_MSG_LEFT_UP, di, dp);
+				if (ui.quit) return;
+				_UIWindowSetPressed(window, NULL, 1);
+			}
 		} else if (message == UI_MSG_MIDDLE_UP && window->pressedButton == 2) {
 			UIElementMessage(window->pressed, UI_MSG_MIDDLE_UP, di, dp);
+			if (ui.quit) return;
 			_UIWindowSetPressed(window, NULL, 2);
 		} else if (message == UI_MSG_RIGHT_UP && window->pressedButton == 3) {
 			UIElementMessage(window->pressed, UI_MSG_RIGHT_UP, di, dp);
+			if (ui.quit) return;
 			_UIWindowSetPressed(window, NULL, 3);
 		}
 	}
@@ -3725,6 +3862,8 @@ void _UIWindowInputEvent(UIWindow *window, UIMessage message, int di, void *dp) 
 			window->hovered = &window->e;
 			UIElementMessage(window->pressed, UI_MSG_UPDATE, UI_UPDATE_HOVERED, 0);
 		}
+
+		if (ui.quit) return;
 	}
 
 	if (!window->pressed) {
@@ -3792,7 +3931,7 @@ void _UIWindowInputEvent(UIWindow *window, UIMessage message, int di, void *dp) 
 					UIElement *element = start;
 
 					do {
-						if (element->children && (~element->flags & UI_ELEMENT_HIDE)) {
+						if (element->children && !(element->flags & (UI_ELEMENT_HIDE | UI_ELEMENT_DISABLED))) {
 							element = window->shift ? _UIElementLastChild(element) : element->children;
 							continue;
 						} 
@@ -3815,7 +3954,7 @@ void _UIWindowInputEvent(UIWindow *window, UIMessage message, int di, void *dp) 
 					if (~element->flags & UI_ELEMENT_WINDOW) {
 						UIElementFocus(element);
 					}
-				} else {
+				} else if (!window->dialog) {
 					for (uintptr_t i = 0; i < window->shortcutCount; i++) {
 						UIShortcut *shortcut = window->shortcuts + i;
 
@@ -3837,6 +3976,7 @@ void _UIWindowInputEvent(UIWindow *window, UIMessage message, int di, void *dp) 
 		}
 	}
 
+	if (ui.quit) return;
 	_UIUpdate();
 }
 
@@ -3862,6 +4002,21 @@ void _UIWindowAdd(UIWindow *window) {
 	window->hovered = &window->e;
 	window->next = ui.windows;
 	ui.windows = window;
+}
+
+int _UIWindowMessageCommon(UIElement *element, UIMessage message, int di, void *dp) {
+	if (message == UI_MSG_LAYOUT && element->children) {
+		UIElementMove(element->children, element->bounds, false);
+		if (element->window->dialog) UIElementMove(element->window->dialog, element->bounds, false);
+		UIElementRepaint(element, NULL);
+	} else if (message == UI_MSG_FIND_BY_POINT) {
+		UIFindByPoint *m = (UIFindByPoint *) dp;
+		if (element->window->dialog) m->result = UIElementFindByPoint(element->window->dialog, m->x, m->y);
+		else m->result = UIElementFindByPoint(element->children, m->x, m->y);
+		return 1;
+	}
+
+	return 0;
 }
 
 #ifdef UI_DEBUG
@@ -4004,6 +4159,14 @@ void _UIInspectorRefresh() {}
 
 #endif
 
+int UIMessageLoop() {
+	_UIInspectorCreate();
+	_UIUpdate();
+	int result = 0;
+	while (!ui.quit && _UIMessageLoopSingle(&result));
+	return result;
+}
+
 #ifdef UI_LINUX
 
 const int UI_KEYCODE_A = XK_a;
@@ -4034,10 +4197,7 @@ const int UI_KEYCODE_UP = XK_Up;
 const int UI_KEYCODE_0 = XK_0;
 
 int _UIWindowMessage(UIElement *element, UIMessage message, int di, void *dp) {
-	if (message == UI_MSG_LAYOUT && element->children) {
-		UIElementMove(element->children, element->bounds, false);
-		UIElementRepaint(element, NULL);
-	} else if (message == UI_MSG_DESTROY) {
+	if (message == UI_MSG_DESTROY) {
 		UIWindow *window = (UIWindow *) element;
 		_UIWindowDestroyCommon(window);
 		window->image->data = NULL;
@@ -4046,7 +4206,7 @@ int _UIWindowMessage(UIElement *element, UIMessage message, int di, void *dp) {
 		XDestroyWindow(ui.display, ((UIWindow *) element)->window);
 	}
 
-	return 0;
+	return _UIWindowMessageCommon(element, message, di, dp);
 }
 
 UIWindow *UIWindowCreate(UIWindow *owner, uint32_t flags, const char *cTitle, int _width, int _height) {
@@ -4332,29 +4492,26 @@ bool _UIProcessEvent(XEvent *event) {
 	return false;
 }
 
-int UIMessageLoop() {
-	_UIInspectorCreate();
+bool _UIMessageLoopSingle(int *result) {
+	XEvent events[64];
 
-	while (true) {
-		XEvent events[64];
-
-		if (ui.animating) {
-			if (XPending(ui.display)) {
-				XNextEvent(ui.display, events + 0);
-			} else {
-				_UIProcessAnimations();
-				continue;
-			}
-		} else {
+	if (ui.animating) {
+		if (XPending(ui.display)) {
 			XNextEvent(ui.display, events + 0);
+		} else {
+			_UIProcessAnimations();
+			return true;
 		}
+	} else {
+		XNextEvent(ui.display, events + 0);
+	}
 
-		int p = 1;
+	int p = 1;
 
-		int configureIndex = -1, motionIndex = -1, exposeIndex = -1;
+	int configureIndex = -1, motionIndex = -1, exposeIndex = -1;
 
-		while (p < 64 && XPending(ui.display)) {
-			XNextEvent(ui.display, events + p);
+	while (p < 64 && XPending(ui.display)) {
+		XNextEvent(ui.display, events + p);
 
 #define _UI_MERGE_EVENTS(a, b) \
 	if (events[p].type == a) { \
@@ -4362,23 +4519,24 @@ int UIMessageLoop() {
 		b = p; \
 	}
 
-			_UI_MERGE_EVENTS(ConfigureNotify, configureIndex);
-			_UI_MERGE_EVENTS(MotionNotify, motionIndex);
-			_UI_MERGE_EVENTS(Expose, exposeIndex);
+		_UI_MERGE_EVENTS(ConfigureNotify, configureIndex);
+		_UI_MERGE_EVENTS(MotionNotify, motionIndex);
+		_UI_MERGE_EVENTS(Expose, exposeIndex);
 
-			p++;
+		p++;
+	}
+
+	for (int i = 0; i < p; i++) {
+		if (!events[i].type) {
+			continue;
 		}
 
-		for (int i = 0; i < p; i++) {
-			if (!events[i].type) {
-				continue;
-			}
-
-			if (_UIProcessEvent(events + i)) {
-				return 0;
-			}
+		if (_UIProcessEvent(events + i)) {
+			return false;
 		}
 	}
+
+	return true;
 }
 
 void UIWindowPostMessage(UIWindow *window, UIMessage message, void *_dp) {
@@ -4435,17 +4593,14 @@ const int UI_KEYCODE_TAB = VK_TAB;
 const int UI_KEYCODE_UP = VK_UP;
 
 int _UIWindowMessage(UIElement *element, UIMessage message, int di, void *dp) {
-	if (message == UI_MSG_LAYOUT && element->children) {
-		UIElementMove(element->children, element->bounds, false);
-		UIElementRepaint(element, NULL);
-	} else if (message == UI_MSG_DESTROY) {
+	if (message == UI_MSG_DESTROY) {
 		UIWindow *window = (UIWindow *) element;
 		_UIWindowDestroyCommon(window);
 		SetWindowLongPtr(window->hwnd, GWLP_USERDATA, 0);
 		DestroyWindow(window->hwnd);
 	}
 
-	return 0;
+	return _UIWindowMessageCommon(element, message, di, dp);
 }
 
 LRESULT CALLBACK _UIWindowProcedure(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam) {
@@ -4600,36 +4755,32 @@ void UIInitialise() {
 	RegisterClass(&windowClass);
 }
 
-int UIMessageLoop() {
-	_UIInspectorCreate();
-
+bool _UIMessageLoopSingle(int *result) {
 	MSG message = { 0 };
 
-	_UIUpdate();
-
-	while (true) {
-		if (ui.animating) {
-			if (PeekMessage(&message, NULL, 0, 0, PM_REMOVE)) {
-				if (message.message == WM_QUIT) {
-					break;
-				}
-
-				TranslateMessage(&message);
-				DispatchMessage(&message);
-			} else {
-				_UIProcessAnimations();
-			}
-		} else {
-			if (!GetMessage(&message, NULL, 0, 0)) {
-				break;
+	if (ui.animating) {
+		if (PeekMessage(&message, NULL, 0, 0, PM_REMOVE)) {
+			if (message.message == WM_QUIT) {
+				*result = message.wParam;
+				return false;
 			}
 
 			TranslateMessage(&message);
 			DispatchMessage(&message);
+		} else {
+			_UIProcessAnimations();
 		}
+	} else {
+		if (!GetMessage(&message, NULL, 0, 0)) {
+			*result = message.wParam;
+			return false;
+		}
+
+		TranslateMessage(&message);
+		DispatchMessage(&message);
 	}
 
-	return message.wParam;
+	return true;
 }
 
 void UIMenuShow(UIMenu *menu) {
