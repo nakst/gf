@@ -928,6 +928,28 @@ void CommandToggleFillDataTab(void *) {
 	}
 }
 
+void CommandAskGDBForPWD(void *) {
+	EvaluateCommand("info source");
+	const char *needle = "Compilation directory is ";
+	char *pwd = strstr(evaluateResult, needle);
+
+	if (pwd) {
+		pwd += strlen(needle);
+		char *end = strchr(pwd, '\n');
+		if (end) *end = 0;
+
+		if (!chdir(pwd)) {
+			char buffer[4096];
+			StringFormat(buffer, sizeof(buffer), "New working directory: %s", pwd);
+			UICodeInsertContent(displayOutput, buffer, -1, false);
+			UIElementRefresh(&displayOutput->e);
+			return;
+		}
+	}
+
+	UIDialogShow(window, 0, "Couldn't get the working directory.\n%f%b", "OK");
+}
+
 void InterfaceShowMenu(void *) {
 	UIMenu *menu = UIMenuCreate(&buttonMenu->e, UI_MENU_PLACE_ABOVE);
 	UIMenuAddItem(menu, 0, "Run\tShift+F5", -1, CommandSendToGDB, (void *) "r");
@@ -943,6 +965,7 @@ void InterfaceShowMenu(void *) {
 	UIMenuAddItem(menu, 0, "Pause\tF8", -1, CommandPause, NULL);
 	UIMenuAddItem(menu, 0, "Toggle breakpoint\tF9", -1, CommandToggleBreakpoint, NULL);
 	UIMenuAddItem(menu, 0, "Sync with gvim\tF2", -1, CommandSyncWithGvim, NULL);
+	UIMenuAddItem(menu, 0, "Ask GDB for PWD\tCtrl+Shift+P", -1, CommandAskGDBForPWD, NULL);
 	UIMenuAddItem(menu, 0, "Toggle disassembly\tCtrl+D", -1, CommandToggleDisassembly, NULL);
 	UIMenuAddItem(menu, 0, "Theme editor", -1, CommandThemeEditor, NULL);
 	UIMenuShow(menu);
@@ -964,6 +987,7 @@ void InterfaceRegisterShortcuts() {
 	UIWindowRegisterShortcut(window, { .code = UI_KEYCODE_F2, .invoke = CommandSyncWithGvim, .cp = NULL });
 	UIWindowRegisterShortcut(window, { .code = UI_KEYCODE_LETTER('D'), .ctrl = true, .invoke = CommandToggleDisassembly, .cp = NULL });
 	UIWindowRegisterShortcut(window, { .code = UI_KEYCODE_LETTER('B'), .ctrl = true, .invoke = CommandToggleFillDataTab, .cp = NULL });
+	UIWindowRegisterShortcut(window, { .code = UI_KEYCODE_LETTER('P'), .ctrl = true, .shift = true, .invoke = CommandAskGDBForPWD, .cp = NULL });
 }
 
 void CommandCustom(void *_command) {
