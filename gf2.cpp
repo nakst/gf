@@ -366,7 +366,7 @@ void *DebuggerThread(void *) {
 	return NULL;
 }
 
-void StartGDBThread() {
+void DebuggerStartThread() {
 	pthread_t debuggerThread;
 	pthread_attr_t attributes;
 	pthread_attr_init(&attributes);
@@ -374,13 +374,7 @@ void StartGDBThread() {
 	gdbThread = debuggerThread;
 }
 
-bool StartsWith(const char *string, const char *with) {
-	size_t withLength = strlen(with);
-	if (strlen(string) < strlen(with)) return false;
-	else return 0 == memcmp(string, with, withLength);
-}
-
-void SendToGDB(const char *string, bool echo) {
+void DebuggerSend(const char *string, bool echo) {
 	if (programRunning) {
 		kill(gdbPID, SIGINT);
 	}
@@ -410,7 +404,7 @@ void EvaluateCommand(const char *command, bool echo = false) {
 
 	evaluateMode = true;
 	pthread_mutex_lock(&evaluateMutex);
-	SendToGDB(command, echo);
+	DebuggerSend(command, echo);
 	struct timespec timeout;
 	clock_gettime(CLOCK_REALTIME, &timeout);
 	timeout.tv_sec++;
@@ -439,12 +433,7 @@ char *LoadFile(const char *path, size_t *_bytes) {
 	return buffer;
 }
 
-extern "C" const char *GetPosition(int *line) {
-	*line = currentLine;
-	return currentFile;
-}
-
-extern "C" bool SetPosition(const char *file, int line, bool useGDBToGetFullPath) {
+extern "C" bool DisplaySetPosition(const char *file, int line, bool useGDBToGetFullPath) {
 	if (showingDisassembly) {
 		if (file) {
 			free(disassemblyPreviousSourceFile);
@@ -532,7 +521,7 @@ extern "C" bool SetPosition(const char *file, int line, bool useGDBToGetFullPath
 }
 
 void CommandSendToGDB(void *_string) {
-	SendToGDB((const char *) _string, true);
+	DebuggerSend((const char *) _string, true);
 }
 
 void CommandSendToGDBStep(void *_string) {
@@ -546,7 +535,7 @@ void CommandSendToGDBStep(void *_string) {
 		}
 	}
 
-	SendToGDB(command, true);
+	DebuggerSend(command, true);
 }
 
 void CommandStepOutOfBlock(void *) {
@@ -570,7 +559,7 @@ void CommandStepOutOfBlock(void *) {
 		if (t < tabs && displayCode->content[displayCode->lines[j].offset + t] == '}') {
 			char buffer[256];
 			StringFormat(buffer, sizeof(buffer), "until %d", j + 1);
-			SendToGDB(buffer, true);
+			DebuggerSend(buffer, true);
 			return;
 		}
 	}
@@ -581,7 +570,7 @@ void CommandDeleteBreakpoint(void *_index) {
 	Breakpoint *breakpoint = &breakpoints[index];
 	char buffer[1024];
 	StringFormat(buffer, 1024, "clear %s:%d", breakpoint->file, breakpoint->line);
-	SendToGDB(buffer, true);
+	DebuggerSend(buffer, true);
 }
 
 void CommandRestartGDB(void *) {
@@ -589,7 +578,7 @@ void CommandRestartGDB(void *) {
 	kill(gdbPID, SIGKILL);
 	pthread_cancel(gdbThread); // TODO Is there a nicer way to do this?
 	receiveBufferPosition = 0;
-	StartGDBThread();
+	DebuggerStartThread();
 }
 
 void CommandPause(void *) {
@@ -617,7 +606,7 @@ void CommandSyncWithGvim(void *) {
 			char *line = strstr(nameEnd + 1, "line ");
 			if (!line) goto done;
 			int lineNumber = atoi(line + 5);
-			SetPosition(name, lineNumber, false);
+			DisplaySetPosition(name, lineNumber, false);
 		}
 
 		done:;
@@ -641,14 +630,14 @@ void CommandToggleBreakpoint(void *_line) {
 		if (breakpoints[i].line == line && 0 == strcmp(breakpoints[i].fileFull, currentFileFull)) {
 			char buffer[1024];
 			StringFormat(buffer, 1024, "clear %s:%d", currentFile, line);
-			SendToGDB(buffer, true);
+			DebuggerSend(buffer, true);
 			return;
 		}
 	}
 
 	char buffer[1024];
 	StringFormat(buffer, 1024, "b %s:%d", currentFile, line);
-	SendToGDB(buffer, true);
+	DebuggerSend(buffer, true);
 }
 
 int ThemeEditorWindowMessage(UIElement *element, UIMessage message, int di, void *dp) {
@@ -815,7 +804,7 @@ void CommandThemeEditor(void *) {
 	UITableResizeColumns(themeEditorTable);
 }
 
-void LoadDisassembly() {
+void DisassemblyLoad() {
 	EvaluateCommand("disas");
 
 	if (!strstr(evaluateResult, "Dump of assembler code for function")) {
@@ -853,7 +842,7 @@ void LoadDisassembly() {
 	UICodeInsertContent(displayCode, start, end - start, true);
 }
 
-void UpdateDisassemblyLine() {
+void DisassemblyUpdateLine() {
 	EvaluateCommand("p $pc");
 	char *address = strstr(evaluateResult, "0x");
 
@@ -879,7 +868,7 @@ void UpdateDisassemblyLine() {
 
 			if (!found) {
 				// Reload the disassembly.
-				LoadDisassembly();
+				DisassemblyLoad();
 			} else {
 				break;
 			}
@@ -902,13 +891,13 @@ void CommandToggleDisassembly(void *) {
 
 		UICodeInsertContent(displayCode, "Disassembly could not be loaded.\nPress Ctrl+D to return to source view.", -1, true);
 		displayCode->tabSize = 8;
-		LoadDisassembly();
-		UpdateDisassemblyLine();
+		DisassemblyLoad();
+		DisassemblyUpdateLine();
 	} else {
 		currentLine = -1;
 		currentFile[0] = 0;
 		currentFileReadTime = 0;
-		SetPosition(disassemblyPreviousSourceFile, disassemblyPreviousSourceLine, true);
+		DisplaySetPosition(disassemblyPreviousSourceFile, disassemblyPreviousSourceLine, true);
 		displayCode->tabSize = 4;
 	}
 
@@ -939,7 +928,7 @@ void CommandToggleFillDataTab(void *) {
 	}
 }
 
-void ShowMenu(void *) {
+void InterfaceShowMenu(void *) {
 	UIMenu *menu = UIMenuCreate(&buttonMenu->e, UI_MENU_PLACE_ABOVE);
 	UIMenuAddItem(menu, 0, "Run\tShift+F5", -1, CommandSendToGDB, (void *) "r");
 	UIMenuAddItem(menu, 0, "Run paused\tCtrl+F5", -1, CommandSendToGDB, (void *) "start");
@@ -959,7 +948,7 @@ void ShowMenu(void *) {
 	UIMenuShow(menu);
 }
 
-void RegisterShortcuts() {
+void InterfaceRegisterShortcuts() {
 	UIWindowRegisterShortcut(window, { .code = UI_KEYCODE_F5, .shift = true, .invoke = CommandSendToGDB, .cp = (void *) "r" });
 	UIWindowRegisterShortcut(window, { .code = UI_KEYCODE_F5, .ctrl = true, .invoke = CommandSendToGDB, .cp = (void *) "start" });
 	UIWindowRegisterShortcut(window, { .code = UI_KEYCODE_F3, .invoke = CommandSendToGDB, .cp = (void *) "kill" });
@@ -977,45 +966,40 @@ void RegisterShortcuts() {
 	UIWindowRegisterShortcut(window, { .code = UI_KEYCODE_LETTER('B'), .ctrl = true, .invoke = CommandToggleFillDataTab, .cp = NULL });
 }
 
-int RunSystemWithOutput(const char *command) {
-	char buffer[4096];
-	StringFormat(buffer, 4096, "Running shell command \"%s\"...\n", command);
-	UICodeInsertContent(displayOutput, buffer, -1, false);
-	StringFormat(buffer, 4096, "%s > .output.gf 2>&1", command);
-	int start = time(NULL);
-	int result = system(buffer);
-	size_t bytes;
-	char *output = LoadFile(".output.gf", &bytes);
-	unlink(".output.gf");
-	char *copy = (char *) malloc(bytes + 1);
-	uintptr_t j = 0;
-
-	for (uintptr_t i = 0; i <= bytes;) {
-		if ((uint8_t) output[i] == 0xE2 && (uint8_t) output[i + 1] == 0x80
-				&& ((uint8_t) output[i + 2] == 0x98 || (uint8_t) output[i + 2] == 0x99)) {
-			copy[j++] = '\'';
-			i += 3;
-		} else {
-			copy[j++] = output[i++];
-		}
-	}
-
-	UICodeInsertContent(displayOutput, copy, j, false);
-	free(output);
-	free(copy);
-	StringFormat(buffer, 4096, "(exit code: %d; time: %ds)\n", result, (int) (time(NULL) - start));
-	UICodeInsertContent(displayOutput, buffer, -1, false);
-	UIElementRefresh(&displayOutput->e);
-	return result;
-}
-
-void CustomCommand(void *_command) {
+void CommandCustom(void *_command) {
 	const char *command = (const char *) _command;
 
 	if (0 == memcmp(command, "shell ", 6)) {
-		RunSystemWithOutput(command + 6);
+		char buffer[4096];
+		StringFormat(buffer, 4096, "Running shell command \"%s\"...\n", command);
+		UICodeInsertContent(displayOutput, buffer, -1, false);
+		StringFormat(buffer, 4096, "%s > .output.gf 2>&1", command);
+		int start = time(NULL);
+		int result = system(buffer);
+		size_t bytes;
+		char *output = LoadFile(".output.gf", &bytes);
+		unlink(".output.gf");
+		char *copy = (char *) malloc(bytes + 1);
+		uintptr_t j = 0;
+
+		for (uintptr_t i = 0; i <= bytes;) {
+			if ((uint8_t) output[i] == 0xE2 && (uint8_t) output[i + 1] == 0x80
+					&& ((uint8_t) output[i + 2] == 0x98 || (uint8_t) output[i + 2] == 0x99)) {
+				copy[j++] = '\'';
+				i += 3;
+			} else {
+				copy[j++] = output[i++];
+			}
+		}
+
+		UICodeInsertContent(displayOutput, copy, j, false);
+		free(output);
+		free(copy);
+		StringFormat(buffer, 4096, "(exit code: %d; time: %ds)\n", result, (int) (time(NULL) - start));
+		UICodeInsertContent(displayOutput, buffer, -1, false);
+		UIElementRefresh(&displayOutput->e);
 	} else {
-		SendToGDB(command, true);
+		DebuggerSend(command, true);
 	}
 }
 
@@ -1071,7 +1055,7 @@ void LoadSettings(bool earlyPass) {
 				shortcut.ctrl = strstr(state.key, "ctrl+");
 				shortcut.shift = strstr(state.key, "shift+");
 				shortcut.alt = strstr(state.key, "alt+");
-				shortcut.invoke = CustomCommand;
+				shortcut.invoke = CommandCustom;
 				shortcut.cp = state.value;
 
 				const char *codeStart = state.key;
@@ -1154,7 +1138,7 @@ const char *EvaluateExpression(const char *expression) {
 	return nullptr;
 }
 
-void PrintErrorMessage(const char *message) {
+void InterfaceShowError(const char *message) {
 	UICodeInsertContent(displayOutput, message, -1, false);
 	UIElementRefresh(&displayOutput->e);
 }
@@ -1167,12 +1151,12 @@ int BitmapViewerWindowMessage(UIElement *element, UIMessage message, int di, voi
 	return 0;
 }
 
-void AddBitmapInternal(const char *pointerString, const char *widthString, const char *heightString, const char *strideString, UIElement *owner = nullptr);
+void BitmapViewerUpdate(const char *pointerString, const char *widthString, const char *heightString, const char *strideString, UIElement *owner = nullptr);
 
 int BitmapViewerRefreshMessage(UIElement *element, UIMessage message, int di, void *dp) {
 	if (message == UI_MSG_CLICKED) {
 		BitmapViewer *bitmap = (BitmapViewer *) element->parent->cp;
-		AddBitmapInternal(bitmap->pointer, bitmap->width, bitmap->height, bitmap->stride, element->parent);
+		BitmapViewerUpdate(bitmap->pointer, bitmap->width, bitmap->height, bitmap->stride, element->parent);
 	}
 
 	return 0;
@@ -1202,25 +1186,25 @@ int BitmapViewerAutoMessage(UIElement *element, UIMessage message, int di, void 
 	return 0;
 }
 
-void AddBitmapInternal(const char *pointerString, const char *widthString, const char *heightString, const char *strideString, UIElement *owner) {
+void BitmapViewerUpdate(const char *pointerString, const char *widthString, const char *heightString, const char *strideString, UIElement *owner) {
 	const char *widthResult = EvaluateExpression(widthString);
-	if (!widthResult) { PrintErrorMessage("Could not evaluate width.\n"); return; }
+	if (!widthResult) { InterfaceShowError("Could not evaluate width.\n"); return; }
 	int width = atoi(widthResult + 1);
 	const char *heightResult = EvaluateExpression(heightString);
-	if (!heightResult) { PrintErrorMessage("Could not evaluate height.\n"); return; }
+	if (!heightResult) { InterfaceShowError("Could not evaluate height.\n"); return; }
 	int height = atoi(heightResult + 1);
 	int stride = width * 4;
 	const char *pointerResult = EvaluateExpression(pointerString);
-	if (!pointerResult) { PrintErrorMessage("Could not evaluate pointer.\n"); return; }
+	if (!pointerResult) { InterfaceShowError("Could not evaluate pointer.\n"); return; }
 	char _pointerResult[1024];
 	StringFormat(_pointerResult, sizeof(_pointerResult), "%s", pointerResult);
 	pointerResult = strstr(_pointerResult, " 0x");
-	if (!pointerResult) { PrintErrorMessage("Pointer to image bits does not look like an address!\n"); return; }
+	if (!pointerResult) { InterfaceShowError("Pointer to image bits does not look like an address!\n"); return; }
 	pointerResult++;
 
 	if (strideString && *strideString) {
 		const char *strideResult = EvaluateExpression(strideString);
-		if (!strideResult) { PrintErrorMessage("Could not evaluate stride.\n"); return; }
+		if (!strideResult) { InterfaceShowError("Could not evaluate stride.\n"); return; }
 		stride = atoi(strideResult + 1);
 	}
 
@@ -1239,7 +1223,7 @@ void AddBitmapInternal(const char *pointerString, const char *widthString, const
 	}
 
 	if (!f || strstr(evaluateResult, "access")) {
-		PrintErrorMessage("Could not read the image bits!\n");
+		InterfaceShowError("Could not read the image bits!\n");
 	} else {
 		if (!owner) {
 			BitmapViewer *bitmap = (BitmapViewer *) calloc(1, sizeof(BitmapViewer));
@@ -1269,50 +1253,13 @@ void AddBitmapInternal(const char *pointerString, const char *widthString, const
 	free(bits);
 }
 
-void AddDataWindow() {
-	char buffer[1024];
-	StringFormat(buffer, 1024, "%.*s", (int) textboxInput->bytes, textboxInput->string);
-
-	char *tokens[16];
-	size_t tokenCount = 0;
-
-	for (int i = 0; buffer[i]; i++) {
-		if (buffer[i] == ' ') {
-			buffer[i] = 0;
-		}
-
-		if ((!i || (i && buffer[i - 1] == 0)) && buffer[i] != 0 && tokenCount != 16) {
-			tokens[tokenCount++] = buffer + i;
-		}
-	}
-
-	if (tokenCount < 1) {
-		return;
-	}
-
-	if (0 == strcmp(tokens[0], "bitmap")) {
-		if (tokenCount != 5 && tokenCount != 4) {
-			PrintErrorMessage("Usage: bitmap [pointer] [width] [height] [stride]\n");
-			return;
-		} else {
-			AddBitmapInternal(tokens[1], tokens[2], tokens[3], tokenCount == 5 ? tokens[4] : nullptr);
-		}
-	} else {
-		PrintErrorMessage("Unknown command.\n");
-		return;
-	}
-
-	UITextboxClear(textboxInput, false);
-	UIElementRefresh(&textboxInput->e);
-}
-
-void AddBitmapDialog(void *) {
+void BitmapAddDialog(void *) {
 	const char *result = UIDialogShow(window, 0, 
 			"Add bitmap\n\n%l\n\nPointer to bits: (32bpp, RR GG BB AA)\n%t\nWidth:\n%t\nHeight:\n%t\nStride: (optional)\n%t\n\n%l\n\n%f%b%b",
 			&addBitmapPointerString, &addBitmapWidthString, &addBitmapHeightString, &addBitmapStrideString, "Add", "Cancel");
 
 	if (0 == strcmp(result, "Add")) {
-		AddBitmapInternal(addBitmapPointerString, addBitmapWidthString, addBitmapHeightString, 
+		BitmapViewerUpdate(addBitmapPointerString, addBitmapWidthString, addBitmapHeightString, 
 				(addBitmapStrideString && addBitmapStrideString[0]) ? addBitmapStrideString : nullptr);
 	}
 }
@@ -1331,7 +1278,7 @@ int TextboxInputMessage(UIElement *, UIMessage message, int di, void *dp) {
 			char buffer[1024];
 			StringFormat(buffer, 1024, "%.*s", (int) textboxInput->bytes, textboxInput->string);
 			if (commandLog) fprintf(commandLog, "%s\n", buffer);
-			SendToGDB(buffer, true);
+			DebuggerSend(buffer, true);
 
 			char *string = (char *) malloc(textboxInput->bytes + 1);
 			memcpy(string, textboxInput->string, textboxInput->bytes);
@@ -1348,8 +1295,6 @@ int TextboxInputMessage(UIElement *, UIMessage message, int di, void *dp) {
 			UIElementRefresh(&textboxInput->e);
 
 			return 1;
-		} else if (m->code == UI_KEYCODE_ENTER && window->shift) {
-			AddDataWindow();
 		} else if (m->code == UI_KEYCODE_TAB && textboxInput->bytes && !window->shift) {
 			char buffer[4096];
 			StringFormat(buffer, sizeof(buffer), "complete %.*s", lastKeyWasTab ? lastTabBytes : (int) textboxInput->bytes, textboxInput->string);
@@ -1804,7 +1749,7 @@ int WatchPanelMessage(UIElement *element, UIMessage message, int di, void *dp) {
 	return 0;
 }
 
-void Update(const char *data) {
+void InterfaceUpdate(const char *data) {
 	if (firstUpdate) {
 		firstUpdate = false;
 		EvaluateCommand(pythonCode);
@@ -1813,7 +1758,7 @@ void Update(const char *data) {
 	// Get the current address.
 
 	if (showingDisassembly) {
-		UpdateDisassemblyLine();
+		DisassemblyUpdateLine();
 	}
 
 	// Get the stack.
@@ -1913,7 +1858,7 @@ void Update(const char *data) {
 		strcpy(location, stack[stackSelected].location);
 		char *line = strchr(location, ':');
 		if (line) *line = 0;
-		SetPosition(location, line ? atoi(line + 1) : -1, true);
+		DisplaySetPosition(location, line ? atoi(line + 1) : -1, true);
 	}
 
 	if (changedSourceLine && currentLine < displayCode->lineCount && currentLine > 0) {
@@ -2133,7 +2078,7 @@ void Update(const char *data) {
 	if (~dataTab->e.flags & UI_ELEMENT_HIDE) {
 		for (int i = 0; i < autoUpdateBitmapViewers.Length(); i++) {
 			BitmapViewer *bitmap = (BitmapViewer *) autoUpdateBitmapViewers[i]->cp;
-			AddBitmapInternal(bitmap->pointer, bitmap->width, bitmap->height, bitmap->stride, autoUpdateBitmapViewers[i]);
+			BitmapViewerUpdate(bitmap->pointer, bitmap->width, bitmap->height, bitmap->stride, autoUpdateBitmapViewers[i]);
 		}
 	} else if (autoUpdateBitmapViewers.Length()) {
 		autoUpdateBitmapViewersQueued = true;
@@ -2192,7 +2137,7 @@ int TableStackMessage(UIElement *element, UIMessage message, int di, void *dp) {
 		if (index != -1 && stackSelected != index) {
 			char buffer[64];
 			StringFormat(buffer, 64, "frame %d", index);
-			SendToGDB(buffer, false);
+			DebuggerSend(buffer, false);
 			stackSelected = index;
 			stackChanged = true;
 			UIElementRepaint(element, NULL);
@@ -2222,7 +2167,7 @@ int TableBreakpointsMessage(UIElement *element, UIMessage message, int di, void 
 		}
 	} else if (message == UI_MSG_LEFT_DOWN) {
 		int index = UITableHitTest((UITable *) element, element->window->cursorX, element->window->cursorY);
-		if (index != -1) SetPosition(breakpoints[index].file, breakpoints[index].line, false);
+		if (index != -1) DisplaySetPosition(breakpoints[index].file, breakpoints[index].line, false);
 	}
 
 	return 0;
@@ -2241,13 +2186,13 @@ int DisplayCodeMessage(UIElement *element, UIMessage message, int di, void *dp) 
 			if (element->window->ctrl) {
 				char buffer[1024];
 				StringFormat(buffer, 1024, "until %d", line);
-				SendToGDB(buffer, true);
+				DebuggerSend(buffer, true);
 			} else if (element->window->alt) {
 				char buffer[1024];
 				StringFormat(buffer, 1024, "tbreak %d", line);
 				EvaluateCommand(buffer);
 				StringFormat(buffer, 1024, "jump %d", line);
-				SendToGDB(buffer, true);
+				DebuggerSend(buffer, true);
 			}
 		}
 	} else if (message == UI_MSG_CODE_GET_MARGIN_COLOR && !showingDisassembly) {
@@ -2273,7 +2218,7 @@ int DataTabMessage(UIElement *element, UIMessage message, int di, void *dp) {
 
 		for (int i = 0; i < autoUpdateBitmapViewers.Length(); i++) {
 			BitmapViewer *bitmap = (BitmapViewer *) autoUpdateBitmapViewers[i]->cp;
-			AddBitmapInternal(bitmap->pointer, bitmap->width, bitmap->height, bitmap->stride, autoUpdateBitmapViewers[i]);
+			BitmapViewerUpdate(bitmap->pointer, bitmap->width, bitmap->height, bitmap->stride, autoUpdateBitmapViewers[i]);
 		}
 
 		autoUpdateBitmapViewersQueued = false;
@@ -2290,7 +2235,7 @@ int TrafficLightMessage(UIElement *element, UIMessage message, int di, void *dp)
 	return 0;
 }
 
-void DonateLink(void *) {
+void CommandDonate(void *) {
 	system("xdg-open https://www.patreon.com/nakst");
 }
 
@@ -2298,7 +2243,7 @@ int WindowMessage(UIElement *, UIMessage message, int di, void *dp) {
 	if (message == MSG_RECEIVED_DATA) {
 		programRunning = false;
 		char *input = (char *) dp;
-		Update(input);
+		InterfaceUpdate(input);
 		// printf("%s\n", input);
 		UICodeInsertContent(displayOutput, input, -1, false);
 		UIElementRefresh(&displayOutput->e);
@@ -2309,7 +2254,7 @@ int WindowMessage(UIElement *, UIMessage message, int di, void *dp) {
 	return 0;
 }
 
-void PresetCommandInvoke(void *_index) {
+void CommandPreset(void *_index) {
 	char *copy = strdup(presetCommands[(intptr_t) _index].value);
 	char *position = copy;
 
@@ -2365,7 +2310,7 @@ void FilesOpen(void *_name) {
 			return;
 		}
 	} else if (S_ISREG(s.st_mode)) {
-		SetPosition(filesDirectory, 1, false);
+		DisplaySetPosition(filesDirectory, 1, false);
 	}
 
 	filesDirectory[oldLength] = 0;
@@ -2398,7 +2343,7 @@ bool FilesPanelPopulate() {
 	return true;
 }
 
-void LayoutCreate(UIElement *parent) {
+void InterfaceLayoutCreate(UIElement *parent) {
 	UIElement *container = nullptr;
 
 #define CHECK_LAYOUT_TOKEN(x) } else if (strlen(layoutString) > strlen(x) && 0 == memcmp(layoutString, x, strlen(x)) && \
@@ -2433,8 +2378,8 @@ void LayoutCreate(UIElement *parent) {
 		trafficLight = UISpacerCreate(&panel3->e, 0, 30, 30);
 		trafficLight->e.messageUser = TrafficLightMessage;
 		buttonMenu = UIButtonCreate(&panel3->e, 0, "Menu", -1);
-		buttonMenu->invoke = ShowMenu;
-		UIButtonCreate(&panel3->e, 0, "Donate", -1)->invoke = DonateLink;
+		buttonMenu->invoke = InterfaceShowMenu;
+		UIButtonCreate(&panel3->e, 0, "Donate", -1)->invoke = CommandDonate;
 		textboxInput = UITextboxCreate(&panel3->e, UI_ELEMENT_H_FILL);
 		textboxInput->e.messageUser = TextboxInputMessage;
 		UIElementFocus(&textboxInput->e);
@@ -2451,7 +2396,7 @@ void LayoutCreate(UIElement *parent) {
 		UIPanel *panel5 = UIPanelCreate(&dataTab->e, UI_PANEL_GRAY | UI_PANEL_HORIZONTAL | UI_PANEL_SMALL_SPACING);
 		buttonFillWindow = UIButtonCreate(&panel5->e, UI_BUTTON_SMALL, "Fill window", -1);
 		buttonFillWindow->invoke = CommandToggleFillDataTab;
-		UIButtonCreate(&panel5->e, UI_BUTTON_SMALL, "Add bitmap...", -1)->invoke = AddBitmapDialog;
+		UIButtonCreate(&panel5->e, UI_BUTTON_SMALL, "Add bitmap...", -1)->invoke = BitmapAddDialog;
 		dataWindow = UIMDIClientCreate(&dataTab->e, UI_ELEMENT_V_FILL);
 		dataTab->e.messageUser = DataTabMessage;
 	CHECK_LAYOUT_TOKEN("Commands")
@@ -2461,7 +2406,7 @@ void LayoutCreate(UIElement *parent) {
 		for (int i = 0; i < presetCommands.Length(); i++) {
 			UIButton *button = UIButtonCreate(&panelPresetCommands->e, 0, presetCommands[i].key, -1);
 			button->e.cp = (void *) (intptr_t) i;
-			button->invoke = PresetCommandInvoke;
+			button->invoke = CommandPreset;
 		}
 	CHECK_LAYOUT_TOKEN("Struct")
 		UIPanel *panel6 = UIPanelCreate(parent, UI_PANEL_GRAY | UI_PANEL_EXPAND);
@@ -2483,12 +2428,12 @@ void LayoutCreate(UIElement *parent) {
 			layoutString++;
 			return;
 		} else {
-			LayoutCreate(container);
+			InterfaceLayoutCreate(container);
 		}
 	}
 }
 
-extern "C" void CreateInterface(UIWindow *_window) {
+extern "C" void InterfaceCreate(UIWindow *_window) {
 #ifdef LOG_COMMANDS
 	{
 		char path[4096];
@@ -2502,31 +2447,31 @@ extern "C" void CreateInterface(UIWindow *_window) {
 	window->e.messageUser = WindowMessage;
 
 	rootPanel = UIPanelCreate(&window->e, UI_PANEL_EXPAND);
-	LayoutCreate(&rootPanel->e);
+	InterfaceLayoutCreate(&rootPanel->e);
 
-	RegisterShortcuts();
+	InterfaceRegisterShortcuts();
 	LoadSettings(false);
 	CommandLoadTheme(NULL);
 
 	pthread_cond_init(&evaluateEvent, NULL);
 	pthread_mutex_init(&evaluateMutex, NULL);
-	StartGDBThread();
+	DebuggerStartThread();
 }
 
-extern "C" void CloseDebugger() {
+extern "C" void DebuggerClose() {
 	kill(gdbPID, SIGKILL);
 	pthread_cancel(gdbThread);
 }
 
-void HandleSigInt(int sig) {
-	CloseDebugger();
+void SignalINT(int sig) {
+	DebuggerClose();
 	exit(0);
 }
 
 #ifndef EMBED_GF
 int main(int argc, char **argv) {
 	struct sigaction sigintHandler = {};
-	sigintHandler.sa_handler = HandleSigInt;
+	sigintHandler.sa_handler = SignalINT;
 	sigaction(SIGINT, &sigintHandler, NULL);
 
 	// Setup GDB arguments.
@@ -2537,10 +2482,10 @@ int main(int argc, char **argv) {
 
 	LoadSettings(true);
 	UIInitialise();
-	CreateInterface(UIWindowCreate(0, 0, "gf2", 0, 0));
+	InterfaceCreate(UIWindowCreate(0, 0, "gf2", 0, 0));
 	CommandSyncWithGvim(NULL);
 	UIMessageLoop();
-	CloseDebugger();
+	DebuggerClose();
 
 	return 0;
 }
