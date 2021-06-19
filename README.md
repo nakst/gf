@@ -61,8 +61,19 @@ You can create a list of quickly accessible commands, available in the "Commands
     Run tests=file bin/app;run test_cases.txt
     Set breakpoints=b main;b LoadFile;b AssertionFailure
 
+### Control pipe
+
+You can change the loaded file and line by sending commands to the control pipe, located at `$HOME/.config/gf2_control.dat`. For example,
+
+    # Load the specified file (must be a full path).
+    echo f /home/a/test.c > $HOME/.config/gf2_control.dat
+
+    # Go to line 123.
+    echo l 123 > $HOME/.config/gf2_control.dat
+
 ## Tips
 
 - You can run the application with `./gf2`. Any additional command line arguments passed to `gf` will be forwarded to GDB.
 - To view RGBA bitmaps, select the `Data` tab and then select `Add bitmap...`.
 - Ctrl+Click a line in the source view to run "until" that line. Alt+Click a line in the source view to skip to it without executing the code in between.
+- Press Shift+F10 to step out of a block, and press Shift+F11 to step out a function.

@@ -57,6 +57,7 @@ extern "C" {
 }
 
 #define MSG_RECEIVED_DATA ((UIMessage) (UI_MSG_USER + 1))
+#define MSG_RECEIVED_CONTROL ((UIMessage) (UI_MSG_USER + 2))
 
 struct INIState {
 	char *buffer, *section, *key, *value;
@@ -64,6 +65,7 @@ struct INIState {
 };
 
 FILE *commandLog;
+char controlPipePath[4096];
 char emptyString;
 
 // Current file and line:
@@ -2273,6 +2275,18 @@ int WindowMessage(UIElement *, UIMessage message, int di, void *dp) {
 		UIElementRefresh(&displayOutput->e);
 		UIElementRepaint(&trafficLight->e, NULL);
 		free(input);
+	} else if (message == MSG_RECEIVED_CONTROL) {
+		char *input = (char *) dp;
+		char *end = strchr(input, '\n');
+		if (end) *end = 0;
+
+		if (input[0] == 'f' && input[1] == ' ') {
+			DisplaySetPosition(input + 2, 1, false);
+		} else if (input[0] == 'l' && input[1] == ' ') {
+			DisplaySetPosition(NULL, atoi(input + 2), false);
+		}
+
+		free(input);
 	}
 
 	return 0;
@@ -2492,11 +2506,28 @@ void SignalINT(int sig) {
 	exit(0);
 }
 
+void *ControlPipeThread(void *) {
+	while (true) {
+		FILE *file = fopen(controlPipePath, "rb");
+		char input[256];
+		fread(input, 1, sizeof(input), file);
+		UIWindowPostMessage(window, MSG_RECEIVED_CONTROL, strdup(input));
+		fclose(file);
+	}
+
+	return nullptr;
+}
+
 #ifndef EMBED_GF
 int main(int argc, char **argv) {
 	struct sigaction sigintHandler = {};
 	sigintHandler.sa_handler = SignalINT;
 	sigaction(SIGINT, &sigintHandler, NULL);
+
+	StringFormat(controlPipePath, sizeof(controlPipePath), "%s/.config/gf2_control.dat", getenv("HOME"));
+	mkfifo(controlPipePath, 6 + 6 * 8 + 6 * 64);
+	pthread_t thread;
+	pthread_create(&thread, NULL, ControlPipeThread, NULL);
 
 	// Setup GDB arguments.
 	gdbArgv = (char **) malloc(sizeof(char *) * (argc + 1));
