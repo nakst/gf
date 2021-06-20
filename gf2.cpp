@@ -17,7 +17,6 @@
 // TODO Watch window.
 //	- Better toggle buttons.
 // 	- Improve performance if possible?
-// 	- Tab completion!
 // 	- Lock pointer address.
 // 	- Record a log of everytime the value changes.
 
@@ -545,6 +544,54 @@ void DebuggerGetBreakpoints() {
 		}
 
 		position = next;
+	}
+}
+
+struct TabCompleter {
+	bool _lastKeyWasTab;
+	int consecutiveTabCount;
+	int lastTabBytes;
+};
+
+void TabCompleterRun(TabCompleter *completer, UITextbox *textbox, bool lastKeyWasTab, bool addPrintPrefix) {
+	char buffer[4096];
+	StringFormat(buffer, sizeof(buffer), "complete %s%.*s", addPrintPrefix ? "p " : "",
+			lastKeyWasTab ? completer->lastTabBytes : (int) textbox->bytes, textbox->string);
+	for (int i = 0; buffer[i]; i++) if (buffer[i] == '\\') buffer[i] = ' ';
+	EvaluateCommand(buffer);
+
+	const char *start = evaluateResult;
+	const char *end = strchr(evaluateResult, '\n');
+
+	if (!lastKeyWasTab) {
+		completer->consecutiveTabCount = 0;
+		completer->lastTabBytes = textbox->bytes;
+	}
+
+	while (start && end && memcmp(start + (addPrintPrefix ? 2 : 0), textbox->string, completer->lastTabBytes)) {
+		start = end + 1;
+		end = strchr(start, '\n');
+	}
+
+	for (int i = 0; end && i < completer->consecutiveTabCount; i++) {
+		start = end + 1;
+		end = strchr(start, '\n');
+	}
+
+	if (!end) {
+		completer->consecutiveTabCount = 0;
+		start = evaluateResult;
+		end = strchr(evaluateResult, '\n');
+	}
+
+	completer->_lastKeyWasTab = true;
+	completer->consecutiveTabCount++;
+
+	if (end) {
+		if (addPrintPrefix) start += 2;
+		UITextboxClear(textbox, false);
+		UITextboxReplace(textbox, start, end - start, false);
+		UIElementRefresh(&textbox->e);
 	}
 }
 
@@ -1411,11 +1458,9 @@ int TextboxInputMessage(UIElement *element, UIMessage message, int di, void *dp)
 	if (message == UI_MSG_KEY_TYPED) {
 		UIKeyTyped *m = (UIKeyTyped *) dp;
 
-		static bool _lastKeyWasTab = false;
-		static int consecutiveTabCount = 0;
-		static int lastTabBytes = 0;
-		bool lastKeyWasTab = _lastKeyWasTab;
-		_lastKeyWasTab = false;
+		static TabCompleter tabCompleter = {};
+		bool lastKeyWasTab = tabCompleter._lastKeyWasTab;
+		tabCompleter._lastKeyWasTab = false;
 
 		if (m->code == UI_KEYCODE_ENTER && !element->window->shift) {
 			char buffer[1024];
@@ -1439,44 +1484,7 @@ int TextboxInputMessage(UIElement *element, UIMessage message, int di, void *dp)
 
 			return 1;
 		} else if (m->code == UI_KEYCODE_TAB && textbox->bytes && !element->window->shift) {
-			char buffer[4096];
-			StringFormat(buffer, sizeof(buffer), "complete %.*s", lastKeyWasTab ? lastTabBytes : (int) textbox->bytes, textbox->string);
-			for (int i = 0; buffer[i]; i++) if (buffer[i] == '\\') buffer[i] = ' ';
-			EvaluateCommand(buffer);
-
-			const char *start = evaluateResult;
-			const char *end = strchr(evaluateResult, '\n');
-
-			if (!lastKeyWasTab) {
-				consecutiveTabCount = 0;
-				lastTabBytes = textbox->bytes;
-			}
-
-			while (start && end && memcmp(start, textbox->string, lastTabBytes)) {
-				start = end + 1;
-				end = strchr(start, '\n');
-			}
-
-			for (int i = 0; end && i < consecutiveTabCount; i++) {
-				start = end + 1;
-				end = strchr(start, '\n');
-			}
-
-			if (!end) {
-				consecutiveTabCount = 0;
-				start = evaluateResult;
-				end = strchr(evaluateResult, '\n');
-			}
-
-			_lastKeyWasTab = true;
-			consecutiveTabCount++;
-
-			if (end) {
-				UITextboxClear(textbox, false);
-				UITextboxReplace(textbox, start, end - start, false);
-				UIElementRefresh(&textbox->e);
-			}
-
+			TabCompleterRun(&tabCompleter, textbox, lastKeyWasTab, false);
 			return 1;
 		} else if (m->code == UI_KEYCODE_UP) {
 			if (commandHistoryIndex < commandHistory.Length()) {
@@ -1541,10 +1549,23 @@ struct WatchWindow {
 };
 
 int WatchTextboxMessage(UIElement *element, UIMessage message, int di, void *dp) {
+	UITextbox *textbox = (UITextbox *) element;
+
 	if (message == UI_MSG_UPDATE) {
 		if (element->window->focused != element) {
 			UIElementDestroy(element);
 			((WatchWindow *) element->cp)->textbox = nullptr;
+		}
+	} else if (message == UI_MSG_KEY_TYPED) {
+		UIKeyTyped *m = (UIKeyTyped *) dp;
+
+		static TabCompleter tabCompleter = {};
+		bool lastKeyWasTab = tabCompleter._lastKeyWasTab;
+		tabCompleter._lastKeyWasTab = false;
+
+		if (m->code == UI_KEYCODE_TAB && textbox->bytes && !element->window->shift) {
+			TabCompleterRun(&tabCompleter, textbox, lastKeyWasTab, true);
+			return 1;
 		}
 	}
 
