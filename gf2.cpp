@@ -2284,6 +2284,8 @@ int WindowMessage(UIElement *, UIMessage message, int di, void *dp) {
 			DisplaySetPosition(input + 2, 1, false);
 		} else if (input[0] == 'l' && input[1] == ' ') {
 			DisplaySetPosition(NULL, atoi(input + 2), false);
+		} else if (input[0] == 'c' && input[1] == ' ') {
+			DebuggerSend(input + 2, true);
 		}
 
 		free(input);
@@ -2510,7 +2512,7 @@ void *ControlPipeThread(void *) {
 	while (true) {
 		FILE *file = fopen(controlPipePath, "rb");
 		char input[256];
-		fread(input, 1, sizeof(input), file);
+		input[fread(input, 1, sizeof(input) - 1, file)] = 0;
 		UIWindowPostMessage(window, MSG_RECEIVED_CONTROL, strdup(input));
 		fclose(file);
 	}
