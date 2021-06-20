@@ -69,11 +69,7 @@ char currentFile[PATH_MAX];
 char currentFileFull[PATH_MAX];
 int currentLine;
 time_t currentFileReadTime;
-
 bool showingDisassembly;
-char *disassemblyPreviousSourceFile;
-int disassemblyPreviousSourceLine;
-
 char previousLocation[256];
 
 // User interface:
@@ -143,13 +139,6 @@ struct StackEntry {
 Array<StackEntry> stack;
 int stackSelected;
 bool stackChanged;
-
-// Auto-print expression:
-
-char autoPrintExpression[1024];
-char autoPrintResult[1024];
-int autoPrintExpressionLine;
-int autoPrintResultLine;
 
 // Python code:
 
@@ -460,6 +449,105 @@ void *ControlPipeThread(void *) {
 	return nullptr;
 }
 
+void DebuggerGetStack() {
+	EvaluateCommand("bt 50");
+	stack.Free();
+
+	const char *position = evaluateResult;
+
+	while (*position == '#') {
+		const char *next = position;
+
+		while (true) {
+			next = strchr(next + 1, '\n');
+			if (!next || next[1] == '#') break;
+		}
+
+		if (!next) next = position + strlen(position);
+
+		StackEntry entry = {};
+
+		entry.id = strtoul(position + 1, (char **) &position, 0);
+
+		while (*position == ' ' && position < next) position++;
+		bool hasAddress = *position == '0';
+
+		if (hasAddress) {
+			entry.address = strtoul(position, (char **) &position, 0);
+			position += 4;
+		}
+
+		while (*position == ' ' && position < next) position++;
+		const char *functionName = position;
+		position = strchr(position, ' ');
+		if (!position || position >= next) break;
+		StringFormat(entry.function, sizeof(entry.function), "%.*s", (int) (position - functionName), functionName);
+
+		const char *file = strstr(position, " at ");
+
+		if (file && file < next) {
+			file += 4;
+			const char *end = file;
+			while (*end != '\n' && end < next) end++;
+			StringFormat(entry.location, sizeof(entry.location), "%.*s", (int) (end - file), file);
+		}
+
+		stack.Add(entry);
+
+		if (!(*next)) break;
+		position = next + 1;
+	}
+}
+
+void DebuggerGetBreakpoints() {
+	EvaluateCommand("info break");
+	breakpoints.Free();
+
+	const char *position = evaluateResult;
+
+	while (true) {
+		while (true) {
+			position = strchr(position, '\n');
+			if (!position || isdigit(position[1])) break;
+			position++;
+		}
+
+		if (!position) break;
+
+		const char *next = position;
+
+		while (true) {
+			next = strchr(next + 1, '\n');
+			if (!next || isdigit(next[1])) break;
+		}
+
+		if (!next) next = position + strlen(position);
+
+		const char *file = strstr(position, " at ");
+		if (file) file += 4;
+
+		Breakpoint breakpoint = {};
+		bool recognised = true;
+
+		if (file && file < next) {
+			const char *end = strchr(file, ':');
+
+			if (end && isdigit(end[1])) {
+				if (file[0] == '.' && file[1] == '/') file += 2;
+				StringFormat(breakpoint.file, sizeof(breakpoint.file), "%.*s", (int) (end - file), file);
+				breakpoint.line = atoi(end + 1);
+			} else recognised = false;
+		} else recognised = false;
+
+		if (recognised) {
+			realpath(breakpoint.file, breakpoint.fileFull);
+			breakpoints.Add(breakpoint);
+		}
+
+		position = next;
+	}
+}
+
 //////////////////////////////////////////////////////
 // Commands:
 //////////////////////////////////////////////////////
@@ -651,10 +739,11 @@ void CommandDonate(void *) {
 // Theme editor:
 //////////////////////////////////////////////////////
 
-UIWindow *themeEditorWindow;
-UIColorPicker *themeEditorColorPicker;
-UITable *themeEditorTable;
-int themeEditorSelectedColor;
+struct {
+	UIWindow *window;
+	UIColorPicker *colorPicker;
+	int selectedColor;
+} themeEditor;
 
 const uint8_t colorPresetClassic[] = {
 	0xF0, 0xF0, 0xF0, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x00, 0x00, 0x00, 0xFF, 0x40, 0x40, 0x40, 0xFF,
@@ -701,7 +790,7 @@ const char *themeItems[] = {
 int ThemeEditorWindowMessage(UIElement *element, UIMessage message, int di, void *dp) {
 	if (message == UI_MSG_WINDOW_CLOSE) {
 		UIElementDestroy(element);
-		themeEditorWindow = NULL;
+		themeEditor.window = NULL;
 		return 1;
 	}
 
@@ -711,7 +800,7 @@ int ThemeEditorWindowMessage(UIElement *element, UIMessage message, int di, void
 int ThemeEditorTableMessage(UIElement *element, UIMessage message, int di, void *dp) {
 	if (message == UI_MSG_TABLE_GET_ITEM) {
 		UITableGetItem *m = (UITableGetItem *) dp;
-		m->isSelected = themeEditorSelectedColor == m->index;
+		m->isSelected = themeEditor.selectedColor == m->index;
 
 		if (m->column == 0) {
 			return StringFormat(m->buffer, m->bufferBytes, "%s", themeItems[m->index]);
@@ -719,19 +808,19 @@ int ThemeEditorTableMessage(UIElement *element, UIMessage message, int di, void 
 			return StringFormat(m->buffer, m->bufferBytes, "#%.6x", ui.theme.colors[m->index]);
 		}
 	} else if (message == UI_MSG_CLICKED) {
-		themeEditorSelectedColor = UITableHitTest((UITable *) element, element->window->cursorX, element->window->cursorY);
-		UIColorToHSV(ui.theme.colors[themeEditorSelectedColor],
-			&themeEditorColorPicker->hue, &themeEditorColorPicker->saturation, &themeEditorColorPicker->value);
-		UIElementRepaint(&themeEditorColorPicker->e, NULL);
+		themeEditor.selectedColor = UITableHitTest((UITable *) element, element->window->cursorX, element->window->cursorY);
+		UIColorToHSV(ui.theme.colors[themeEditor.selectedColor],
+			&themeEditor.colorPicker->hue, &themeEditor.colorPicker->saturation, &themeEditor.colorPicker->value);
+		UIElementRepaint(&themeEditor.colorPicker->e, NULL);
 	}
 
 	return 0;
 }
 
 int ThemeEditorColorPickerMessage(UIElement *element, UIMessage message, int di, void *dp) {
-	if (message == UI_MSG_VALUE_CHANGED && themeEditorSelectedColor >= 0) {
-		UIColorToRGB(themeEditorColorPicker->hue, themeEditorColorPicker->saturation, themeEditorColorPicker->value,
-			&ui.theme.colors[themeEditorSelectedColor]);
+	if (message == UI_MSG_VALUE_CHANGED && themeEditor.selectedColor >= 0) {
+		UIColorToRGB(themeEditor.colorPicker->hue, themeEditor.colorPicker->saturation, themeEditor.colorPicker->value,
+			&ui.theme.colors[themeEditor.selectedColor]);
 		UIElementRepaint(&windowMain->e, NULL);
 		UIElementRepaint(&element->window->e, NULL);
 	}
@@ -750,8 +839,8 @@ void CommandLoadTheme(void *) {
 
 		UIElementRepaint(&windowMain->e, NULL);
 
-		if (themeEditorWindow) {
-			UIElementRepaint(&themeEditorWindow->e, NULL);
+		if (themeEditor.window) {
+			UIElementRepaint(&themeEditor.window->e, NULL);
 		}
 	}
 }
@@ -770,21 +859,21 @@ void CommandSaveTheme(void *) {
 void ColorPresetLoad(void *cp) {
 	memcpy(&ui.theme, cp, sizeof(UITheme));
 	UIElementRepaint(&windowMain->e, NULL);
-	UIElementRepaint(&themeEditorWindow->e, NULL);
+	UIElementRepaint(&themeEditor.window->e, NULL);
 }
 
 void CommandThemeEditor(void *) {
-	if (themeEditorWindow) return;
-	themeEditorSelectedColor = -1;
-	themeEditorWindow = UIWindowCreate(0, 0, "Theme Editor", 0, 0);
-	themeEditorWindow->scale = uiScale;
-	themeEditorWindow->e.messageUser = ThemeEditorWindowMessage;
-	UISplitPane *splitPane = UISplitPaneCreate(&themeEditorWindow->e, 0, 0.5f);
+	if (themeEditor.window) return;
+	themeEditor.selectedColor = -1;
+	themeEditor.window = UIWindowCreate(0, 0, "Theme Editor", 0, 0);
+	themeEditor.window->scale = uiScale;
+	themeEditor.window->e.messageUser = ThemeEditorWindowMessage;
+	UISplitPane *splitPane = UISplitPaneCreate(&themeEditor.window->e, 0, 0.5f);
 	UIPanel *panel = UIPanelCreate(&splitPane->e, UI_PANEL_GRAY);
 	panel->border = UI_RECT_1(5);
 	panel->gap = 5;
-	themeEditorColorPicker = UIColorPickerCreate(&panel->e, 0);
-	themeEditorColorPicker->e.messageUser = ThemeEditorColorPickerMessage;
+	themeEditor.colorPicker = UIColorPickerCreate(&panel->e, 0);
+	themeEditor.colorPicker->e.messageUser = ThemeEditorColorPickerMessage;
 	UISpacerCreate(&panel->e, 0, 10, 10);
 	UIButtonCreate(&panel->e, 0, "Save theme", -1)->invoke = CommandSaveTheme;
 	UIButtonCreate(&panel->e, 0, "Load theme", -1)->invoke = CommandLoadTheme;
@@ -795,27 +884,23 @@ void CommandThemeEditor(void *) {
 	PRESET_THEME("Classic", colorPresetClassic);
 	PRESET_THEME("Ice", colorPresetIce);
 	PRESET_THEME("Pink", colorPresetPink);
-	themeEditorTable = UITableCreate(&splitPane->e, 0, "Item\tColor");
-	themeEditorTable->itemCount = sizeof(themeItems) / sizeof(themeItems[0]);
-	themeEditorTable->e.messageUser = ThemeEditorTableMessage;
-	UITableResizeColumns(themeEditorTable);
+	UITable *table = UITableCreate(&splitPane->e, 0, "Item\tColor");
+	table->itemCount = sizeof(themeItems) / sizeof(themeItems[0]);
+	table->e.messageUser = ThemeEditorTableMessage;
+	UITableResizeColumns(table);
 }
 
 //////////////////////////////////////////////////////
 // Source display:
 //////////////////////////////////////////////////////
 
+char autoPrintExpression[1024];
+char autoPrintResult[1024];
+int autoPrintExpressionLine;
+int autoPrintResultLine;
+
 bool DisplaySetPosition(const char *file, int line, bool useGDBToGetFullPath) {
 	if (showingDisassembly) {
-		if (file) {
-			free(disassemblyPreviousSourceFile);
-			disassemblyPreviousSourceFile = strdup(file);
-		}
-
-		if (line != -1) {
-			disassemblyPreviousSourceLine = line;
-		}
-
 		return false;
 	}
 
@@ -890,6 +975,17 @@ bool DisplaySetPosition(const char *file, int line, bool useGDBToGetFullPath) {
 	UIElementRefresh(&displayCode->e);
 
 	return changed;
+}
+
+void DisplaySetPositionFromStack() {
+	if (stack.Length() > stackSelected) {
+		char location[sizeof(previousLocation)];
+		strcpy(previousLocation, stack[stackSelected].location);
+		strcpy(location, stack[stackSelected].location);
+		char *line = strchr(location, ':');
+		if (line) *line = 0;
+		DisplaySetPosition(location, line ? atoi(line + 1) : -1, true);
+	}
 }
 
 void DisassemblyLoad() {
@@ -973,10 +1069,6 @@ void CommandToggleDisassembly(void *) {
 	displayCode->e.flags ^= UI_CODE_NO_MARGIN;
 
 	if (showingDisassembly) {
-		free(disassemblyPreviousSourceFile);
-		disassemblyPreviousSourceFile = strdup(currentFile);
-		disassemblyPreviousSourceLine = currentLine;
-
 		UICodeInsertContent(displayCode, "Disassembly could not be loaded.\nPress Ctrl+D to return to source view.", -1, true);
 		displayCode->tabSize = 8;
 		DisassemblyLoad();
@@ -985,7 +1077,7 @@ void CommandToggleDisassembly(void *) {
 		currentLine = -1;
 		currentFile[0] = 0;
 		currentFileReadTime = 0;
-		DisplaySetPosition(disassemblyPreviousSourceFile, disassemblyPreviousSourceLine, true);
+		DisplaySetPositionFromStack();
 		displayCode->tabSize = 4;
 	}
 
@@ -1068,16 +1160,11 @@ void SourceWindowUpdate(const char *data, UIElement *) {
 
 	if (!stackChanged && changedSourceLine) stackSelected = 0;
 	stackChanged = false;
-	
-	if (changedSourceLine && stack.Length() > stackSelected && strcmp(stack[stackSelected].location, previousLocation)) {
-		char location[sizeof(previousLocation)];
-		strcpy(previousLocation, stack[stackSelected].location);
-		strcpy(location, stack[stackSelected].location);
-		char *line = strchr(location, ':');
-		if (line) *line = 0;
-		DisplaySetPosition(location, line ? atoi(line + 1) : -1, true);
-	}
 
+	if (changedSourceLine && strcmp(stack[stackSelected].location, previousLocation)) {
+		DisplaySetPositionFromStack();
+	}
+	
 	if (changedSourceLine && currentLine < displayCode->lineCount && currentLine > 0) {
 		// If there is an auto-print expression from the previous line, evaluate it.
 
@@ -1177,11 +1264,6 @@ struct BitmapViewer {
 
 Array<UIElement *> autoUpdateBitmapViewers;
 bool autoUpdateBitmapViewersQueued;
-
-char *addBitmapPointerString;
-char *addBitmapWidthString;
-char *addBitmapHeightString;
-char *addBitmapStrideString;
 
 int BitmapViewerWindowMessage(UIElement *element, UIMessage message, int di, void *dp) {
 	if (message == UI_MSG_DESTROY) {
@@ -1294,13 +1376,14 @@ void BitmapViewerUpdate(const char *pointerString, const char *widthString, cons
 }
 
 void BitmapAddDialog(void *) {
+	static char *pointer = nullptr, *width = nullptr, *height = nullptr, *stride = nullptr;
+
 	const char *result = UIDialogShow(windowMain, 0, 
 			"Add bitmap\n\n%l\n\nPointer to bits: (32bpp, RR GG BB AA)\n%t\nWidth:\n%t\nHeight:\n%t\nStride: (optional)\n%t\n\n%l\n\n%f%b%b",
-			&addBitmapPointerString, &addBitmapWidthString, &addBitmapHeightString, &addBitmapStrideString, "Add", "Cancel");
+			&pointer, &width, &height, &stride, "Add", "Cancel");
 
 	if (0 == strcmp(result, "Add")) {
-		BitmapViewerUpdate(addBitmapPointerString, addBitmapWidthString, addBitmapHeightString, 
-				(addBitmapStrideString && addBitmapStrideString[0]) ? addBitmapStrideString : nullptr);
+		BitmapViewerUpdate(pointer, width, height, (stride && stride[0]) ? stride : nullptr);
 	}
 }
 
@@ -1321,9 +1404,10 @@ void BitmapViewerUpdateAll() {
 
 Array<char *> commandHistory;
 int commandHistoryIndex;
-UITextbox *textboxInput;
 
 int TextboxInputMessage(UIElement *element, UIMessage message, int di, void *dp) {
+	UITextbox *textbox = (UITextbox *) element;
+
 	if (message == UI_MSG_KEY_TYPED) {
 		UIKeyTyped *m = (UIKeyTyped *) dp;
 
@@ -1335,13 +1419,13 @@ int TextboxInputMessage(UIElement *element, UIMessage message, int di, void *dp)
 
 		if (m->code == UI_KEYCODE_ENTER && !element->window->shift) {
 			char buffer[1024];
-			StringFormat(buffer, 1024, "%.*s", (int) textboxInput->bytes, textboxInput->string);
+			StringFormat(buffer, 1024, "%.*s", (int) textbox->bytes, textbox->string);
 			if (commandLog) fprintf(commandLog, "%s\n", buffer);
 			DebuggerSend(buffer, true);
 
-			char *string = (char *) malloc(textboxInput->bytes + 1);
-			memcpy(string, textboxInput->string, textboxInput->bytes);
-			string[textboxInput->bytes] = 0;
+			char *string = (char *) malloc(textbox->bytes + 1);
+			memcpy(string, textbox->string, textbox->bytes);
+			string[textbox->bytes] = 0;
 			commandHistory.Insert(string, 0);
 			commandHistoryIndex = 0;
 
@@ -1350,13 +1434,13 @@ int TextboxInputMessage(UIElement *element, UIMessage message, int di, void *dp)
 				commandHistory.Pop();
 			}
 
-			UITextboxClear(textboxInput, false);
-			UIElementRefresh(&textboxInput->e);
+			UITextboxClear(textbox, false);
+			UIElementRefresh(&textbox->e);
 
 			return 1;
-		} else if (m->code == UI_KEYCODE_TAB && textboxInput->bytes && !element->window->shift) {
+		} else if (m->code == UI_KEYCODE_TAB && textbox->bytes && !element->window->shift) {
 			char buffer[4096];
-			StringFormat(buffer, sizeof(buffer), "complete %.*s", lastKeyWasTab ? lastTabBytes : (int) textboxInput->bytes, textboxInput->string);
+			StringFormat(buffer, sizeof(buffer), "complete %.*s", lastKeyWasTab ? lastTabBytes : (int) textbox->bytes, textbox->string);
 			for (int i = 0; buffer[i]; i++) if (buffer[i] == '\\') buffer[i] = ' ';
 			EvaluateCommand(buffer);
 
@@ -1365,10 +1449,10 @@ int TextboxInputMessage(UIElement *element, UIMessage message, int di, void *dp)
 
 			if (!lastKeyWasTab) {
 				consecutiveTabCount = 0;
-				lastTabBytes = textboxInput->bytes;
+				lastTabBytes = textbox->bytes;
 			}
 
-			while (start && end && memcmp(start, textboxInput->string, lastTabBytes)) {
+			while (start && end && memcmp(start, textbox->string, lastTabBytes)) {
 				start = end + 1;
 				end = strchr(start, '\n');
 			}
@@ -1388,28 +1472,28 @@ int TextboxInputMessage(UIElement *element, UIMessage message, int di, void *dp)
 			consecutiveTabCount++;
 
 			if (end) {
-				UITextboxClear(textboxInput, false);
-				UITextboxReplace(textboxInput, start, end - start, false);
-				UIElementRefresh(&textboxInput->e);
+				UITextboxClear(textbox, false);
+				UITextboxReplace(textbox, start, end - start, false);
+				UIElementRefresh(&textbox->e);
 			}
 
 			return 1;
 		} else if (m->code == UI_KEYCODE_UP) {
 			if (commandHistoryIndex < commandHistory.Length()) {
-				UITextboxClear(textboxInput, false);
-				UITextboxReplace(textboxInput, commandHistory[commandHistoryIndex], -1, false);
+				UITextboxClear(textbox, false);
+				UITextboxReplace(textbox, commandHistory[commandHistoryIndex], -1, false);
 				if (commandHistoryIndex < commandHistory.Length() - 1) commandHistoryIndex++;
-				UIElementRefresh(&textboxInput->e);
+				UIElementRefresh(&textbox->e);
 			}
 		} else if (m->code == UI_KEYCODE_DOWN) {
-			UITextboxClear(textboxInput, false);
+			UITextboxClear(textbox, false);
 
 			if (commandHistoryIndex > 0) {
 				--commandHistoryIndex;
-				UITextboxReplace(textboxInput, commandHistory[commandHistoryIndex], -1, false);
+				UITextboxReplace(textbox, commandHistory[commandHistoryIndex], -1, false);
 			}
 
-			UIElementRefresh(&textboxInput->e);
+			UIElementRefresh(&textbox->e);
 		}
 	}
 
@@ -1427,7 +1511,7 @@ UIElement *ConsoleWindowCreate(UIElement *parent) {
 	buttonMenu = UIButtonCreate(&panel3->e, 0, "Menu", -1);
 	buttonMenu->invoke = InterfaceShowMenu;
 	UIButtonCreate(&panel3->e, 0, "Donate", -1)->invoke = CommandDonate;
-	textboxInput = UITextboxCreate(&panel3->e, UI_ELEMENT_H_FILL);
+	UITextbox *textboxInput = UITextboxCreate(&panel3->e, UI_ELEMENT_H_FILL);
 	textboxInput->e.messageUser = TextboxInputMessage;
 	UIElementFocus(&textboxInput->e);
 	return &panel2->e;
@@ -1447,29 +1531,31 @@ struct Watch {
 	uint64_t updateIndex;
 };
 
-Array<Watch *> watchRows;
-Array<Watch *> watchBaseExpressions;
-UIElement *watchWindow;
-UITextbox *watchTextbox;
-int watchSelectedRow;
-uint64_t watchUpdateIndex;
+struct WatchWindow {
+	Array<Watch *> rows;
+	Array<Watch *> baseExpressions;
+	UIElement *element;
+	UITextbox *textbox;
+	int selectedRow;
+	uint64_t updateIndex;
+};
 
 int WatchTextboxMessage(UIElement *element, UIMessage message, int di, void *dp) {
 	if (message == UI_MSG_UPDATE) {
 		if (element->window->focused != element) {
 			UIElementDestroy(element);
-			watchTextbox = nullptr;
+			((WatchWindow *) element->cp)->textbox = nullptr;
 		}
 	}
 
 	return 0;
 }
 
-void WatchDestroyTextbox() {
-	if (!watchTextbox) return;
-	UIElementDestroy(&watchTextbox->e);
-	watchTextbox = nullptr;
-	UIElementFocus(watchWindow);
+void WatchDestroyTextbox(WatchWindow *w) {
+	if (!w->textbox) return;
+	UIElementDestroy(&w->textbox->e);
+	w->textbox = nullptr;
+	UIElementFocus(w->element);
 }
 
 void WatchFree(Watch *watch) {
@@ -1485,32 +1571,32 @@ void WatchFree(Watch *watch) {
 	watch->fields.Free();
 }
 
-void WatchDeleteExpression() {
-	WatchDestroyTextbox();
-	if (watchSelectedRow == watchRows.Length()) return;
-	int end = watchSelectedRow + 1;
+void WatchDeleteExpression(WatchWindow *w) {
+	WatchDestroyTextbox(w);
+	if (w->selectedRow == w->rows.Length()) return;
+	int end = w->selectedRow + 1;
 
-	for (; end < watchRows.Length(); end++) {
-		if (watchRows[watchSelectedRow]->depth >= watchRows[end]->depth) {
+	for (; end < w->rows.Length(); end++) {
+		if (w->rows[w->selectedRow]->depth >= w->rows[end]->depth) {
 			break;
 		}
 	}
 
 	bool found = false;
-	Watch *w = watchRows[watchSelectedRow];
+	Watch *watch = w->rows[w->selectedRow];
 
-	for (int i = 0; i < watchBaseExpressions.Length(); i++) {
-		if (w == watchBaseExpressions[i]) {
+	for (int i = 0; i < w->baseExpressions.Length(); i++) {
+		if (watch == w->baseExpressions[i]) {
 			found = true;
-			watchBaseExpressions.Delete(i);
+			w->baseExpressions.Delete(i);
 			break;
 		}
 	}
 
 	assert(found);
-	watchRows.Delete(watchSelectedRow, end - watchSelectedRow);
-	WatchFree(w);
-	free(w);
+	w->rows.Delete(w->selectedRow, end - w->selectedRow);
+	WatchFree(watch);
+	free(watch);
 }
 
 void WatchEvaluate(const char *function, Watch *watch) {
@@ -1623,33 +1709,33 @@ void WatchAddFields(Watch *watch) {
 	}
 }
 
-void WatchInsertFieldRows(Watch *watch, int *position) {
+void WatchInsertFieldRows(WatchWindow *w, Watch *watch, int *position) {
 	for (int i = 0; i < watch->fields.Length(); i++) {
-		watchRows.Insert(watch->fields[i], *position);
+		w->rows.Insert(watch->fields[i], *position);
 		*position = *position + 1;
 
 		if (watch->fields[i]->open) {
-			WatchInsertFieldRows(watch->fields[i], position);
+			WatchInsertFieldRows(w, watch->fields[i], position);
 		}
 	}
 }
 
-void WatchEnsureRowVisible(int index) {
-	if (watchSelectedRow < 0) watchSelectedRow = 0;
-	else if (watchSelectedRow > watchRows.Length()) watchSelectedRow = watchRows.Length();
-	UIScrollBar *scroll = ((UIPanel *) watchWindow->parent)->scrollBar;
-	int rowHeight = (int) (UI_SIZE_TEXTBOX_HEIGHT * watchWindow->window->scale);
-	int start = index * rowHeight, end = (index + 1) * rowHeight, height = UI_RECT_HEIGHT(watchWindow->parent->bounds);
+void WatchEnsureRowVisible(WatchWindow *w, int index) {
+	if (w->selectedRow < 0) w->selectedRow = 0;
+	else if (w->selectedRow > w->rows.Length()) w->selectedRow = w->rows.Length();
+	UIScrollBar *scroll = ((UIPanel *) w->element->parent)->scrollBar;
+	int rowHeight = (int) (UI_SIZE_TEXTBOX_HEIGHT * w->element->window->scale);
+	int start = index * rowHeight, end = (index + 1) * rowHeight, height = UI_RECT_HEIGHT(w->element->parent->bounds);
 	bool unchanged = false;
 	if (end >= scroll->position + height) scroll->position = end - height;
 	else if (start <= scroll->position) scroll->position = start;
 	else unchanged = true;
-	if (!unchanged) UIElementRefresh(watchWindow->parent);
+	if (!unchanged) UIElementRefresh(w->element->parent);
 }
 
-void WatchAddExpression(char *string = nullptr) {
-	if (!string && watchTextbox && !watchTextbox->bytes) {
-		WatchDestroyTextbox();
+void WatchAddExpression(WatchWindow *w, char *string = nullptr) {
+	if (!string && w->textbox && !w->textbox->bytes) {
+		WatchDestroyTextbox(w);
 		return;
 	}
 
@@ -1658,15 +1744,15 @@ void WatchAddExpression(char *string = nullptr) {
 	if (string) {
 		watch->key = string;
 	} else {
-		watch->key = (char *) malloc(watchTextbox->bytes + 1);
-		watch->key[watchTextbox->bytes] = 0;
-		memcpy(watch->key, watchTextbox->string, watchTextbox->bytes);
+		watch->key = (char *) malloc(w->textbox->bytes + 1);
+		watch->key[w->textbox->bytes] = 0;
+		memcpy(watch->key, w->textbox->string, w->textbox->bytes);
 	}
 
-	WatchDeleteExpression(); // Deletes textbox.
-	watchRows.Insert(watch, watchSelectedRow);
-	watchBaseExpressions.Add(watch);
-	watchSelectedRow++;
+	WatchDeleteExpression(w); // Deletes textbox.
+	w->rows.Insert(watch, w->selectedRow);
+	w->baseExpressions.Add(watch);
+	w->selectedRow++;
 
 	WatchEvaluate("gf_typeof", watch);
 
@@ -1679,20 +1765,21 @@ void WatchAddExpression(char *string = nullptr) {
 }
 
 int WatchWindowMessage(UIElement *element, UIMessage message, int di, void *dp) {
+	WatchWindow *w = (WatchWindow *) element->cp;
 	int rowHeight = (int) (UI_SIZE_TEXTBOX_HEIGHT * element->window->scale);
 	int result = 0;
 
 	if (message == UI_MSG_PAINT) {
 		UIPainter *painter = (UIPainter *) dp;
 
-		for (int i = (painter->clip.t - element->bounds.t) / rowHeight; i <= watchRows.Length(); i++) {
+		for (int i = (painter->clip.t - element->bounds.t) / rowHeight; i <= w->rows.Length(); i++) {
 			UIRectangle row = element->bounds;
 			row.t += i * rowHeight, row.b = row.t + rowHeight;
 
 			UIRectangle intersection = UIRectangleIntersection(row, painter->clip);
 			if (!UI_RECT_VALID(intersection)) break;
 
-			bool focused = i == watchSelectedRow && element->window->focused == element;
+			bool focused = i == w->selectedRow && element->window->focused == element;
 
 			if (focused) UIDrawBlock(painter, row, ui.theme.tableSelected);
 			UIDrawBorder(painter, row, ui.theme.border, UI_RECT_4(1, 1, 0, 1));
@@ -1700,13 +1787,13 @@ int WatchWindowMessage(UIElement *element, UIMessage message, int di, void *dp) 
 			row.l += UI_SIZE_TEXTBOX_MARGIN;
 			row.r -= UI_SIZE_TEXTBOX_MARGIN;
 
-			if (i != watchRows.Length()) {
-				Watch *watch = watchRows[i];
+			if (i != w->rows.Length()) {
+				Watch *watch = w->rows[i];
 				char buffer[256];
 
-				if ((!watch->value || watch->updateIndex != watchUpdateIndex) && !watch->open) {
+				if ((!watch->value || watch->updateIndex != w->updateIndex) && !watch->open) {
 					free(watch->value);
-					watch->updateIndex = watchUpdateIndex;
+					watch->updateIndex = w->updateIndex;
 					WatchEvaluate("gf_valueof", watch);
 					watch->value = strdup(evaluateResult);
 					char *end = strchr(watch->value, '\n');
@@ -1734,9 +1821,9 @@ int WatchWindowMessage(UIElement *element, UIMessage message, int di, void *dp) 
 			}
 		}
 	} else if (message == UI_MSG_GET_HEIGHT) {
-		return (watchRows.Length() + 1) * rowHeight;
+		return (w->rows.Length() + 1) * rowHeight;
 	} else if (message == UI_MSG_LEFT_DOWN) {
-		watchSelectedRow = (element->window->cursorY - element->bounds.t) / rowHeight;
+		w->selectedRow = (element->window->cursorY - element->bounds.t) / rowHeight;
 		UIElementFocus(element);
 		UIElementRepaint(element, NULL);
 	} else if (message == UI_MSG_UPDATE) {
@@ -1746,68 +1833,69 @@ int WatchWindowMessage(UIElement *element, UIMessage message, int di, void *dp) 
 		result = 1;
 
 		if ((m->code == UI_KEYCODE_ENTER || m->code == UI_KEYCODE_BACKSPACE) 
-				&& watchSelectedRow != watchRows.Length() && !watchTextbox
-				&& !watchRows[watchSelectedRow]->parent) {
+				&& w->selectedRow != w->rows.Length() && !w->textbox
+				&& !w->rows[w->selectedRow]->parent) {
 			UIRectangle row = element->bounds;
-			row.t += watchSelectedRow * rowHeight, row.b = row.t + rowHeight;
-			watchTextbox = UITextboxCreate(element, 0);
-			watchTextbox->e.messageUser = WatchTextboxMessage;
-			UIElementMove(&watchTextbox->e, row, true);
-			UIElementFocus(&watchTextbox->e);
-			UITextboxReplace(watchTextbox, watchRows[watchSelectedRow]->key, -1, false);
-		} else if (m->code == UI_KEYCODE_DELETE && !watchTextbox
-				&& watchSelectedRow != watchRows.Length() && !watchRows[watchSelectedRow]->parent) {
-			WatchDeleteExpression();
-		} else if (m->textBytes && m->code != UI_KEYCODE_TAB && !watchTextbox && !element->window->ctrl && !element->window->alt
-				&& (watchSelectedRow == watchRows.Length() || !watchRows[watchSelectedRow]->parent)) {
+			row.t += w->selectedRow * rowHeight, row.b = row.t + rowHeight;
+			w->textbox = UITextboxCreate(element, 0);
+			w->textbox->e.messageUser = WatchTextboxMessage;
+			w->textbox->e.cp = w;
+			UIElementMove(&w->textbox->e, row, true);
+			UIElementFocus(&w->textbox->e);
+			UITextboxReplace(w->textbox, w->rows[w->selectedRow]->key, -1, false);
+		} else if (m->code == UI_KEYCODE_DELETE && !w->textbox
+				&& w->selectedRow != w->rows.Length() && !w->rows[w->selectedRow]->parent) {
+			WatchDeleteExpression(w);
+		} else if (m->textBytes && m->code != UI_KEYCODE_TAB && !w->textbox && !element->window->ctrl && !element->window->alt
+				&& (w->selectedRow == w->rows.Length() || !w->rows[w->selectedRow]->parent)) {
 			UIRectangle row = element->bounds;
-			row.t += watchSelectedRow * rowHeight, row.b = row.t + rowHeight;
-			watchTextbox = UITextboxCreate(element, 0);
-			watchTextbox->e.messageUser = WatchTextboxMessage;
-			UIElementMove(&watchTextbox->e, row, true);
-			UIElementFocus(&watchTextbox->e);
-			UIElementMessage(&watchTextbox->e, message, di, dp);
-		} else if (m->code == UI_KEYCODE_ENTER && watchTextbox) {
-			WatchAddExpression();
+			row.t += w->selectedRow * rowHeight, row.b = row.t + rowHeight;
+			w->textbox = UITextboxCreate(element, 0);
+			w->textbox->e.messageUser = WatchTextboxMessage;
+			UIElementMove(&w->textbox->e, row, true);
+			UIElementFocus(&w->textbox->e);
+			UIElementMessage(&w->textbox->e, message, di, dp);
+		} else if (m->code == UI_KEYCODE_ENTER && w->textbox) {
+			WatchAddExpression(w);
 		} else if (m->code == UI_KEYCODE_ESCAPE) {
-			WatchDestroyTextbox();
+			WatchDestroyTextbox(w);
 		} else if (m->code == UI_KEYCODE_UP) {
-			WatchDestroyTextbox();
-			watchSelectedRow--;
+			WatchDestroyTextbox(w);
+			w->selectedRow--;
 		} else if (m->code == UI_KEYCODE_DOWN) {
-			WatchDestroyTextbox();
-			watchSelectedRow++;
+			WatchDestroyTextbox(w);
+			w->selectedRow++;
 		} else if (m->code == UI_KEYCODE_HOME) {
-			watchSelectedRow = 0;
+			w->selectedRow = 0;
 		} else if (m->code == UI_KEYCODE_END) {
-			watchSelectedRow = watchRows.Length();
-		} else if (m->code == UI_KEYCODE_RIGHT && !watchTextbox
-				&& watchSelectedRow != watchRows.Length() && watchRows[watchSelectedRow]->hasFields
-				&& !watchRows[watchSelectedRow]->open) {
-			Watch *watch = watchRows[watchSelectedRow];
+			w->selectedRow = w->rows.Length();
+		} else if (m->code == UI_KEYCODE_RIGHT && !w->textbox
+				&& w->selectedRow != w->rows.Length() && w->rows[w->selectedRow]->hasFields
+				&& !w->rows[w->selectedRow]->open) {
+			Watch *watch = w->rows[w->selectedRow];
 			watch->open = true;
 			WatchAddFields(watch);
-			int position = watchSelectedRow + 1;
-			WatchInsertFieldRows(watch, &position);
-			WatchEnsureRowVisible(position - 1);
-		} else if (m->code == UI_KEYCODE_LEFT && !watchTextbox
-				&& watchSelectedRow != watchRows.Length() && watchRows[watchSelectedRow]->hasFields
-				&& watchRows[watchSelectedRow]->open) {
-			int end = watchSelectedRow + 1;
+			int position = w->selectedRow + 1;
+			WatchInsertFieldRows(w, watch, &position);
+			WatchEnsureRowVisible(w, position - 1);
+		} else if (m->code == UI_KEYCODE_LEFT && !w->textbox
+				&& w->selectedRow != w->rows.Length() && w->rows[w->selectedRow]->hasFields
+				&& w->rows[w->selectedRow]->open) {
+			int end = w->selectedRow + 1;
 
-			for (; end < watchRows.Length(); end++) {
-				if (watchRows[watchSelectedRow]->depth >= watchRows[end]->depth) {
+			for (; end < w->rows.Length(); end++) {
+				if (w->rows[w->selectedRow]->depth >= w->rows[end]->depth) {
 					break;
 				}
 			}
 
-			watchRows.Delete(watchSelectedRow + 1, end - watchSelectedRow - 1);
-			watchRows[watchSelectedRow]->open = false;
-		} else if (m->code == UI_KEYCODE_LEFT && !watchTextbox 
-				&& watchSelectedRow != watchRows.Length() && !watchRows[watchSelectedRow]->open) {
-			for (int i = 0; i < watchRows.Length(); i++) {
-				if (watchRows[watchSelectedRow]->parent == watchRows[i]) {
-					watchSelectedRow = i;
+			w->rows.Delete(w->selectedRow + 1, end - w->selectedRow - 1);
+			w->rows[w->selectedRow]->open = false;
+		} else if (m->code == UI_KEYCODE_LEFT && !w->textbox 
+				&& w->selectedRow != w->rows.Length() && !w->rows[w->selectedRow]->open) {
+			for (int i = 0; i < w->rows.Length(); i++) {
+				if (w->rows[w->selectedRow]->parent == w->rows[i]) {
+					w->selectedRow = i;
 					break;
 				}
 			}
@@ -1815,15 +1903,15 @@ int WatchWindowMessage(UIElement *element, UIMessage message, int di, void *dp) 
 			result = 0;
 		}
 
-		WatchEnsureRowVisible(watchSelectedRow);
+		WatchEnsureRowVisible(w, w->selectedRow);
 		UIElementRefresh(element->parent);
 		UIElementRefresh(element);
 	}
 
-	if (watchSelectedRow < 0) {
-		watchSelectedRow = 0;
-	} else if (watchSelectedRow > watchRows.Length()) {
-		watchSelectedRow = watchRows.Length();
+	if (w->selectedRow < 0) {
+		w->selectedRow = 0;
+	} else if (w->selectedRow > w->rows.Length()) {
+		w->selectedRow = w->rows.Length();
 	}
 
 	return result;
@@ -1831,23 +1919,29 @@ int WatchWindowMessage(UIElement *element, UIMessage message, int di, void *dp) 
 
 int WatchPanelMessage(UIElement *element, UIMessage message, int di, void *dp) {
 	if (message == UI_MSG_LEFT_DOWN) {
-		UIElementFocus(watchWindow);
-		UIElementRepaint(watchWindow, NULL);
+		UIElement *window = ((WatchWindow *) element->cp)->element;
+		UIElementFocus(window);
+		UIElementRepaint(window, NULL);
 	}
 
 	return 0;
 }
 
 UIElement *WatchWindowCreate(UIElement *parent) {
-	UIPanel *watchPanel = UIPanelCreate(parent, UI_PANEL_SCROLL | UI_PANEL_GRAY);
-	watchPanel->e.messageUser = WatchPanelMessage;
-	watchWindow = UIElementCreate(sizeof(UIElement), &watchPanel->e, UI_ELEMENT_H_FILL | UI_ELEMENT_TAB_STOP, WatchWindowMessage, "Watch");
-	return &watchPanel->e;
+	WatchWindow *w = (WatchWindow *) calloc(1, sizeof(WatchWindow));
+	UIPanel *panel = UIPanelCreate(parent, UI_PANEL_SCROLL | UI_PANEL_GRAY);
+	panel->e.messageUser = WatchPanelMessage;
+	panel->e.cp = w;
+	w->element = UIElementCreate(sizeof(UIElement), &panel->e, UI_ELEMENT_H_FILL | UI_ELEMENT_TAB_STOP, WatchWindowMessage, "Watch");
+	w->element->cp = w;
+	return &panel->e;
 }
 
-void WatchWindowUpdate(const char *, UIElement *) {
-	for (int i = 0; i < watchBaseExpressions.Length(); i++) {
-		Watch *watch = watchBaseExpressions[i];
+void WatchWindowUpdate(const char *, UIElement *element) {
+	WatchWindow *w = (WatchWindow *) element->cp;
+
+	for (int i = 0; i < w->baseExpressions.Length(); i++) {
+		Watch *watch = w->baseExpressions[i];
 		WatchEvaluate("gf_typeof", watch);
 		char *result = strdup(evaluateResult);
 		char *end = strchr(result, '\n');
@@ -1858,11 +1952,11 @@ void WatchWindowUpdate(const char *, UIElement *) {
 			free(watch->type);
 			watch->type = result;
 
-			for (int j = 0; j < watchRows.Length(); j++) {
-				if (watchRows[j] == watch) {
-					watchSelectedRow = j;
-					WatchAddExpression(strdup(watch->key));
-					watchSelectedRow = watchRows.Length(), i--;
+			for (int j = 0; j < w->rows.Length(); j++) {
+				if (w->rows[j] == watch) {
+					w->selectedRow = j;
+					WatchAddExpression(w, strdup(watch->key));
+					w->selectedRow = w->rows.Length(), i--;
 					break;
 				}
 			}
@@ -1871,9 +1965,9 @@ void WatchWindowUpdate(const char *, UIElement *) {
 		}
 	}
 
-	watchUpdateIndex++;
-	UIElementRefresh(watchWindow->parent);
-	UIElementRefresh(watchWindow);
+	w->updateIndex++;
+	UIElementRefresh(element->parent);
+	UIElementRefresh(element);
 }
 
 //////////////////////////////////////////////////////
@@ -1918,54 +2012,6 @@ UIElement *StackWindowCreate(UIElement *parent) {
 }
 
 void StackWindowUpdate(const char *, UIElement *_table) {
-	EvaluateCommand("bt 50");
-	stack.Free();
-
-	const char *position = evaluateResult;
-
-	while (*position == '#') {
-		const char *next = position;
-
-		while (true) {
-			next = strchr(next + 1, '\n');
-			if (!next || next[1] == '#') break;
-		}
-
-		if (!next) next = position + strlen(position);
-
-		StackEntry entry = {};
-
-		entry.id = strtoul(position + 1, (char **) &position, 0);
-
-		while (*position == ' ' && position < next) position++;
-		bool hasAddress = *position == '0';
-
-		if (hasAddress) {
-			entry.address = strtoul(position, (char **) &position, 0);
-			position += 4;
-		}
-
-		while (*position == ' ' && position < next) position++;
-		const char *functionName = position;
-		position = strchr(position, ' ');
-		if (!position || position >= next) break;
-		StringFormat(entry.function, sizeof(entry.function), "%.*s", (int) (position - functionName), functionName);
-
-		const char *file = strstr(position, " at ");
-
-		if (file && file < next) {
-			file += 4;
-			const char *end = file;
-			while (*end != '\n' && end < next) end++;
-			StringFormat(entry.location, sizeof(entry.location), "%.*s", (int) (end - file), file);
-		}
-
-		stack.Add(entry);
-
-		if (!(*next)) break;
-		position = next + 1;
-	}
-
 	UITable *table = (UITable *) _table;
 	table->itemCount = stack.Length();
 	UITableResizeColumns(table);
@@ -2009,53 +2055,6 @@ UIElement *BreakpointsWindowCreate(UIElement *parent) {
 }
 
 void BreakpointsWindowUpdate(const char *, UIElement *_table) {
-	EvaluateCommand("info break");
-	breakpoints.Free();
-
-	const char *position = evaluateResult;
-
-	while (true) {
-		while (true) {
-			position = strchr(position, '\n');
-			if (!position || isdigit(position[1])) break;
-			position++;
-		}
-
-		if (!position) break;
-
-		const char *next = position;
-
-		while (true) {
-			next = strchr(next + 1, '\n');
-			if (!next || isdigit(next[1])) break;
-		}
-
-		if (!next) next = position + strlen(position);
-
-		const char *file = strstr(position, " at ");
-		if (file) file += 4;
-
-		Breakpoint breakpoint = {};
-		bool recognised = true;
-
-		if (file && file < next) {
-			const char *end = strchr(file, ':');
-
-			if (end && isdigit(end[1])) {
-				if (file[0] == '.' && file[1] == '/') file += 2;
-				StringFormat(breakpoint.file, sizeof(breakpoint.file), "%.*s", (int) (end - file), file);
-				breakpoint.line = atoi(end + 1);
-			} else recognised = false;
-		} else recognised = false;
-
-		if (recognised) {
-			realpath(breakpoint.file, breakpoint.fileFull);
-			breakpoints.Add(breakpoint);
-		}
-
-		position = next;
-	}
-
 	UITable *table = (UITable *) _table;
 	table->itemCount = breakpoints.Length();
 	UITableResizeColumns(table);
@@ -2509,7 +2508,11 @@ void InterfaceShowMenu(void *) {
 void InterfaceUpdate(const char *data) {
 	if (firstUpdate) EvaluateCommand(pythonCode);
 	firstUpdate = false;
+
 	if (showingDisassembly) DisassemblyUpdateLine();
+
+	DebuggerGetStack();
+	DebuggerGetBreakpoints();
 
 	for (uintptr_t i = 0; i < sizeof(interfaceWindows) / sizeof(interfaceWindows[0]); i++) {
 		if (!interfaceWindows[i].update || !interfaceWindows[i].element) continue;
