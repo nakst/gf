@@ -50,6 +50,10 @@ You can change the font size and user interface scaling in the `[ui]` section. F
     [ui]
     scale=1.5
     font_size=20
+    
+You can also configure the interface layout, with the `layout` parameter. Use `h(position,left,right)` to create a horizontal split, `v(position,left,right)` to create a vertical split, and `t(...)` to create a tab pane. This value should not contain any whitespace. Please note this value is not validated, so make sure it is formatted correctly!
+
+    layout=h(75,v(75,Source,Console),v(50,t(Watch,Breakpoints,Commands,Struct),t(Stack,Files,Registers,Data))))
 
 ### Preset commands
 
@@ -70,6 +74,9 @@ You can change the loaded file and line by sending commands to the control pipe,
 
     # Go to line 123.
     echo l 123 > $HOME/.config/gf2_control.dat
+    
+    # Send a GDB command.
+    echo c file myapp > $HOME/.config/gf2_control.dat
 
 ## Tips
 
