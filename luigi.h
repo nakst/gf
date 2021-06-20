@@ -3833,21 +3833,21 @@ void _UIWindowInputEvent(UIWindow *window, UIMessage message, int di, void *dp) 
 		} else if (message == UI_MSG_LEFT_UP && window->pressedButton == 1) {
 			if (window->hovered == window->pressed) {
 				UIElementMessage(window->pressed, UI_MSG_CLICKED, di, dp);
-				if (ui.quit) return;
+				if (ui.quit || ui.dialogResult) return;
 			}
 
 			if (window->pressed) {
 				UIElementMessage(window->pressed, UI_MSG_LEFT_UP, di, dp);
-				if (ui.quit) return;
+				if (ui.quit || ui.dialogResult) return;
 				_UIWindowSetPressed(window, NULL, 1);
 			}
 		} else if (message == UI_MSG_MIDDLE_UP && window->pressedButton == 2) {
 			UIElementMessage(window->pressed, UI_MSG_MIDDLE_UP, di, dp);
-			if (ui.quit) return;
+			if (ui.quit || ui.dialogResult) return;
 			_UIWindowSetPressed(window, NULL, 2);
 		} else if (message == UI_MSG_RIGHT_UP && window->pressedButton == 3) {
 			UIElementMessage(window->pressed, UI_MSG_RIGHT_UP, di, dp);
-			if (ui.quit) return;
+			if (ui.quit || ui.dialogResult) return;
 			_UIWindowSetPressed(window, NULL, 3);
 		}
 	}
@@ -3863,7 +3863,7 @@ void _UIWindowInputEvent(UIWindow *window, UIMessage message, int di, void *dp) 
 			UIElementMessage(window->pressed, UI_MSG_UPDATE, UI_UPDATE_HOVERED, 0);
 		}
 
-		if (ui.quit) return;
+		if (ui.quit || ui.dialogResult) return;
 	}
 
 	if (!window->pressed) {
@@ -3968,6 +3968,8 @@ void _UIWindowInputEvent(UIWindow *window, UIMessage message, int di, void *dp) 
 			}
 		}
 
+		if (ui.quit || ui.dialogResult) return;
+
 		if (hovered != window->hovered) {
 			UIElement *previous = window->hovered;
 			window->hovered = hovered;
@@ -3976,7 +3978,7 @@ void _UIWindowInputEvent(UIWindow *window, UIMessage message, int di, void *dp) 
 		}
 	}
 
-	if (ui.quit) return;
+	if (ui.quit || ui.dialogResult) return;
 	_UIUpdate();
 }
 
@@ -4163,7 +4165,7 @@ int UIMessageLoop() {
 	_UIInspectorCreate();
 	_UIUpdate();
 	int result = 0;
-	while (!ui.quit && _UIMessageLoopSingle(&result));
+	while (!ui.quit && _UIMessageLoopSingle(&result)) ui.dialogResult = NULL;
 	return result;
 }
 

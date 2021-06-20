@@ -2,6 +2,10 @@
 // 	We should probably ask the user if they trust the local config file the first time it's seen, and each time it's modified.
 // 	Otherwise opening the application in the wrong directory could be dangerous (you can easily get GDB to run shell commands).
 
+// TODO Cleanup.
+// 	- NULL vs nullptr.
+// 	- Replace printing errors to the console with UIDialogShow.
+
 // TODO Run until current line reached again, maybe Ctrl+F10? I think "tbreak\nc" should work.
 
 // TODO Disassembly window extensions.
@@ -175,6 +179,11 @@ def gf_valueof(expression):
     except:
         result = result + '??'
     print(result)
+
+def gf_addressof(expression):
+    value = _gf_value(expression)
+    if value == None: return
+    print(value.address)
 
 def _gf_fields_recurse(type):
     if type.code == gdb.TYPE_CODE_STRUCT or type.code == gdb.TYPE_CODE_UNION:
@@ -1548,6 +1557,19 @@ struct WatchWindow {
 	uint64_t updateIndex;
 };
 
+struct WatchLogEntry {
+	char value[24];
+	char where[96];
+};
+
+struct WatchLogger {
+	int id;
+	Array<WatchLogEntry> entries;
+	UITable *table;
+};
+
+Array<WatchLogger *> watchLoggers;
+
 int WatchTextboxMessage(UIElement *element, UIMessage message, int di, void *dp) {
 	UITextbox *textbox = (UITextbox *) element;
 
@@ -1785,6 +1807,146 @@ void WatchAddExpression(WatchWindow *w, char *string = nullptr) {
 	}
 }
 
+int WatchLoggerWindowMessage(UIElement *element, UIMessage message, int di, void *dp) {
+	if (message == UI_MSG_DESTROY) {
+		if (element->cp) {
+			WatchLogger *logger = (WatchLogger *) element->cp;
+
+			for (int i = 0; i < watchLoggers.Length(); i++) {
+				if (watchLoggers[i] == logger) {
+					watchLoggers.Delete(i);
+					break;
+				}
+			}
+
+			char buffer[256];
+			StringFormat(buffer, sizeof(buffer), "delete %d", logger->id);
+			EvaluateCommand(buffer);
+
+			logger->entries.Free();
+			free(logger);
+		}
+	}
+
+	return 0;
+}
+
+int WatchLoggerTableMessage(UIElement *element, UIMessage message, int di, void *dp) {
+	if (message == UI_MSG_TABLE_GET_ITEM) {
+		UITableGetItem *m = (UITableGetItem *) dp;
+		WatchLogEntry *entry = &((WatchLogger *) element->cp)->entries[m->index];
+
+		if (m->column == 0) {
+			return StringFormat(m->buffer, m->bufferBytes, "%s", entry->value);
+		} else if (m->column == 1) {
+			return StringFormat(m->buffer, m->bufferBytes, "%s", entry->where);
+		}
+	} else if (message == UI_MSG_LAYOUT) {
+		UITable *table = (UITable *) element;
+		UI_FREE(table->columnWidths);
+		table->columnCount = 2;
+		table->columnWidths = (int *) UI_MALLOC(table->columnCount * sizeof(int));
+		int available = UI_RECT_WIDTH(table->e.bounds) - UI_SIZE_SCROLL_BAR * element->window->scale;
+		table->columnWidths[0] = available / 3;
+		table->columnWidths[1] = 2 * available / 3;
+	}
+
+	return 0;
+}
+
+void WatchChangeLoggerCreate(WatchWindow *w) {
+	// TODO Using the correct variable size.
+	// TODO Make the MDI child a reasonable width/height by default.
+
+	if (w->selectedRow == w->rows.Length()) {
+		return;
+	}
+
+	if (!dataTab) {
+		UIDialogShow(windowMain, 0, "The data window is not open.\nThe watch log cannot be created.\n%f%b", "OK");
+		return;
+	}
+
+	WatchEvaluate("gf_addressof", w->rows[w->selectedRow]);
+
+	if (strstr(evaluateResult, "??")) {
+		UIDialogShow(windowMain, 0, "Couldn't get the address of the variable.\n%f%b", "OK");
+		return;
+	}
+
+	char *end = strstr(evaluateResult, " ");
+
+	if (!end) {
+		UIDialogShow(windowMain, 0, "Couldn't get the address of the variable.\n%f%b", "OK");
+		return;
+	}
+
+	*end = 0;
+	char buffer[256];
+	StringFormat(buffer, sizeof(buffer), "Log %s", evaluateResult);
+	UIMDIChild *child = UIMDIChildCreate(&dataWindow->e, UI_MDI_CHILD_CLOSE_BUTTON, UI_RECT_1(0), buffer, -1);
+	UITable *table = UITableCreate(&child->e, 0, "New value\tWhere");
+	StringFormat(buffer, sizeof(buffer), "watch * %s", evaluateResult);
+	EvaluateCommand(buffer);
+	char *number = strstr(evaluateResult, "point ");
+
+	if (!number) {
+		UIDialogShow(windowMain, 0, "Couldn't set the watchpoint.\n%f%b", "OK");
+		return;
+	}
+
+	number += 6;
+
+	WatchLogger *logger = (WatchLogger *) calloc(1, sizeof(WatchLogger));
+	logger->id = atoi(number);
+	logger->table = table;
+	child->e.cp = logger;
+	table->e.cp = logger;
+	child->e.messageUser = WatchLoggerWindowMessage;
+	table->e.messageUser = WatchLoggerTableMessage;
+	watchLoggers.Add(logger);
+
+	UIDialogShow(windowMain, 0, "The log has been setup in the data window.\n%f%b", "OK");
+	return;
+}
+
+bool WatchLoggerUpdate(char *data) {
+	char *stringWatchpoint = strstr(data, "watchpoint ");
+	if (!stringWatchpoint) return false;
+	char *stringAddressStart = strstr(data, ": * ");
+	if (!stringAddressStart) return false;
+	int id = atoi(stringWatchpoint + 11);
+	char *value = strstr(data, "\nNew value = ");
+	if (!value) return false;
+	value += 13;
+	char *afterValue = strchr(value, '\n');
+	if (!afterValue) return false;
+	char *where = strstr(afterValue, " at ");
+	if (!where) return false;
+	where += 4;
+	char *afterWhere = strchr(where, '\n');
+	if (!afterWhere) return false;
+
+	for (int i = 0; i < watchLoggers.Length(); i++) {
+		if (watchLoggers[i]->id == id) {
+			*afterValue = 0;
+			*afterWhere = 0;
+			WatchLogEntry entry = {};
+			if (strlen(value) >= sizeof(entry.value)) value[sizeof(entry.value) - 1] = 0;
+			if (strlen(where) >= sizeof(entry.where)) where[sizeof(entry.where) - 1] = 0;
+			strcpy(entry.value, value);
+			strcpy(entry.where, where);
+			watchLoggers[i]->entries.Add(entry);
+			watchLoggers[i]->table->itemCount++;
+			UIElementRefresh(&watchLoggers[i]->table->e);
+			DebuggerSend("c", false);
+			return true;
+		}
+	}
+
+	return false;
+}
+
 int WatchWindowMessage(UIElement *element, UIMessage message, int di, void *dp) {
 	WatchWindow *w = (WatchWindow *) element->cp;
 	int rowHeight = (int) (UI_SIZE_TEXTBOX_HEIGHT * element->window->scale);
@@ -1847,6 +2009,26 @@ int WatchWindowMessage(UIElement *element, UIMessage message, int di, void *dp) 
 		w->selectedRow = (element->window->cursorY - element->bounds.t) / rowHeight;
 		UIElementFocus(element);
 		UIElementRepaint(element, NULL);
+	} else if (message == UI_MSG_RIGHT_DOWN) {
+		int index = (element->window->cursorY - element->bounds.t) / rowHeight;
+
+		if (index >= 0 && index < w->rows.Length()) {
+			WatchWindowMessage(element, UI_MSG_LEFT_DOWN, di, dp);
+			UIMenu *menu = UIMenuCreate(&element->window->e, 0);
+
+			UIMenuAddItem(menu, 0, "Delete", -1, [] (void *cp) { 
+				WatchWindow *w = (WatchWindow *) cp;
+				WatchDeleteExpression(w); 
+				UIElementRefresh(w->element->parent);
+				UIElementRefresh(w->element);
+			}, w);
+
+			UIMenuAddItem(menu, 0, "Log changes", -1, [] (void *cp) { 
+				WatchChangeLoggerCreate((WatchWindow *) cp); 
+			}, w);
+
+			UIMenuShow(menu);
+		}
 	} else if (message == UI_MSG_UPDATE) {
 		UIElementRepaint(element, NULL);
 	} else if (message == UI_MSG_KEY_TYPED) {
@@ -1873,6 +2055,7 @@ int WatchWindowMessage(UIElement *element, UIMessage message, int di, void *dp) 
 			row.t += w->selectedRow * rowHeight, row.b = row.t + rowHeight;
 			w->textbox = UITextboxCreate(element, 0);
 			w->textbox->e.messageUser = WatchTextboxMessage;
+			w->textbox->e.cp = w;
 			UIElementMove(&w->textbox->e, row, true);
 			UIElementFocus(&w->textbox->e);
 			UIElementMessage(&w->textbox->e, message, di, dp);
@@ -2526,32 +2709,31 @@ void InterfaceShowMenu(void *) {
 	UIMenuShow(menu);
 }
 
-void InterfaceUpdate(const char *data) {
-	if (firstUpdate) EvaluateCommand(pythonCode);
-	firstUpdate = false;
-
-	if (showingDisassembly) DisassemblyUpdateLine();
-
-	DebuggerGetStack();
-	DebuggerGetBreakpoints();
-
-	for (uintptr_t i = 0; i < sizeof(interfaceWindows) / sizeof(interfaceWindows[0]); i++) {
-		if (!interfaceWindows[i].update || !interfaceWindows[i].element) continue;
-		interfaceWindows[i].update(data, interfaceWindows[i].element);
-	}
-
-	BitmapViewerUpdateAll();
-}
-
 int WindowMessage(UIElement *, UIMessage message, int di, void *dp) {
 	if (message == MSG_RECEIVED_DATA) {
 		programRunning = false;
 		char *input = (char *) dp;
-		InterfaceUpdate(input);
-		// printf("%s\n", input);
+
+		if (firstUpdate) EvaluateCommand(pythonCode);
+		firstUpdate = false;
+
+		if (WatchLoggerUpdate(input)) goto skip;
+		if (showingDisassembly) DisassemblyUpdateLine();
+
+		DebuggerGetStack();
+		DebuggerGetBreakpoints();
+
+		for (uintptr_t i = 0; i < sizeof(interfaceWindows) / sizeof(interfaceWindows[0]); i++) {
+			if (!interfaceWindows[i].update || !interfaceWindows[i].element) continue;
+			interfaceWindows[i].update(input, interfaceWindows[i].element);
+		}
+
+		BitmapViewerUpdateAll();
+
 		UICodeInsertContent(displayOutput, input, -1, false);
 		UIElementRefresh(&displayOutput->e);
 		UIElementRepaint(&trafficLight->e, NULL);
+		skip:;
 		free(input);
 	} else if (message == MSG_RECEIVED_CONTROL) {
 		char *input = (char *) dp;
