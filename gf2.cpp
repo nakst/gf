@@ -59,7 +59,7 @@ struct INIState {
 };
 
 FILE *commandLog;
-char controlPipePath[4096];
+char controlPipePath[PATH_MAX];
 char emptyString;
 bool programRunning;
 
@@ -78,8 +78,7 @@ char previousLocation[256];
 
 // User interface:
 
-UIPanel *rootPanel;
-UIWindow *window;
+UIWindow *windowMain;
 
 UIButton *buttonMenu;
 UICode *displayCode;
@@ -369,7 +368,7 @@ void *DebuggerThread(void *) {
 			pthread_cond_signal(&evaluateEvent);
 			pthread_mutex_unlock(&evaluateMutex);
 		} else {
-			UIWindowPostMessage(window, MSG_RECEIVED_DATA, copy);
+			UIWindowPostMessage(windowMain, MSG_RECEIVED_DATA, copy);
 		}
 
 		receiveBufferPosition = 0;
@@ -454,7 +453,7 @@ void *ControlPipeThread(void *) {
 		FILE *file = fopen(controlPipePath, "rb");
 		char input[256];
 		input[fread(input, 1, sizeof(input) - 1, file)] = 0;
-		UIWindowPostMessage(window, MSG_RECEIVED_CONTROL, strdup(input));
+		UIWindowPostMessage(windowMain, MSG_RECEIVED_CONTROL, strdup(input));
 		fclose(file);
 	}
 
@@ -604,7 +603,7 @@ void CommandAskGDBForPWD(void *) {
 		}
 	}
 
-	UIDialogShow(window, 0, "Couldn't get the working directory.\n%f%b", "OK");
+	UIDialogShow(windowMain, 0, "Couldn't get the working directory.\n%f%b", "OK");
 }
 
 void CommandCustom(void *_command) {
@@ -646,6 +645,160 @@ void CommandCustom(void *_command) {
 
 void CommandDonate(void *) {
 	system("xdg-open https://www.patreon.com/nakst");
+}
+
+//////////////////////////////////////////////////////
+// Theme editor:
+//////////////////////////////////////////////////////
+
+UIWindow *themeEditorWindow;
+UIColorPicker *themeEditorColorPicker;
+UITable *themeEditorTable;
+int themeEditorSelectedColor;
+
+const uint8_t colorPresetClassic[] = {
+	0xF0, 0xF0, 0xF0, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x00, 0x00, 0x00, 0xFF, 0x40, 0x40, 0x40, 0xFF,
+	0x40, 0x40, 0x40, 0xFF, 0xE0, 0xE0, 0xE0, 0xFF, 0xF0, 0xF0, 0xF0, 0xFF, 0xA0, 0xA0, 0xA0, 0xFF,
+	0xFF, 0xE4, 0xD3, 0xFF, 0xF0, 0xF0, 0xF0, 0xFF, 0xF8, 0xF8, 0xF8, 0xFF, 0x00, 0x00, 0x00, 0xFF,
+	0xFF, 0xFF, 0xFF, 0xFF, 0xC9, 0x5E, 0x17, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x60, 0x60, 0x60, 0xFF,
+	0xB0, 0xB0, 0xB0, 0xFF, 0xD0, 0xD0, 0xD0, 0xFF, 0x90, 0x90, 0x90, 0xFF, 0xCC, 0xC0, 0xC0, 0x00,
+	0xFF, 0xFF, 0xFF, 0x00, 0x00, 0x00, 0x00, 0x00, 0x76, 0x73, 0x81, 0x00, 0x14, 0x47, 0xCF, 0x00,
+	0x12, 0x9C, 0x00, 0x00, 0xDF, 0x14, 0x13, 0x00, 0x5C, 0x6B, 0x97, 0x00, 0x42, 0xE3, 0x2C, 0xFF,
+	0xFE, 0xBE, 0x94, 0xFF, 0x00, 0x00, 0x00, 0xFF, 0xFF, 0xE4, 0xD3, 0xFF, 0x00, 0x00, 0x00, 0xFF,
+};
+
+const uint8_t colorPresetIce[] = {
+	0xFF, 0xF4, 0xF1, 0x00, 0xFF, 0xFF, 0xFF, 0x00, 0x00, 0x00, 0x00, 0x00, 0x81, 0x7D, 0x78, 0xFF,
+	0x00, 0x00, 0x00, 0x00, 0xFF, 0xED, 0xEA, 0x00, 0xFF, 0xF8, 0xF0, 0x00, 0xFB, 0xC5, 0xB6, 0x00,
+	0xF7, 0xCD, 0xB4, 0x00, 0x23, 0x1F, 0x1B, 0xFF, 0xFF, 0xFF, 0xFF, 0x00, 0x00, 0x00, 0x00, 0x00,
+	0xFF, 0xFF, 0xFF, 0x00, 0xFF, 0xCB, 0xA0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+	0x51, 0x47, 0x38, 0x00, 0x65, 0x65, 0x65, 0x00, 0x27, 0x27, 0x27, 0x00, 0xFF, 0xD6, 0x9C, 0x00,
+	0xFF, 0xF2, 0xE8, 0x00, 0x00, 0x00, 0x00, 0x00, 0x81, 0x6F, 0x7B, 0x00, 0x32, 0x7D, 0x0F, 0x00,
+	0xF5, 0x58, 0x00, 0x00, 0xE7, 0x0E, 0x72, 0x00, 0x92, 0x00, 0x90, 0x00, 0x42, 0xE3, 0x2C, 0xFF,
+	0xFE, 0xD0, 0xB5, 0x00, 0x00, 0x00, 0x00, 0xFF, 0xFF, 0xEC, 0xEC, 0x00, 0x00, 0x00, 0x00, 0xFF,
+};
+
+const uint8_t colorPresetPink[] = {
+	0xF4, 0xF1, 0xFF, 0x00, 0xFF, 0xFF, 0xFF, 0x00, 0x00, 0x00, 0x00, 0x00, 0x7D, 0x78, 0x81, 0x00,
+	0x00, 0x00, 0x00, 0x00, 0xED, 0xEA, 0xFF, 0x00, 0xF8, 0xF0, 0xFF, 0x00, 0xC5, 0xB6, 0xFB, 0x00,
+	0xCD, 0xB4, 0xF7, 0x00, 0x1F, 0x1B, 0x23, 0x00, 0xFF, 0xFF, 0xFF, 0x00, 0x00, 0x00, 0x00, 0x00,
+	0xFF, 0xFF, 0xFF, 0x00, 0xCB, 0xA0, 0xFF, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+	0xD5, 0xBA, 0xEF, 0x00, 0xDF, 0xD5, 0xE0, 0x00, 0x9A, 0x89, 0x99, 0x00, 0xFF, 0xBA, 0xFC, 0x00,
+	0xF2, 0xE8, 0xFF, 0x00, 0x00, 0x00, 0x00, 0x00, 0x6F, 0x7B, 0x81, 0x00, 0x97, 0x46, 0x70, 0x00,
+	0x40, 0x11, 0xC2, 0x00, 0x16, 0x67, 0xC7, 0x00, 0x92, 0x70, 0x7A, 0x00, 0xE3, 0x2B, 0x41, 0x00,
+	0xD0, 0xB5, 0xFE, 0x00, 0x00, 0x00, 0x00, 0x00, 0xFF, 0xEC, 0xEC, 0x00, 0x00, 0x00, 0x00, 0xFF,
+};
+
+const char *themeItems[] = {
+	"panel1", "panel2", "text", "textDisabled", "border",
+	"buttonNormal", "buttonHovered", "buttonPressed", "buttonFocused", "buttonDisabled",
+	"textboxNormal", "textboxText", "textboxFocused", "textboxSelected", "textboxSelectedText",
+	"scrollGlyph", "scrollThumbNormal", "scrollThumbHovered", "scrollThumbPressed",
+	"codeFocused", "codeBackground", "codeDefault", "codeComment", "codeString", "codeNumber", "codeOperator", "codePreprocessor",
+	"gaugeFilled", "tableSelected", "tableSelectedText", "tableHovered", "tableHoveredText",
+};
+
+int ThemeEditorWindowMessage(UIElement *element, UIMessage message, int di, void *dp) {
+	if (message == UI_MSG_WINDOW_CLOSE) {
+		UIElementDestroy(element);
+		themeEditorWindow = NULL;
+		return 1;
+	}
+
+	return 0;
+}
+
+int ThemeEditorTableMessage(UIElement *element, UIMessage message, int di, void *dp) {
+	if (message == UI_MSG_TABLE_GET_ITEM) {
+		UITableGetItem *m = (UITableGetItem *) dp;
+		m->isSelected = themeEditorSelectedColor == m->index;
+
+		if (m->column == 0) {
+			return StringFormat(m->buffer, m->bufferBytes, "%s", themeItems[m->index]);
+		} else {
+			return StringFormat(m->buffer, m->bufferBytes, "#%.6x", ui.theme.colors[m->index]);
+		}
+	} else if (message == UI_MSG_CLICKED) {
+		themeEditorSelectedColor = UITableHitTest((UITable *) element, element->window->cursorX, element->window->cursorY);
+		UIColorToHSV(ui.theme.colors[themeEditorSelectedColor],
+			&themeEditorColorPicker->hue, &themeEditorColorPicker->saturation, &themeEditorColorPicker->value);
+		UIElementRepaint(&themeEditorColorPicker->e, NULL);
+	}
+
+	return 0;
+}
+
+int ThemeEditorColorPickerMessage(UIElement *element, UIMessage message, int di, void *dp) {
+	if (message == UI_MSG_VALUE_CHANGED && themeEditorSelectedColor >= 0) {
+		UIColorToRGB(themeEditorColorPicker->hue, themeEditorColorPicker->saturation, themeEditorColorPicker->value,
+			&ui.theme.colors[themeEditorSelectedColor]);
+		UIElementRepaint(&windowMain->e, NULL);
+		UIElementRepaint(&element->window->e, NULL);
+	}
+
+	return 0;
+}
+
+void CommandLoadTheme(void *) {
+	char buffer[4096];
+	StringFormat(buffer, 4096, "%s/.config/gf2_theme.dat", getenv("HOME"));
+	FILE *f = fopen(buffer, "rb");
+
+	if (f) {
+		fread(&ui.theme, 1, sizeof(ui.theme), f);
+		fclose(f);
+
+		UIElementRepaint(&windowMain->e, NULL);
+
+		if (themeEditorWindow) {
+			UIElementRepaint(&themeEditorWindow->e, NULL);
+		}
+	}
+}
+
+void CommandSaveTheme(void *) {
+	char buffer[4096];
+	StringFormat(buffer, 4096, "%s/.config/gf2_theme.dat", getenv("HOME"));
+	FILE *f = fopen(buffer, "wb");
+
+	if (f) {
+		fwrite(&ui.theme, 1, sizeof(ui.theme), f);
+		fclose(f);
+	}
+}
+
+void ColorPresetLoad(void *cp) {
+	memcpy(&ui.theme, cp, sizeof(UITheme));
+	UIElementRepaint(&windowMain->e, NULL);
+	UIElementRepaint(&themeEditorWindow->e, NULL);
+}
+
+void CommandThemeEditor(void *) {
+	if (themeEditorWindow) return;
+	themeEditorSelectedColor = -1;
+	themeEditorWindow = UIWindowCreate(0, 0, "Theme Editor", 0, 0);
+	themeEditorWindow->scale = uiScale;
+	themeEditorWindow->e.messageUser = ThemeEditorWindowMessage;
+	UISplitPane *splitPane = UISplitPaneCreate(&themeEditorWindow->e, 0, 0.5f);
+	UIPanel *panel = UIPanelCreate(&splitPane->e, UI_PANEL_GRAY);
+	panel->border = UI_RECT_1(5);
+	panel->gap = 5;
+	themeEditorColorPicker = UIColorPickerCreate(&panel->e, 0);
+	themeEditorColorPicker->e.messageUser = ThemeEditorColorPickerMessage;
+	UISpacerCreate(&panel->e, 0, 10, 10);
+	UIButtonCreate(&panel->e, 0, "Save theme", -1)->invoke = CommandSaveTheme;
+	UIButtonCreate(&panel->e, 0, "Load theme", -1)->invoke = CommandLoadTheme;
+	UISpacerCreate(&panel->e, UI_ELEMENT_H_FILL | UI_SPACER_LINE, 0, 1);
+	UILabelCreate(&panel->e, UI_ELEMENT_H_FILL, "Presets:", -1);
+#define PRESET_THEME(x, y) { UIButton *b = UIButtonCreate(&panel->e, 0, x, -1); b->invoke = ColorPresetLoad; b->e.cp = (void *) y; }
+	PRESET_THEME("Dark", &_uiThemeDark);
+	PRESET_THEME("Classic", colorPresetClassic);
+	PRESET_THEME("Ice", colorPresetIce);
+	PRESET_THEME("Pink", colorPresetPink);
+	themeEditorTable = UITableCreate(&splitPane->e, 0, "Item\tColor");
+	themeEditorTable->itemCount = sizeof(themeItems) / sizeof(themeItems[0]);
+	themeEditorTable->e.messageUser = ThemeEditorTableMessage;
+	UITableResizeColumns(themeEditorTable);
 }
 
 //////////////////////////////////////////////////////
@@ -878,39 +1031,38 @@ int DisplayCodeMessage(UIElement *element, UIMessage message, int di, void *dp) 
 	return 0;
 }
 
-void SourceWindowCreate(UIElement *parent) {
+UIElement *SourceWindowCreate(UIElement *parent) {
 	displayCode = UICodeCreate(parent, 0);
 	displayCode->e.messageUser = DisplayCodeMessage;
+	return &displayCode->e;
 }
 
-void SourceWindowUpdate(const char *data) {
+void SourceWindowUpdate(const char *data, UIElement *) {
 	bool changedSourceLine = false;
 
-	{
-		const char *line = data;
+	const char *line = data;
 
-		while (*line) {
-			if (line[0] == '\n' || line == data) {
-				int i = line == data ? 0 : 1, number = 0;
+	while (*line) {
+		if (line[0] == '\n' || line == data) {
+			int i = line == data ? 0 : 1, number = 0;
 
-				while (line[i]) {
-					if (line[i] == '\t') {
-						break;
-					} else if (isdigit(line[i])) {
-						number = number * 10 + line[i] - '0';
-						i++;
-					} else {
-						goto tryNext;
-					}
+			while (line[i]) {
+				if (line[i] == '\t') {
+					break;
+				} else if (isdigit(line[i])) {
+					number = number * 10 + line[i] - '0';
+					i++;
+				} else {
+					goto tryNext;
 				}
-
-				if (!line[i]) break;
-				if (number) changedSourceLine = true;
-				tryNext:;
-				line += i + 1;
-			} else {
-				line++;
 			}
+
+			if (!line[i]) break;
+			if (number) changedSourceLine = true;
+			tryNext:;
+			line += i + 1;
+		} else {
+			line++;
 		}
 	}
 
@@ -1008,179 +1160,6 @@ void SourceWindowUpdate(const char *data) {
 
 		autoPrintExpressionLine = currentLine;
 	}
-}
-
-//////////////////////////////////////////////////////
-// Theme editor:
-//////////////////////////////////////////////////////
-
-UIWindow *themeEditorWindow;
-UIColorPicker *themeEditorColorPicker;
-UITable *themeEditorTable;
-int themeEditorSelectedColor;
-
-int ThemeEditorWindowMessage(UIElement *element, UIMessage message, int di, void *dp) {
-	if (message == UI_MSG_WINDOW_CLOSE) {
-		UIElementDestroy(element);
-		themeEditorWindow = NULL;
-		return 1;
-	}
-
-	return 0;
-}
-
-const char *themeItems[] = {
-	"panel1", "panel2", "text", "textDisabled", "border",
-	"buttonNormal", "buttonHovered", "buttonPressed", "buttonFocused", "buttonDisabled",
-	"textboxNormal", "textboxText", "textboxFocused", "textboxSelected", "textboxSelectedText",
-	"scrollGlyph", "scrollThumbNormal", "scrollThumbHovered", "scrollThumbPressed",
-	"codeFocused", "codeBackground", "codeDefault", "codeComment", "codeString", "codeNumber", "codeOperator", "codePreprocessor",
-	"gaugeFilled", "tableSelected", "tableSelectedText", "tableHovered", "tableHoveredText",
-};
-
-int ThemeEditorTableMessage(UIElement *element, UIMessage message, int di, void *dp) {
-	if (message == UI_MSG_TABLE_GET_ITEM) {
-		UITableGetItem *m = (UITableGetItem *) dp;
-		m->isSelected = themeEditorSelectedColor == m->index;
-
-		if (m->column == 0) {
-			return StringFormat(m->buffer, m->bufferBytes, "%s", themeItems[m->index]);
-		} else {
-			return StringFormat(m->buffer, m->bufferBytes, "#%.6x", ui.theme.colors[m->index]);
-		}
-	} else if (message == UI_MSG_CLICKED) {
-		themeEditorSelectedColor = UITableHitTest((UITable *) element, element->window->cursorX, element->window->cursorY);
-		UIColorToHSV(ui.theme.colors[themeEditorSelectedColor],
-			&themeEditorColorPicker->hue, &themeEditorColorPicker->saturation, &themeEditorColorPicker->value);
-		UIElementRepaint(&themeEditorColorPicker->e, NULL);
-	}
-
-	return 0;
-}
-
-int ThemeEditorColorPickerMessage(UIElement *element, UIMessage message, int di, void *dp) {
-	if (message == UI_MSG_VALUE_CHANGED && themeEditorSelectedColor >= 0) {
-		UIColorToRGB(themeEditorColorPicker->hue, themeEditorColorPicker->saturation, themeEditorColorPicker->value,
-			&ui.theme.colors[themeEditorSelectedColor]);
-		UIElementRepaint(&window->e, NULL);
-		UIElementRepaint(&element->window->e, NULL);
-	}
-
-	return 0;
-}
-
-void CommandLoadTheme(void *) {
-	char buffer[4096];
-	StringFormat(buffer, 4096, "%s/.config/gf2_theme.dat", getenv("HOME"));
-	FILE *f = fopen(buffer, "rb");
-
-	if (f) {
-		fread(&ui.theme, 1, sizeof(ui.theme), f);
-		fclose(f);
-
-		if (window) {
-			UIElementRepaint(&window->e, NULL);
-		}
-
-		if (themeEditorWindow) {
-			UIElementRepaint(&themeEditorWindow->e, NULL);
-		}
-	}
-}
-
-void CommandSaveTheme(void *) {
-	char buffer[4096];
-	StringFormat(buffer, 4096, "%s/.config/gf2_theme.dat", getenv("HOME"));
-	FILE *f = fopen(buffer, "wb");
-
-	if (f) {
-		fwrite(&ui.theme, 1, sizeof(ui.theme), f);
-		fclose(f);
-	}
-}
-
-void ColorPresetDark(void *) {
-	ui.theme = _uiThemeDark;
-	UIElementRepaint(&window->e, NULL);
-	UIElementRepaint(&themeEditorWindow->e, NULL);
-}
-
-void ColorPresetClassic(void *) {
-	const uint8_t data[] = {
-		0xF0, 0xF0, 0xF0, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x00, 0x00, 0x00, 0xFF, 0x40, 0x40, 0x40, 0xFF,
-		0x40, 0x40, 0x40, 0xFF, 0xE0, 0xE0, 0xE0, 0xFF, 0xF0, 0xF0, 0xF0, 0xFF, 0xA0, 0xA0, 0xA0, 0xFF,
-		0xFF, 0xE4, 0xD3, 0xFF, 0xF0, 0xF0, 0xF0, 0xFF, 0xF8, 0xF8, 0xF8, 0xFF, 0x00, 0x00, 0x00, 0xFF,
-		0xFF, 0xFF, 0xFF, 0xFF, 0xC9, 0x5E, 0x17, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x60, 0x60, 0x60, 0xFF,
-		0xB0, 0xB0, 0xB0, 0xFF, 0xD0, 0xD0, 0xD0, 0xFF, 0x90, 0x90, 0x90, 0xFF, 0xCC, 0xC0, 0xC0, 0x00,
-		0xFF, 0xFF, 0xFF, 0x00, 0x00, 0x00, 0x00, 0x00, 0x76, 0x73, 0x81, 0x00, 0x14, 0x47, 0xCF, 0x00,
-		0x12, 0x9C, 0x00, 0x00, 0xDF, 0x14, 0x13, 0x00, 0x5C, 0x6B, 0x97, 0x00, 0x42, 0xE3, 0x2C, 0xFF,
-		0xFE, 0xBE, 0x94, 0xFF, 0x00, 0x00, 0x00, 0xFF, 0xFF, 0xE4, 0xD3, 0xFF, 0x00, 0x00, 0x00, 0xFF,
-	};
-
-	memcpy(&ui.theme, data, sizeof(UITheme));
-	UIElementRepaint(&window->e, NULL);
-	UIElementRepaint(&themeEditorWindow->e, NULL);
-}
-
-void ColorPresetIce(void *) {
-	const uint8_t data[] = {
-		0xFF, 0xF4, 0xF1, 0x00, 0xFF, 0xFF, 0xFF, 0x00, 0x00, 0x00, 0x00, 0x00, 0x81, 0x7D, 0x78, 0xFF,
-		0x00, 0x00, 0x00, 0x00, 0xFF, 0xED, 0xEA, 0x00, 0xFF, 0xF8, 0xF0, 0x00, 0xFB, 0xC5, 0xB6, 0x00,
-		0xF7, 0xCD, 0xB4, 0x00, 0x23, 0x1F, 0x1B, 0xFF, 0xFF, 0xFF, 0xFF, 0x00, 0x00, 0x00, 0x00, 0x00,
-		0xFF, 0xFF, 0xFF, 0x00, 0xFF, 0xCB, 0xA0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-		0x51, 0x47, 0x38, 0x00, 0x65, 0x65, 0x65, 0x00, 0x27, 0x27, 0x27, 0x00, 0xFF, 0xD6, 0x9C, 0x00,
-		0xFF, 0xF2, 0xE8, 0x00, 0x00, 0x00, 0x00, 0x00, 0x81, 0x6F, 0x7B, 0x00, 0x32, 0x7D, 0x0F, 0x00,
-		0xF5, 0x58, 0x00, 0x00, 0xE7, 0x0E, 0x72, 0x00, 0x92, 0x00, 0x90, 0x00, 0x42, 0xE3, 0x2C, 0xFF,
-		0xFE, 0xD0, 0xB5, 0x00, 0x00, 0x00, 0x00, 0xFF, 0xFF, 0xEC, 0xEC, 0x00, 0x00, 0x00, 0x00, 0xFF,
-	};
-
-	memcpy(&ui.theme, data, sizeof(UITheme));
-	UIElementRepaint(&window->e, NULL);
-	UIElementRepaint(&themeEditorWindow->e, NULL);
-}
-
-void ColorPresetPink(void *) {
-	const uint8_t data[] = {
-		0xF4, 0xF1, 0xFF, 0x00, 0xFF, 0xFF, 0xFF, 0x00, 0x00, 0x00, 0x00, 0x00, 0x7D, 0x78, 0x81, 0x00,
-		0x00, 0x00, 0x00, 0x00, 0xED, 0xEA, 0xFF, 0x00, 0xF8, 0xF0, 0xFF, 0x00, 0xC5, 0xB6, 0xFB, 0x00,
-		0xCD, 0xB4, 0xF7, 0x00, 0x1F, 0x1B, 0x23, 0x00, 0xFF, 0xFF, 0xFF, 0x00, 0x00, 0x00, 0x00, 0x00,
-		0xFF, 0xFF, 0xFF, 0x00, 0xCB, 0xA0, 0xFF, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-		0xD5, 0xBA, 0xEF, 0x00, 0xDF, 0xD5, 0xE0, 0x00, 0x9A, 0x89, 0x99, 0x00, 0xFF, 0xBA, 0xFC, 0x00,
-		0xF2, 0xE8, 0xFF, 0x00, 0x00, 0x00, 0x00, 0x00, 0x6F, 0x7B, 0x81, 0x00, 0x97, 0x46, 0x70, 0x00,
-		0x40, 0x11, 0xC2, 0x00, 0x16, 0x67, 0xC7, 0x00, 0x92, 0x70, 0x7A, 0x00, 0xE3, 0x2B, 0x41, 0x00,
-		0xD0, 0xB5, 0xFE, 0x00, 0x00, 0x00, 0x00, 0x00, 0xFF, 0xEC, 0xEC, 0x00, 0x00, 0x00, 0x00, 0xFF,
-	};
-
-	memcpy(&ui.theme, data, sizeof(UITheme));
-	UIElementRepaint(&window->e, NULL);
-	UIElementRepaint(&themeEditorWindow->e, NULL);
-}
-
-void CommandThemeEditor(void *) {
-	if (themeEditorWindow) return;
-	themeEditorSelectedColor = -1;
-	themeEditorWindow = UIWindowCreate(0, 0, "Theme Editor", 0, 0);
-	themeEditorWindow->scale = uiScale;
-	themeEditorWindow->e.messageUser = ThemeEditorWindowMessage;
-	UISplitPane *splitPane = UISplitPaneCreate(&themeEditorWindow->e, 0, 0.5f);
-	UIPanel *panel = UIPanelCreate(&splitPane->e, UI_PANEL_GRAY);
-	panel->border = UI_RECT_1(5);
-	panel->gap = 5;
-	themeEditorColorPicker = UIColorPickerCreate(&panel->e, 0);
-	themeEditorColorPicker->e.messageUser = ThemeEditorColorPickerMessage;
-	UISpacerCreate(&panel->e, 0, 10, 10);
-	UIButtonCreate(&panel->e, 0, "Save theme", -1)->invoke = CommandSaveTheme;
-	UIButtonCreate(&panel->e, 0, "Load theme", -1)->invoke = CommandLoadTheme;
-	UISpacerCreate(&panel->e, UI_ELEMENT_H_FILL | UI_SPACER_LINE, 0, 1);
-	UILabelCreate(&panel->e, UI_ELEMENT_H_FILL, "Presets:", -1);
-	UIButtonCreate(&panel->e, 0, "Dark", -1)->invoke = ColorPresetDark;
-	UIButtonCreate(&panel->e, 0, "Classic", -1)->invoke = ColorPresetClassic;
-	UIButtonCreate(&panel->e, 0, "Ice", -1)->invoke = ColorPresetIce;
-	UIButtonCreate(&panel->e, 0, "Lotus", -1)->invoke = ColorPresetPink;
-	themeEditorTable = UITableCreate(&splitPane->e, 0, "Item\tColor");
-	themeEditorTable->itemCount = sizeof(themeItems) / sizeof(themeItems[0]);
-	themeEditorTable->e.messageUser = ThemeEditorTableMessage;
-	UITableResizeColumns(themeEditorTable);
 }
 
 //////////////////////////////////////////////////////
@@ -1315,7 +1294,7 @@ void BitmapViewerUpdate(const char *pointerString, const char *widthString, cons
 }
 
 void BitmapAddDialog(void *) {
-	const char *result = UIDialogShow(window, 0, 
+	const char *result = UIDialogShow(windowMain, 0, 
 			"Add bitmap\n\n%l\n\nPointer to bits: (32bpp, RR GG BB AA)\n%t\nWidth:\n%t\nHeight:\n%t\nStride: (optional)\n%t\n\n%l\n\n%f%b%b",
 			&addBitmapPointerString, &addBitmapWidthString, &addBitmapHeightString, &addBitmapStrideString, "Add", "Cancel");
 
@@ -1344,7 +1323,7 @@ Array<char *> commandHistory;
 int commandHistoryIndex;
 UITextbox *textboxInput;
 
-int TextboxInputMessage(UIElement *, UIMessage message, int di, void *dp) {
+int TextboxInputMessage(UIElement *element, UIMessage message, int di, void *dp) {
 	if (message == UI_MSG_KEY_TYPED) {
 		UIKeyTyped *m = (UIKeyTyped *) dp;
 
@@ -1354,7 +1333,7 @@ int TextboxInputMessage(UIElement *, UIMessage message, int di, void *dp) {
 		bool lastKeyWasTab = _lastKeyWasTab;
 		_lastKeyWasTab = false;
 
-		if (m->code == UI_KEYCODE_ENTER && !window->shift) {
+		if (m->code == UI_KEYCODE_ENTER && !element->window->shift) {
 			char buffer[1024];
 			StringFormat(buffer, 1024, "%.*s", (int) textboxInput->bytes, textboxInput->string);
 			if (commandLog) fprintf(commandLog, "%s\n", buffer);
@@ -1375,7 +1354,7 @@ int TextboxInputMessage(UIElement *, UIMessage message, int di, void *dp) {
 			UIElementRefresh(&textboxInput->e);
 
 			return 1;
-		} else if (m->code == UI_KEYCODE_TAB && textboxInput->bytes && !window->shift) {
+		} else if (m->code == UI_KEYCODE_TAB && textboxInput->bytes && !element->window->shift) {
 			char buffer[4096];
 			StringFormat(buffer, sizeof(buffer), "complete %.*s", lastKeyWasTab ? lastTabBytes : (int) textboxInput->bytes, textboxInput->string);
 			for (int i = 0; buffer[i]; i++) if (buffer[i] == '\\') buffer[i] = ' ';
@@ -1437,7 +1416,7 @@ int TextboxInputMessage(UIElement *, UIMessage message, int di, void *dp) {
 	return 0;
 }
 
-void ConsoleWindowCreate(UIElement *parent) {
+UIElement *ConsoleWindowCreate(UIElement *parent) {
 	UIPanel *panel2 = UIPanelCreate(parent, UI_PANEL_EXPAND);
 	displayOutput = UICodeCreate(&panel2->e, UI_CODE_NO_MARGIN | UI_ELEMENT_V_FILL);
 	UIPanel *panel3 = UIPanelCreate(&panel2->e, UI_PANEL_HORIZONTAL | UI_PANEL_EXPAND | UI_PANEL_GRAY);
@@ -1451,6 +1430,7 @@ void ConsoleWindowCreate(UIElement *parent) {
 	textboxInput = UITextboxCreate(&panel3->e, UI_ELEMENT_H_FILL);
 	textboxInput->e.messageUser = TextboxInputMessage;
 	UIElementFocus(&textboxInput->e);
+	return &panel2->e;
 }
 
 //////////////////////////////////////////////////////
@@ -1658,7 +1638,7 @@ void WatchEnsureRowVisible(int index) {
 	if (watchSelectedRow < 0) watchSelectedRow = 0;
 	else if (watchSelectedRow > watchRows.Length()) watchSelectedRow = watchRows.Length();
 	UIScrollBar *scroll = ((UIPanel *) watchWindow->parent)->scrollBar;
-	int rowHeight = (int) (UI_SIZE_TEXTBOX_HEIGHT * window->scale);
+	int rowHeight = (int) (UI_SIZE_TEXTBOX_HEIGHT * watchWindow->window->scale);
 	int start = index * rowHeight, end = (index + 1) * rowHeight, height = UI_RECT_HEIGHT(watchWindow->parent->bounds);
 	bool unchanged = false;
 	if (end >= scroll->position + height) scroll->position = end - height;
@@ -1778,7 +1758,7 @@ int WatchWindowMessage(UIElement *element, UIMessage message, int di, void *dp) 
 		} else if (m->code == UI_KEYCODE_DELETE && !watchTextbox
 				&& watchSelectedRow != watchRows.Length() && !watchRows[watchSelectedRow]->parent) {
 			WatchDeleteExpression();
-		} else if (m->textBytes && m->code != UI_KEYCODE_TAB && !watchTextbox && !window->ctrl && !window->alt
+		} else if (m->textBytes && m->code != UI_KEYCODE_TAB && !watchTextbox && !element->window->ctrl && !element->window->alt
 				&& (watchSelectedRow == watchRows.Length() || !watchRows[watchSelectedRow]->parent)) {
 			UIRectangle row = element->bounds;
 			row.t += watchSelectedRow * rowHeight, row.b = row.t + rowHeight;
@@ -1858,13 +1838,14 @@ int WatchPanelMessage(UIElement *element, UIMessage message, int di, void *dp) {
 	return 0;
 }
 
-void WatchWindowCreate(UIElement *parent) {
+UIElement *WatchWindowCreate(UIElement *parent) {
 	UIPanel *watchPanel = UIPanelCreate(parent, UI_PANEL_SCROLL | UI_PANEL_GRAY);
 	watchPanel->e.messageUser = WatchPanelMessage;
 	watchWindow = UIElementCreate(sizeof(UIElement), &watchPanel->e, UI_ELEMENT_H_FILL | UI_ELEMENT_TAB_STOP, WatchWindowMessage, "Watch");
+	return &watchPanel->e;
 }
 
-void WatchWindowUpdate(const char *) {
+void WatchWindowUpdate(const char *, UIElement *) {
 	for (int i = 0; i < watchBaseExpressions.Length(); i++) {
 		Watch *watch = watchBaseExpressions[i];
 		WatchEvaluate("gf_typeof", watch);
@@ -1899,8 +1880,6 @@ void WatchWindowUpdate(const char *) {
 // Stack window:
 //////////////////////////////////////////////////////
 
-UITable *tableStack;
-
 int TableStackMessage(UIElement *element, UIMessage message, int di, void *dp) {
 	if (message == UI_MSG_TABLE_GET_ITEM) {
 		UITableGetItem *m = (UITableGetItem *) dp;
@@ -1932,72 +1911,70 @@ int TableStackMessage(UIElement *element, UIMessage message, int di, void *dp) {
 	return 0;
 }
 
-void StackWindowCreate(UIElement *parent) {
-	tableStack = UITableCreate(parent, 0, "Index\tFunction\tLocation\tAddress");
-	tableStack->e.messageUser = TableStackMessage;
+UIElement *StackWindowCreate(UIElement *parent) {
+	UITable *table = UITableCreate(parent, 0, "Index\tFunction\tLocation\tAddress");
+	table->e.messageUser = TableStackMessage;
+	return &table->e;
 }
 
-void StackWindowUpdate(const char *) {
+void StackWindowUpdate(const char *, UIElement *_table) {
 	EvaluateCommand("bt 50");
 	stack.Free();
 
-	{
-		const char *position = evaluateResult;
+	const char *position = evaluateResult;
 
-		while (*position == '#') {
-			const char *next = position;
+	while (*position == '#') {
+		const char *next = position;
 
-			while (true) {
-				next = strchr(next + 1, '\n');
-				if (!next || next[1] == '#') break;
-			}
-
-			if (!next) next = position + strlen(position);
-
-			StackEntry entry = {};
-
-			entry.id = strtoul(position + 1, (char **) &position, 0);
-
-			while (*position == ' ' && position < next) position++;
-			bool hasAddress = *position == '0';
-
-			if (hasAddress) {
-				entry.address = strtoul(position, (char **) &position, 0);
-				position += 4;
-			}
-
-			while (*position == ' ' && position < next) position++;
-			const char *functionName = position;
-			position = strchr(position, ' ');
-			if (!position || position >= next) break;
-			StringFormat(entry.function, sizeof(entry.function), "%.*s", (int) (position - functionName), functionName);
-
-			const char *file = strstr(position, " at ");
-
-			if (file && file < next) {
-				file += 4;
-				const char *end = file;
-				while (*end != '\n' && end < next) end++;
-				StringFormat(entry.location, sizeof(entry.location), "%.*s", (int) (end - file), file);
-			}
-
-			stack.Add(entry);
-
-			if (!(*next)) break;
-			position = next + 1;
+		while (true) {
+			next = strchr(next + 1, '\n');
+			if (!next || next[1] == '#') break;
 		}
+
+		if (!next) next = position + strlen(position);
+
+		StackEntry entry = {};
+
+		entry.id = strtoul(position + 1, (char **) &position, 0);
+
+		while (*position == ' ' && position < next) position++;
+		bool hasAddress = *position == '0';
+
+		if (hasAddress) {
+			entry.address = strtoul(position, (char **) &position, 0);
+			position += 4;
+		}
+
+		while (*position == ' ' && position < next) position++;
+		const char *functionName = position;
+		position = strchr(position, ' ');
+		if (!position || position >= next) break;
+		StringFormat(entry.function, sizeof(entry.function), "%.*s", (int) (position - functionName), functionName);
+
+		const char *file = strstr(position, " at ");
+
+		if (file && file < next) {
+			file += 4;
+			const char *end = file;
+			while (*end != '\n' && end < next) end++;
+			StringFormat(entry.location, sizeof(entry.location), "%.*s", (int) (end - file), file);
+		}
+
+		stack.Add(entry);
+
+		if (!(*next)) break;
+		position = next + 1;
 	}
 
-	tableStack->itemCount = stack.Length();
-	UITableResizeColumns(tableStack);
-	UIElementRefresh(&tableStack->e);
+	UITable *table = (UITable *) _table;
+	table->itemCount = stack.Length();
+	UITableResizeColumns(table);
+	UIElementRefresh(&table->e);
 }
 
 //////////////////////////////////////////////////////
 // Breakpoints window:
 //////////////////////////////////////////////////////
-
-UITable *tableBreakpoints;
 
 int TableBreakpointsMessage(UIElement *element, UIMessage message, int di, void *dp) {
 	if (message == UI_MSG_TABLE_GET_ITEM) {
@@ -2013,7 +1990,7 @@ int TableBreakpointsMessage(UIElement *element, UIMessage message, int di, void 
 		int index = UITableHitTest((UITable *) element, element->window->cursorX, element->window->cursorY);
 
 		if (index != -1) {
-			UIMenu *menu = UIMenuCreate(&window->e, 0);
+			UIMenu *menu = UIMenuCreate(&element->window->e, 0);
 			UIMenuAddItem(menu, 0, "Delete", -1, CommandDeleteBreakpoint, (void *) (intptr_t) index);
 			UIMenuShow(menu);
 		}
@@ -2025,64 +2002,64 @@ int TableBreakpointsMessage(UIElement *element, UIMessage message, int di, void 
 	return 0;
 }
 
-void BreakpointsWindowCreate(UIElement *parent) {
-	tableBreakpoints = UITableCreate(parent, 0, "File\tLine");
-	tableBreakpoints->e.messageUser = TableBreakpointsMessage;
+UIElement *BreakpointsWindowCreate(UIElement *parent) {
+	UITable *table = UITableCreate(parent, 0, "File\tLine");
+	table->e.messageUser = TableBreakpointsMessage;
+	return &table->e;
 }
 
-void BreakpointsWindowUpdate(const char *) {
+void BreakpointsWindowUpdate(const char *, UIElement *_table) {
 	EvaluateCommand("info break");
 	breakpoints.Free();
 
-	{
-		const char *position = evaluateResult;
+	const char *position = evaluateResult;
+
+	while (true) {
+		while (true) {
+			position = strchr(position, '\n');
+			if (!position || isdigit(position[1])) break;
+			position++;
+		}
+
+		if (!position) break;
+
+		const char *next = position;
 
 		while (true) {
-			while (true) {
-				position = strchr(position, '\n');
-				if (!position || isdigit(position[1])) break;
-				position++;
-			}
-
-			if (!position) break;
-
-			const char *next = position;
-
-			while (true) {
-				next = strchr(next + 1, '\n');
-				if (!next || isdigit(next[1])) break;
-			}
-
-			if (!next) next = position + strlen(position);
-
-			const char *file = strstr(position, " at ");
-			if (file) file += 4;
-
-			Breakpoint breakpoint = {};
-			bool recognised = true;
-
-			if (file && file < next) {
-				const char *end = strchr(file, ':');
-
-				if (end && isdigit(end[1])) {
-					if (file[0] == '.' && file[1] == '/') file += 2;
-					StringFormat(breakpoint.file, sizeof(breakpoint.file), "%.*s", (int) (end - file), file);
-					breakpoint.line = atoi(end + 1);
-				} else recognised = false;
-			} else recognised = false;
-
-			if (recognised) {
-				realpath(breakpoint.file, breakpoint.fileFull);
-				breakpoints.Add(breakpoint);
-			}
-
-			position = next;
+			next = strchr(next + 1, '\n');
+			if (!next || isdigit(next[1])) break;
 		}
+
+		if (!next) next = position + strlen(position);
+
+		const char *file = strstr(position, " at ");
+		if (file) file += 4;
+
+		Breakpoint breakpoint = {};
+		bool recognised = true;
+
+		if (file && file < next) {
+			const char *end = strchr(file, ':');
+
+			if (end && isdigit(end[1])) {
+				if (file[0] == '.' && file[1] == '/') file += 2;
+				StringFormat(breakpoint.file, sizeof(breakpoint.file), "%.*s", (int) (end - file), file);
+				breakpoint.line = atoi(end + 1);
+			} else recognised = false;
+		} else recognised = false;
+
+		if (recognised) {
+			realpath(breakpoint.file, breakpoint.fileFull);
+			breakpoints.Add(breakpoint);
+		}
+
+		position = next;
 	}
 
-	tableBreakpoints->itemCount = breakpoints.Length();
-	UITableResizeColumns(tableBreakpoints);
-	UIElementRefresh(&tableBreakpoints->e);
+	UITable *table = (UITable *) _table;
+	table->itemCount = breakpoints.Length();
+	UITableResizeColumns(table);
+	UIElementRefresh(&table->e);
 }
 
 //////////////////////////////////////////////////////
@@ -2109,16 +2086,22 @@ int DataTabMessage(UIElement *element, UIMessage message, int di, void *dp) {
 void CommandToggleFillDataTab(void *) {
 	// HACK.
 
+	if (!dataTab) return;
+
 	static UIElement *oldParent;
+	static UIElement *rootPanel;
+
+	UIWindow *window = dataTab->e.window;
 	
 	if (window->e.children == &dataTab->e) {
-		window->e.children = &rootPanel->e;
+		window->e.children = rootPanel;
 		dataTab->e.parent = oldParent;
 		buttonFillWindow->e.flags &= ~UI_BUTTON_CHECKED;
 		UIElementRefresh(&window->e);
-		UIElementRefresh(&rootPanel->e);
+		UIElementRefresh(rootPanel);
 		UIElementRefresh(oldParent);
 	} else {
+		rootPanel = window->e.children;
 		dataTab->e.flags &= ~UI_ELEMENT_HIDE;
 		UIElementMessage(&dataTab->e, UI_MSG_TAB_SELECTED, 0, 0);
 		window->e.children = &dataTab->e;
@@ -2130,7 +2113,7 @@ void CommandToggleFillDataTab(void *) {
 	}
 }
 
-void DataWindowCreate(UIElement *parent) {
+UIElement *DataWindowCreate(UIElement *parent) {
 	dataTab = UIPanelCreate(parent, UI_PANEL_EXPAND);
 	UIPanel *panel5 = UIPanelCreate(&dataTab->e, UI_PANEL_GRAY | UI_PANEL_HORIZONTAL | UI_PANEL_SMALL_SPACING);
 	buttonFillWindow = UIButtonCreate(&panel5->e, UI_BUTTON_SMALL, "Fill window", -1);
@@ -2138,28 +2121,33 @@ void DataWindowCreate(UIElement *parent) {
 	UIButtonCreate(&panel5->e, UI_BUTTON_SMALL, "Add bitmap...", -1)->invoke = BitmapAddDialog;
 	dataWindow = UIMDIClientCreate(&dataTab->e, UI_ELEMENT_V_FILL);
 	dataTab->e.messageUser = DataTabMessage;
+	return &dataTab->e;
 }
 
 //////////////////////////////////////////////////////
 // Struct window:
 //////////////////////////////////////////////////////
 
-UICode *displayStruct;
-UITextbox *textboxStructName;
+struct StructWindow {
+	UICode *display;
+	UITextbox *textbox;
+};
 
 int TextboxStructNameMessage(UIElement *element, UIMessage message, int di, void *dp) {
+	StructWindow *window = (StructWindow *) element->cp;
+
 	if (message == UI_MSG_KEY_TYPED) {
 		UIKeyTyped *m = (UIKeyTyped *) dp;
 
 		if (m->code == UI_KEYCODE_ENTER) {
 			char buffer[4096];
-			StringFormat(buffer, sizeof(buffer), "ptype /o %.*s", (int) textboxStructName->bytes, textboxStructName->string);
+			StringFormat(buffer, sizeof(buffer), "ptype /o %.*s", (int) window->textbox->bytes, window->textbox->string);
 			EvaluateCommand(buffer);
 			char *end = strstr(evaluateResult, "\n(gdb)");
 			if (end) *end = 0;
-			UICodeInsertContent(displayStruct, evaluateResult, -1, true);
-			UITextboxClear(textboxStructName, false);
-			UIElementRefresh(&displayStruct->e);
+			UICodeInsertContent(window->display, evaluateResult, -1, true);
+			UITextboxClear(window->textbox, false);
+			UIElementRefresh(&window->display->e);
 			UIElementRefresh(element);
 			return 1;
 		}
@@ -2168,54 +2156,63 @@ int TextboxStructNameMessage(UIElement *element, UIMessage message, int di, void
 	return 0;
 }
 
-void StructWindowCreate(UIElement *parent) {
-	UIPanel *panel6 = UIPanelCreate(parent, UI_PANEL_GRAY | UI_PANEL_EXPAND);
-	textboxStructName = UITextboxCreate(&panel6->e, 0);
-	textboxStructName->e.messageUser = TextboxStructNameMessage;
-	displayStruct = UICodeCreate(&panel6->e, UI_ELEMENT_V_FILL | UI_CODE_NO_MARGIN);
-	UICodeInsertContent(displayStruct, "Type the name of a struct\nto view its layout.", -1, false);
+UIElement *StructWindowCreate(UIElement *parent) {
+	StructWindow *window = (StructWindow *) calloc(1, sizeof(StructWindow));
+	UIPanel *panel = UIPanelCreate(parent, UI_PANEL_GRAY | UI_PANEL_EXPAND);
+	window->textbox = UITextboxCreate(&panel->e, 0);
+	window->textbox->e.messageUser = TextboxStructNameMessage;
+	window->textbox->e.cp = window;
+	window->display = UICodeCreate(&panel->e, UI_ELEMENT_V_FILL | UI_CODE_NO_MARGIN);
+	UICodeInsertContent(window->display, "Type the name of a struct\nto view its layout.", -1, false);
+	return &panel->e;
 }
 
 //////////////////////////////////////////////////////
 // Files window:
 //////////////////////////////////////////////////////
 
-char filesDirectory[PATH_MAX];
-UIPanel *panelFiles;
+struct FilesWindow {
+	char directory[PATH_MAX];
+	UIPanel *panel;
+};
 
-bool FilesPanelPopulate();
+bool FilesPanelPopulate(FilesWindow *window);
 
-void FilesOpen(void *_name) {
-	const char *name = (const char *) _name;
-	size_t oldLength = strlen(filesDirectory);
-	strcat(filesDirectory, "/");
-	strcat(filesDirectory, name);
-	struct stat s;
-	stat(filesDirectory, &s);
+int FilesButtonMessage(UIElement *element, UIMessage message, int di, void *dp) {
+	if (message == UI_MSG_CLICKED) {
+		FilesWindow *window = (FilesWindow *) element->cp;
+		const char *name = ((UIButton *) element)->label;
+		size_t oldLength = strlen(window->directory);
+		strcat(window->directory, "/");
+		strcat(window->directory, name);
+		struct stat s;
+		stat(window->directory, &s);
 
-	if (S_ISDIR(s.st_mode)) {
-		if (FilesPanelPopulate()) {
-			char copy[PATH_MAX];
-			realpath(filesDirectory, copy);
-			strcpy(filesDirectory, copy);
-			return;
+		if (S_ISDIR(s.st_mode)) {
+			if (FilesPanelPopulate(window)) {
+				char copy[PATH_MAX];
+				realpath(window->directory, copy);
+				strcpy(window->directory, copy);
+				return 0;
+			}
+		} else if (S_ISREG(s.st_mode)) {
+			DisplaySetPosition(window->directory, 1, false);
 		}
-	} else if (S_ISREG(s.st_mode)) {
-		DisplaySetPosition(filesDirectory, 1, false);
+
+		window->directory[oldLength] = 0;
 	}
 
-	filesDirectory[oldLength] = 0;
+	return 0;
 }
 
-bool FilesPanelPopulate() {
-	if (!filesDirectory[0]) getcwd(filesDirectory, sizeof(filesDirectory));
-	DIR *directory = opendir(filesDirectory);
+bool FilesPanelPopulate(FilesWindow *window) {
+	DIR *directory = opendir(window->directory);
 	struct dirent *entry;
 	if (!directory) return false;
 	Array<char *> names = {};
 	while ((entry = readdir(directory))) names.Add(strdup(entry->d_name));
 	closedir(directory);
-	UIElementDestroyDescendents(&panelFiles->e);
+	UIElementDestroyDescendents(&window->panel->e);
 
 	qsort(names.array, names.Length(), sizeof(char *), [] (const void *a, const void *b) {
 		return strcmp(*(const char **) a, *(const char **) b);
@@ -2223,20 +2220,24 @@ bool FilesPanelPopulate() {
 
 	for (int i = 0; i < names.Length(); i++) {
 		if (names[i][0] == '.' && names[i][1] == 0) continue;
-		UIButton *button = UIButtonCreate(&panelFiles->e, 0, names[i], -1);
-		button->e.cp = button->label;
-		button->invoke = FilesOpen;
+		UIButton *button = UIButtonCreate(&window->panel->e, 0, names[i], -1);
+		button->e.cp = window;
+		button->e.messageUser = FilesButtonMessage;
 		free(names[i]);
 	}
 
 	names.Free();
-	UIElementRefresh(&panelFiles->e);
+	UIElementRefresh(&window->panel->e);
 	return true;
 }
 
-void FilesWindowCreate(UIElement *parent) {
-	panelFiles = UIPanelCreate(parent, UI_PANEL_GRAY | UI_PANEL_EXPAND | UI_PANEL_SCROLL);
-	FilesPanelPopulate();
+UIElement *FilesWindowCreate(UIElement *parent) {
+	FilesWindow *window = (FilesWindow *) calloc(1, sizeof(FilesWindow));
+	window->panel = UIPanelCreate(parent, UI_PANEL_GRAY | UI_PANEL_EXPAND | UI_PANEL_SCROLL);
+	window->panel->e.cp = window;
+	getcwd(window->directory, sizeof(window->directory));
+	FilesPanelPopulate(window);
+	return &window->panel->e;
 }
 
 //////////////////////////////////////////////////////
@@ -2245,84 +2246,85 @@ void FilesWindowCreate(UIElement *parent) {
 
 struct RegisterData { char string[128]; };
 Array<RegisterData> registerData;
-UIPanel *registersWindow;
 
-void RegistersWindowCreate(UIElement *parent) {
-	registersWindow = UIPanelCreate(parent, UI_PANEL_SMALL_SPACING | UI_PANEL_GRAY | UI_PANEL_SCROLL);
+UIElement *RegistersWindowCreate(UIElement *parent) {
+	return &UIPanelCreate(parent, UI_PANEL_SMALL_SPACING | UI_PANEL_GRAY | UI_PANEL_SCROLL)->e;
 }
 
-void RegistersWindowUpdate(const char *) {
+void RegistersWindowUpdate(const char *, UIElement *panel) {
 	EvaluateCommand("info registers");
 
-	if (!strstr(evaluateResult, "The program has no registers now.")
-			&& !strstr(evaluateResult, "The current thread has terminated")) {
-		UIElementDestroyDescendents(&registersWindow->e);
-		char *position = evaluateResult;
-		Array<RegisterData> newRegisterData = {};
-		bool anyChanges = false;
+	if (strstr(evaluateResult, "The program has no registers now.")
+			|| strstr(evaluateResult, "The current thread has terminated")) {
+		return;
+	}
 
-		while (*position != '(') {
-			char *nameStart = position;
-			while (isspace(*nameStart)) nameStart++;
-			char *nameEnd = position = strchr(nameStart, ' ');
-			if (!nameEnd) break;
-			char *format1Start = position;
-			while (isspace(*format1Start)) format1Start++;
-			char *format1End = position = strchr(format1Start, ' ');
-			if (!format1End) break;
-			char *format2Start = position;
-			while (isspace(*format2Start)) format2Start++;
-			char *format2End = position = strchr(format2Start, '\n');
-			if (!format2End) break;
+	UIElementDestroyDescendents(panel);
+	char *position = evaluateResult;
+	Array<RegisterData> newRegisterData = {};
+	bool anyChanges = false;
 
-			char *stringStart = nameStart;
-			char *stringEnd = format2End;
+	while (*position != '(') {
+		char *nameStart = position;
+		while (isspace(*nameStart)) nameStart++;
+		char *nameEnd = position = strchr(nameStart, ' ');
+		if (!nameEnd) break;
+		char *format1Start = position;
+		while (isspace(*format1Start)) format1Start++;
+		char *format1End = position = strchr(format1Start, ' ');
+		if (!format1End) break;
+		char *format2Start = position;
+		while (isspace(*format2Start)) format2Start++;
+		char *format2End = position = strchr(format2Start, '\n');
+		if (!format2End) break;
 
-			RegisterData data;
-			StringFormat(data.string, sizeof(data.string), "%.*s",
-					(int) (stringEnd - stringStart), stringStart);
-			bool modified = false;
+		char *stringStart = nameStart;
+		char *stringEnd = format2End;
 
-			if (registerData.Length() > newRegisterData.Length()) {
-				RegisterData *old = &registerData[newRegisterData.Length()];
+		RegisterData data;
+		StringFormat(data.string, sizeof(data.string), "%.*s",
+				(int) (stringEnd - stringStart), stringStart);
+		bool modified = false;
 
-				if (strcmp(old->string, data.string)) {
-					modified = true;
-				}
-			}
+		if (registerData.Length() > newRegisterData.Length()) {
+			RegisterData *old = &registerData[newRegisterData.Length()];
 
-			newRegisterData.Add(data);
-
-			UIPanel *row = UIPanelCreate(&registersWindow->e, UI_PANEL_HORIZONTAL | UI_ELEMENT_H_FILL);
-			if (modified) row->e.messageUser = ModifiedRowMessage;
-			UILabelCreate(&row->e, 0, stringStart, stringEnd - stringStart);
-
-			bool isPC = false;
-			if (nameEnd == nameStart + 3 && 0 == memcmp(nameStart, "rip", 3)) isPC = true;
-			if (nameEnd == nameStart + 3 && 0 == memcmp(nameStart, "eip", 3)) isPC = true;
-			if (nameEnd == nameStart + 2 && 0 == memcmp(nameStart,  "ip", 2)) isPC = true;
-
-			if (modified && showingDisassembly && !isPC) {
-				if (!anyChanges) {
-					autoPrintResult[0] = 0;
-					autoPrintResultLine = autoPrintExpressionLine;
-					anyChanges = true;
-				} else {
-					int position = strlen(autoPrintResult);
-					StringFormat(autoPrintResult + position, sizeof(autoPrintResult) - position, ", ");
-				}
-
-				int position = strlen(autoPrintResult);
-				StringFormat(autoPrintResult + position, sizeof(autoPrintResult) - position, "%.*s=%.*s",
-						(int) (nameEnd - nameStart), nameStart,
-						(int) (format1End - format1Start), format1Start);
+			if (strcmp(old->string, data.string)) {
+				modified = true;
 			}
 		}
 
-		UIElementRefresh(&registersWindow->e);
-		registerData.Free();
-		registerData = newRegisterData;
+		newRegisterData.Add(data);
+
+		UIPanel *row = UIPanelCreate(panel, UI_PANEL_HORIZONTAL | UI_ELEMENT_H_FILL);
+		if (modified) row->e.messageUser = ModifiedRowMessage;
+		UILabelCreate(&row->e, 0, stringStart, stringEnd - stringStart);
+
+		bool isPC = false;
+		if (nameEnd == nameStart + 3 && 0 == memcmp(nameStart, "rip", 3)) isPC = true;
+		if (nameEnd == nameStart + 3 && 0 == memcmp(nameStart, "eip", 3)) isPC = true;
+		if (nameEnd == nameStart + 2 && 0 == memcmp(nameStart,  "ip", 2)) isPC = true;
+
+		if (modified && showingDisassembly && !isPC) {
+			if (!anyChanges) {
+				autoPrintResult[0] = 0;
+				autoPrintResultLine = autoPrintExpressionLine;
+				anyChanges = true;
+			} else {
+				int position = strlen(autoPrintResult);
+				StringFormat(autoPrintResult + position, sizeof(autoPrintResult) - position, ", ");
+			}
+
+			int position = strlen(autoPrintResult);
+			StringFormat(autoPrintResult + position, sizeof(autoPrintResult) - position, "%.*s=%.*s",
+					(int) (nameEnd - nameStart), nameStart,
+					(int) (format1End - format1Start), format1Start);
+		}
 	}
+
+	UIElementRefresh(panel);
+	registerData.Free();
+	registerData = newRegisterData;
 }
 
 //////////////////////////////////////////////////////
@@ -2348,7 +2350,7 @@ void CommandPreset(void *_index) {
 	free(copy);
 }
 
-void CommandsWindowCreate(UIElement *parent) {
+UIElement *CommandsWindowCreate(UIElement *parent) {
 	UIPanel *panel = UIPanelCreate(parent, UI_PANEL_GRAY | UI_PANEL_SMALL_SPACING | UI_PANEL_EXPAND | UI_PANEL_SCROLL);
 	if (!presetCommands.Length()) UILabelCreate(&panel->e, 0, "No preset commands found in config file!", -1);
 
@@ -2357,11 +2359,58 @@ void CommandsWindowCreate(UIElement *parent) {
 		button->e.cp = (void *) (intptr_t) i;
 		button->invoke = CommandPreset;
 	}
+
+	return &panel->e;
 }
 
 //////////////////////////////////////////////////////
-// Settings:
+// Interface and main:
 //////////////////////////////////////////////////////
+
+struct InterfaceCommand {
+	const char *label;
+	UIShortcut shortcut;
+};
+
+struct InterfaceWindow {
+	const char *name;
+	UIElement *(*create)(UIElement *parent);
+	void (*update)(const char *data, UIElement *element);
+	UIElement *element;
+};
+
+const InterfaceCommand interfaceCommands[] = {
+	{ .label = "Run\tShift+F5", { .code = UI_KEYCODE_F5, .shift = true, .invoke = CommandSendToGDB, .cp = (void *) "r" } },
+	{ .label = "Run paused\tCtrl+F5", { .code = UI_KEYCODE_F5, .ctrl = true, .invoke = CommandSendToGDB, .cp = (void *) "start" } },
+	{ .label = "Kill\tF3", { .code = UI_KEYCODE_F3, .invoke = CommandSendToGDB, .cp = (void *) "kill" } },
+	{ .label = "Restart GDB\tCtrl+R", { .code = UI_KEYCODE_LETTER('R'), .ctrl = true, .invoke = CommandRestartGDB } },
+	{ .label = "Connect\tF4", { .code = UI_KEYCODE_F4, .invoke = CommandSendToGDB, .cp = (void *) "target remote :1234" } },
+	{ .label = "Continue\tF5", { .code = UI_KEYCODE_F5, .invoke = CommandSendToGDB, .cp = (void *) "c" } },
+	{ .label = "Step over\tF10", { .code = UI_KEYCODE_F10, .invoke = CommandSendToGDBStep, .cp = (void *) "n" } },
+	{ .label = "Step out of block\tShift+F10", { .code = UI_KEYCODE_F10, .shift = true, .invoke = CommandStepOutOfBlock } },
+	{ .label = "Step in\tF11", { .code = UI_KEYCODE_F11, .invoke = CommandSendToGDBStep, .cp = (void *) "s" } },
+	{ .label = "Step out\tShift+F11", { .code = UI_KEYCODE_F11, .shift = true, .invoke = CommandSendToGDB, .cp = (void *) "finish" } },
+	{ .label = "Pause\tF8", { .code = UI_KEYCODE_F8, .invoke = CommandPause } },
+	{ .label = "Toggle breakpoint\tF9", { .code = UI_KEYCODE_F9, .invoke = CommandToggleBreakpoint } },
+	{ .label = "Sync with gvim\tF2", { .code = UI_KEYCODE_F2, .invoke = CommandSyncWithGvim } },
+	{ .label = "Ask GDB for PWD\tCtrl+Shift+P", { .code = UI_KEYCODE_LETTER('P'), .ctrl = true, .shift = true, .invoke = CommandAskGDBForPWD } },
+	{ .label = "Toggle disassembly\tCtrl+D", { .code = UI_KEYCODE_LETTER('D'), .ctrl = true, .invoke = CommandToggleDisassembly } },
+	{ .label = NULL, { .code = UI_KEYCODE_LETTER('B'), .ctrl = true, .invoke = CommandToggleFillDataTab } },
+	{ .label = "Theme Editor", { .invoke = CommandThemeEditor } },
+};
+
+InterfaceWindow interfaceWindows[] = {
+	{ "Stack", StackWindowCreate, StackWindowUpdate, },
+	{ "Source", SourceWindowCreate, SourceWindowUpdate, },
+	{ "Breakpoints", BreakpointsWindowCreate, BreakpointsWindowUpdate, },
+	{ "Registers", RegistersWindowCreate, RegistersWindowUpdate, },
+	{ "Watch", WatchWindowCreate, WatchWindowUpdate, },
+	{ "Commands", CommandsWindowCreate, NULL, },
+	{ "Data", DataWindowCreate, NULL, },
+	{ "Struct", StructWindowCreate, NULL, },
+	{ "Files", FilesWindowCreate, NULL, },
+	{ "Console", ConsoleWindowCreate, NULL, },
+};
 
 void LoadSettings(bool earlyPass) {
 	char globalConfigPath[4096];
@@ -2421,7 +2470,7 @@ void LoadSettings(bool earlyPass) {
 					fprintf(stderr, "Warning: Could not register shortcut for '%s'.\n", state.key);
 				}
 
-				UIWindowRegisterShortcut(window, shortcut);
+				UIWindowRegisterShortcut(windowMain, shortcut);
 			} else if (0 == strcmp(state.section, "ui") && earlyPass) {
 				if (0 == strcmp(state.key, "font_size")) {
 					fontSize = atoi(state.value);
@@ -2446,54 +2495,6 @@ void LoadSettings(bool earlyPass) {
 	}
 }
 
-//////////////////////////////////////////////////////
-// Interface and main:
-//////////////////////////////////////////////////////
-
-struct InterfaceCommand {
-	const char *label;
-	UIShortcut shortcut;
-};
-
-struct InterfaceWindow {
-	const char *name;
-	void (*create)(UIElement *parent);
-	void (*update)(const char *data);
-};
-
-const InterfaceCommand interfaceCommands[] = {
-	{ .label = "Run\tShift+F5", { .code = UI_KEYCODE_F5, .shift = true, .invoke = CommandSendToGDB, .cp = (void *) "r" } },
-	{ .label = "Run paused\tCtrl+F5", { .code = UI_KEYCODE_F5, .ctrl = true, .invoke = CommandSendToGDB, .cp = (void *) "start" } },
-	{ .label = "Kill\tF3", { .code = UI_KEYCODE_F3, .invoke = CommandSendToGDB, .cp = (void *) "kill" } },
-	{ .label = "Restart GDB\tCtrl+R", { .code = UI_KEYCODE_LETTER('R'), .ctrl = true, .invoke = CommandRestartGDB } },
-	{ .label = "Connect\tF4", { .code = UI_KEYCODE_F4, .invoke = CommandSendToGDB, .cp = (void *) "target remote :1234" } },
-	{ .label = "Continue\tF5", { .code = UI_KEYCODE_F5, .invoke = CommandSendToGDB, .cp = (void *) "c" } },
-	{ .label = "Step over\tF10", { .code = UI_KEYCODE_F10, .invoke = CommandSendToGDBStep, .cp = (void *) "n" } },
-	{ .label = "Step out of block\tShift+F10", { .code = UI_KEYCODE_F10, .shift = true, .invoke = CommandStepOutOfBlock } },
-	{ .label = "Step in\tF11", { .code = UI_KEYCODE_F11, .invoke = CommandSendToGDBStep, .cp = (void *) "s" } },
-	{ .label = "Step out\tShift+F11", { .code = UI_KEYCODE_F11, .shift = true, .invoke = CommandSendToGDB, .cp = (void *) "finish" } },
-	{ .label = "Pause\tF8", { .code = UI_KEYCODE_F8, .invoke = CommandPause } },
-	{ .label = "Toggle breakpoint\tF9", { .code = UI_KEYCODE_F9, .invoke = CommandToggleBreakpoint } },
-	{ .label = "Sync with gvim\tF2", { .code = UI_KEYCODE_F2, .invoke = CommandSyncWithGvim } },
-	{ .label = "Ask GDB for PWD\tCtrl+Shift+P", { .code = UI_KEYCODE_LETTER('P'), .ctrl = true, .shift = true, .invoke = CommandAskGDBForPWD } },
-	{ .label = "Toggle disassembly\tCtrl+D", { .code = UI_KEYCODE_LETTER('D'), .ctrl = true, .invoke = CommandToggleDisassembly } },
-	{ .label = NULL, { .code = UI_KEYCODE_LETTER('B'), .ctrl = true, .invoke = CommandToggleFillDataTab } },
-	{ .label = "Theme Editor", { .invoke = CommandThemeEditor } },
-};
-
-const InterfaceWindow interfaceWindows[] = {
-	{ "Stack", StackWindowCreate, StackWindowUpdate, },
-	{ "Source", SourceWindowCreate, SourceWindowUpdate, },
-	{ "Breakpoints", BreakpointsWindowCreate, BreakpointsWindowUpdate, },
-	{ "Registers", RegistersWindowCreate, RegistersWindowUpdate, },
-	{ "Watch", WatchWindowCreate, WatchWindowUpdate, },
-	{ "Commands", CommandsWindowCreate, NULL, },
-	{ "Data", DataWindowCreate, NULL, },
-	{ "Struct", StructWindowCreate, NULL, },
-	{ "Files", FilesWindowCreate, NULL, },
-	{ "Console", ConsoleWindowCreate, NULL, },
-};
-
 void InterfaceShowMenu(void *) {
 	UIMenu *menu = UIMenuCreate(&buttonMenu->e, UI_MENU_PLACE_ABOVE);
 
@@ -2511,8 +2512,8 @@ void InterfaceUpdate(const char *data) {
 	if (showingDisassembly) DisassemblyUpdateLine();
 
 	for (uintptr_t i = 0; i < sizeof(interfaceWindows) / sizeof(interfaceWindows[0]); i++) {
-		if (!interfaceWindows[i].update) continue;
-		interfaceWindows[i].update(data);
+		if (!interfaceWindows[i].update || !interfaceWindows[i].element) continue;
+		interfaceWindows[i].update(data, interfaceWindows[i].element);
 	}
 
 	BitmapViewerUpdateAll();
@@ -2567,12 +2568,12 @@ void InterfaceLayoutCreate(UIElement *parent) {
 		bool found = false;
 
 		for (uintptr_t i = 0; i < sizeof(interfaceWindows) / sizeof(interfaceWindows[0]); i++) {
-			const InterfaceWindow *w = interfaceWindows + i;
+			InterfaceWindow *w = interfaceWindows + i;
 
 			if (strlen(layoutString) > strlen(w->name) && 0 == memcmp(layoutString, w->name, strlen(w->name)) && 
 					(layoutString[strlen(w->name)] == ',' || layoutString[strlen(w->name)] == ')')) { 
 				layoutString += strlen(w->name);
-				w->create(parent);
+				w->element = w->create(parent);
 				found = true;
 				break;
 			}
@@ -2602,16 +2603,15 @@ extern "C" void InterfaceCreate(UIWindow *_window) {
 	}
 #endif
 
-	window = _window;
-	window->scale = uiScale;
-	window->e.messageUser = WindowMessage;
+	windowMain = _window;
+	windowMain->scale = uiScale;
+	windowMain->e.messageUser = WindowMessage;
 
-	rootPanel = UIPanelCreate(&window->e, UI_PANEL_EXPAND);
-	InterfaceLayoutCreate(&rootPanel->e);
+	InterfaceLayoutCreate(&UIPanelCreate(&windowMain->e, UI_PANEL_EXPAND)->e);
 
 	for (uintptr_t i = 0; i < sizeof(interfaceCommands) / sizeof(interfaceCommands[0]); i++) {
 		if (!interfaceCommands[i].shortcut.code) continue;
-		UIWindowRegisterShortcut(window, interfaceCommands[i].shortcut);
+		UIWindowRegisterShortcut(windowMain, interfaceCommands[i].shortcut);
 	}
 
 	LoadSettings(false);
