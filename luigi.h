@@ -601,6 +601,7 @@ void UIElementRefresh(UIElement *element);
 void UIElementRepaint(UIElement *element, UIRectangle *region);
 void UIElementMove(UIElement *element, UIRectangle bounds, bool alwaysLayout);
 int UIElementMessage(UIElement *element, UIMessage message, int di, void *dp);
+void UIElementChangeParent(UIElement *element, UIElement *newParent, bool insertAtStart);
 
 UIElement *UIParentPush(UIElement *element);
 UIElement *UIParentPop();
@@ -1372,6 +1373,39 @@ int UIElementMessage(UIElement *element, UIMessage message, int di, void *dp) {
 	} else {
 		return 0;
 	}
+}
+
+void UIElementChangeParent(UIElement *element, UIElement *newParent, bool insertAtStart) {
+	UIElement **link = &element->parent->children;
+
+	while (true) {
+		if (*link == element) {
+			*link = element->next;
+			break;
+		} else {
+			link = &(*link)->next;
+		}
+	}
+
+	if (insertAtStart) {
+		element->next = newParent->children;
+		newParent->children = element;
+	} else {
+		link = &newParent->children;
+		element->next = NULL;
+
+		while (true) {
+			if (!(*link)) {
+				*link = element;
+				break;
+			} else {
+				link = &(*link)->next;
+			}
+		}
+	}
+
+	element->parent = newParent;
+	element->window = newParent->window;
 }
 
 UIElement *UIElementCreate(size_t bytes, UIElement *parent, uint32_t flags, int (*message)(UIElement *, UIMessage, int, void *), const char *cClassName) {
@@ -3602,7 +3636,7 @@ void UIWindowRegisterShortcut(UIWindow *window, UIShortcut shortcut) {
 	window->shortcuts[window->shortcutCount++] = shortcut;
 }
 
-void _UIElementPaint(UIElement *element, UIPainter *painter, bool forRepaint) {
+void _UIElementPaint(UIElement *element, UIPainter *painter) {
 	if (element->flags & UI_ELEMENT_HIDE) {
 		return;
 	}
@@ -3626,7 +3660,7 @@ void _UIElementPaint(UIElement *element, UIPainter *painter, bool forRepaint) {
 
 	while (child) {
 		painter->clip = previousClip;
-		_UIElementPaint(child, painter, forRepaint);
+		_UIElementPaint(child, painter);
 		child = child->next;
 	}
 }
@@ -3732,7 +3766,7 @@ void _UIUpdate() {
 				painter.width = window->width;
 				painter.height = window->height;
 				painter.clip = UIRectangleIntersection(UI_RECT_2S(window->width, window->height), window->updateRegion);
-				_UIElementPaint(&window->e, &painter, true);
+				_UIElementPaint(&window->e, &painter);
 				_UIWindowEndPaint(window, &painter);
 				window->updateRegion = UI_RECT_1(0);
 
@@ -4095,7 +4129,7 @@ int _UIInspectorTableMessage(UIElement *element, UIMessage message, int di, void
 			window->bits[i] = 0xFF00FF;
 		}
 
-		_UIElementPaint(&window->e, &painter, false);
+		_UIElementPaint(&window->e, &painter);
 		painter.clip = UI_RECT_2S(window->width, window->height);
 
 		if (element) {

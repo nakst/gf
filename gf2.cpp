@@ -4,7 +4,6 @@
 
 // TODO Cleanup.
 // 	- NULL vs nullptr.
-// 	- Replace printing errors to the console with UIDialogShow.
 
 // TODO Run until current line reached again, maybe Ctrl+F10? I think "tbreak\nc" should work.
 
@@ -297,11 +296,6 @@ int TrafficLightMessage(UIElement *element, UIMessage message, int di, void *dp)
 	}
 
 	return 0;
-}
-
-void InterfaceShowError(const char *message) {
-	UICodeInsertContent(displayOutput, message, -1, false);
-	UIElementRefresh(&displayOutput->e);
 }
 
 //////////////////////////////////////////////////////
@@ -1004,8 +998,6 @@ bool DisplaySetPosition(const char *file, int line, bool useGDBToGetFullPath) {
 		StringFormat(currentFile, 4096, "%s", originalFile);
 		realpath(currentFile, currentFileFull);
 
-		printf("attempting to load '%s' (from '%s')\n", file, originalFile);
-
 		size_t bytes;
 		char *buffer2 = LoadFile(file, &bytes);
 
@@ -1314,8 +1306,11 @@ struct BitmapViewer {
 	char width[256];
 	char height[256];
 	char stride[256];
+	int parsedWidth, parsedHeight;
 	UIButton *autoToggle;
 	UIImageDisplay *display;
+	UIPanel *labelPanel;
+	UILabel *label;
 };
 
 Array<UIElement *> autoUpdateBitmapViewers;
@@ -1324,6 +1319,10 @@ bool autoUpdateBitmapViewersQueued;
 int BitmapViewerWindowMessage(UIElement *element, UIMessage message, int di, void *dp) {
 	if (message == UI_MSG_DESTROY) {
 		free(element->cp);
+	} else if (message == UI_MSG_GET_WIDTH) {
+		return ((BitmapViewer *) element->cp)->parsedWidth;
+	} else if (message == UI_MSG_GET_HEIGHT) {
+		return ((BitmapViewer *) element->cp)->parsedHeight;
 	}
 	
 	return 0;
@@ -1364,25 +1363,26 @@ int BitmapViewerAutoMessage(UIElement *element, UIMessage message, int di, void 
 	return 0;
 }
 
-void BitmapViewerUpdate(const char *pointerString, const char *widthString, const char *heightString, const char *strideString, UIElement *owner) {
+const char *BitmapViewerGetBits(const char *pointerString, const char *widthString, const char *heightString, const char *strideString,
+		uint32_t **_bits, int *_width, int *_height, int *_stride) {
 	const char *widthResult = EvaluateExpression(widthString);
-	if (!widthResult) { InterfaceShowError("Could not evaluate width.\n"); return; }
+	if (!widthResult) { return "Could not evaluate width."; }
 	int width = atoi(widthResult + 1);
 	const char *heightResult = EvaluateExpression(heightString);
-	if (!heightResult) { InterfaceShowError("Could not evaluate height.\n"); return; }
+	if (!heightResult) { return "Could not evaluate height."; }
 	int height = atoi(heightResult + 1);
 	int stride = width * 4;
 	const char *pointerResult = EvaluateExpression(pointerString);
-	if (!pointerResult) { InterfaceShowError("Could not evaluate pointer.\n"); return; }
+	if (!pointerResult) { return "Could not evaluate pointer."; }
 	char _pointerResult[1024];
 	StringFormat(_pointerResult, sizeof(_pointerResult), "%s", pointerResult);
 	pointerResult = strstr(_pointerResult, " 0x");
-	if (!pointerResult) { InterfaceShowError("Pointer to image bits does not look like an address!\n"); return; }
+	if (!pointerResult) { return "Pointer to image bits does not look like an address!"; }
 	pointerResult++;
 
 	if (strideString && *strideString) {
 		const char *strideResult = EvaluateExpression(strideString);
-		if (!strideResult) { InterfaceShowError("Could not evaluate stride.\n"); return; }
+		if (!strideResult) { return "Could not evaluate stride."; }
 		stride = atoi(strideResult + 1);
 	}
 
@@ -1401,32 +1401,51 @@ void BitmapViewerUpdate(const char *pointerString, const char *widthString, cons
 	}
 
 	if (!f || strstr(evaluateResult, "access")) {
-		InterfaceShowError("Could not read the image bits!\n");
-	} else {
-		if (!owner) {
-			BitmapViewer *bitmap = (BitmapViewer *) calloc(1, sizeof(BitmapViewer));
-			strcpy(bitmap->pointer, pointerString);
-			strcpy(bitmap->width, widthString);
-			strcpy(bitmap->height, heightString);
-			if (strideString) strcpy(bitmap->stride, strideString);
-
-			UIMDIChild *window = UIMDIChildCreate(&dataWindow->e, UI_MDI_CHILD_CLOSE_BUTTON, UI_RECT_1(0), "Bitmap", -1);
-			window->e.messageUser = BitmapViewerWindowMessage;
-			window->e.cp = bitmap;
-			bitmap->autoToggle = UIButtonCreate(&window->e, UI_BUTTON_SMALL | UI_ELEMENT_NON_CLIENT, "Auto", -1);
-			bitmap->autoToggle->e.messageUser = BitmapViewerAutoMessage;
-			UIButtonCreate(&window->e, UI_BUTTON_SMALL | UI_ELEMENT_NON_CLIENT, "Refresh", -1)->e.messageUser = BitmapViewerRefreshMessage;
-			owner = &window->e;
-
-			bitmap->display = UIImageDisplayCreate(owner, UI_IMAGE_DISPLAY_INTERACTIVE | UI_ELEMENT_H_FILL | UI_ELEMENT_V_FILL, bits, width, height, stride);
-		}
-
-		BitmapViewer *bitmap = (BitmapViewer *) owner->cp;
-		UIImageDisplaySetContent(bitmap->display, bits, width, height, stride);
-		UIElementRefresh(&bitmap->display->e);
-		UIElementRefresh(owner);
-		UIElementRefresh(&dataWindow->e);
+		return "Could not read the image bits!";
 	}
+
+	*_bits = bits, *_width = width, *_height = height, *_stride = stride;
+	return nullptr;
+}
+
+void BitmapViewerUpdate(const char *pointerString, const char *widthString, const char *heightString, const char *strideString, UIElement *owner) {
+	uint32_t *bits = nullptr;
+	int width = 0, height = 0, stride = 0;
+	const char *error = BitmapViewerGetBits(pointerString, widthString, heightString, strideString,
+			&bits, &width, &height, &stride);
+
+	if (!owner) {
+		BitmapViewer *bitmap = (BitmapViewer *) calloc(1, sizeof(BitmapViewer));
+		if (pointerString) StringFormat(bitmap->pointer, sizeof(bitmap->pointer), "%s", pointerString);
+		if (widthString) StringFormat(bitmap->width, sizeof(bitmap->width), "%s", widthString);
+		if (heightString) StringFormat(bitmap->height, sizeof(bitmap->height), "%s", heightString);
+		if (strideString) StringFormat(bitmap->stride, sizeof(bitmap->stride), "%s", strideString);
+
+		UIMDIChild *window = UIMDIChildCreate(&dataWindow->e, UI_MDI_CHILD_CLOSE_BUTTON, UI_RECT_1(0), "Bitmap", -1);
+		window->e.messageUser = BitmapViewerWindowMessage;
+		window->e.cp = bitmap;
+		bitmap->autoToggle = UIButtonCreate(&window->e, UI_BUTTON_SMALL | UI_ELEMENT_NON_CLIENT, "Auto", -1);
+		bitmap->autoToggle->e.messageUser = BitmapViewerAutoMessage;
+		UIButtonCreate(&window->e, UI_BUTTON_SMALL | UI_ELEMENT_NON_CLIENT, "Refresh", -1)->e.messageUser = BitmapViewerRefreshMessage;
+		owner = &window->e;
+
+		UIPanel *panel = UIPanelCreate(owner, UI_PANEL_EXPAND);
+		bitmap->display = UIImageDisplayCreate(&panel->e, UI_IMAGE_DISPLAY_INTERACTIVE | UI_ELEMENT_V_FILL, bits, width, height, stride);
+		bitmap->labelPanel = UIPanelCreate(&panel->e, UI_PANEL_GRAY | UI_ELEMENT_V_FILL);
+		bitmap->label = UILabelCreate(&bitmap->labelPanel->e, UI_ELEMENT_H_FILL, NULL, 0);
+	}
+
+	BitmapViewer *bitmap = (BitmapViewer *) owner->cp;
+	bitmap->parsedWidth = width, bitmap->parsedHeight = height;
+	UIImageDisplaySetContent(bitmap->display, bits, width, height, stride);
+	if (error) UILabelSetContent(bitmap->label, error, -1);
+	if (error) bitmap->labelPanel->e.flags &= ~UI_ELEMENT_HIDE, bitmap->display->e.flags |= UI_ELEMENT_HIDE;
+	else bitmap->labelPanel->e.flags |= UI_ELEMENT_HIDE, bitmap->display->e.flags &= ~UI_ELEMENT_HIDE;
+	UIElementRefresh(&bitmap->display->e);
+	UIElementRefresh(&bitmap->label->e);
+	UIElementRefresh(bitmap->labelPanel->e.parent);
+	UIElementRefresh(owner);
+	UIElementRefresh(&dataWindow->e);
 
 	free(bits);
 }
@@ -1826,6 +1845,8 @@ int WatchLoggerWindowMessage(UIElement *element, UIMessage message, int di, void
 			logger->entries.Free();
 			free(logger);
 		}
+	} else if (message == UI_MSG_GET_WIDTH || message == UI_MSG_GET_HEIGHT) {
+		return element->window->scale * 200;
 	}
 
 	return 0;
@@ -1905,6 +1926,7 @@ void WatchChangeLoggerCreate(WatchWindow *w) {
 	child->e.messageUser = WatchLoggerWindowMessage;
 	table->e.messageUser = WatchLoggerTableMessage;
 	watchLoggers.Add(logger);
+	UIElementRefresh(&dataWindow->e);
 
 	UIDialogShow(windowMain, 0, "The log has been setup in the data window.\n%f%b", "OK");
 	return;
@@ -2290,26 +2312,21 @@ void CommandToggleFillDataTab(void *) {
 	// HACK.
 
 	if (!dataTab) return;
-
 	static UIElement *oldParent;
-	static UIElement *rootPanel;
-
 	UIWindow *window = dataTab->e.window;
 	
 	if (window->e.children == &dataTab->e) {
-		window->e.children = rootPanel;
-		dataTab->e.parent = oldParent;
+		UIElementChangeParent(&dataTab->e, oldParent, false);
 		buttonFillWindow->e.flags &= ~UI_BUTTON_CHECKED;
 		UIElementRefresh(&window->e);
-		UIElementRefresh(rootPanel);
+		UIElementRefresh(window->e.children);
 		UIElementRefresh(oldParent);
 	} else {
-		rootPanel = window->e.children;
 		dataTab->e.flags &= ~UI_ELEMENT_HIDE;
 		UIElementMessage(&dataTab->e, UI_MSG_TAB_SELECTED, 0, 0);
-		window->e.children = &dataTab->e;
 		oldParent = dataTab->e.parent;
-		dataTab->e.parent = &window->e;
+		window->e.children->clip = UI_RECT_1(0);
+		UIElementChangeParent(&dataTab->e, &window->e, true);
 		buttonFillWindow->e.flags |= UI_BUTTON_CHECKED;
 		UIElementRefresh(&window->e);
 		UIElementRefresh(&dataTab->e);
@@ -2422,10 +2439,12 @@ bool FilesPanelPopulate(FilesWindow *window) {
 	});
 
 	for (int i = 0; i < names.Length(); i++) {
-		if (names[i][0] == '.' && names[i][1] == 0) continue;
-		UIButton *button = UIButtonCreate(&window->panel->e, 0, names[i], -1);
-		button->e.cp = window;
-		button->e.messageUser = FilesButtonMessage;
+		if (names[i][0] != '.' || names[i][1] != 0) {
+			UIButton *button = UIButtonCreate(&window->panel->e, 0, names[i], -1);
+			button->e.cp = window;
+			button->e.messageUser = FilesButtonMessage;
+		}
+
 		free(names[i]);
 	}
 
