@@ -2,9 +2,6 @@
 // 	We should probably ask the user if they trust the local config file the first time it's seen, and each time it's modified.
 // 	Otherwise opening the application in the wrong directory could be dangerous (you can easily get GDB to run shell commands).
 
-// TODO Cleanup.
-// 	- NULL vs nullptr.
-
 // TODO Run until current line reached again, maybe Ctrl+F10? I think "tbreak\nc" should work.
 
 // TODO Disassembly window extensions.
@@ -14,14 +11,11 @@
 // 	- Shift+F10: run to next instruction (for skipping past loops).
 
 // TODO Data window extensions.
-// 	- Use error dialogs for bitmap errors.
 // 	- Copy bitmap to clipboard, or save to file.
 
 // TODO Watch window.
 //	- Better toggle buttons.
-// 	- Improve performance if possible?
 // 	- Lock pointer address.
-// 	- Record a log of everytime the value changes.
 
 // TODO Future extensions.
 // 	- Memory window.
@@ -233,7 +227,7 @@ char *LoadFile(const char *path, size_t *_bytes) {
 	FILE *f = fopen(path, "rb");
 
 	if (!f) {
-		return NULL;
+		return nullptr;
 	}
 
 	fseek(f, 0, SEEK_END);
@@ -365,14 +359,14 @@ void *DebuggerThread(void *) {
 		receiveBufferPosition = 0;
 	}
 
-	return NULL;
+	return nullptr;
 }
 
 void DebuggerStartThread() {
 	pthread_t debuggerThread;
 	pthread_attr_t attributes;
 	pthread_attr_init(&attributes);
-	pthread_create(&debuggerThread, &attributes, DebuggerThread, NULL);
+	pthread_create(&debuggerThread, &attributes, DebuggerThread, nullptr);
 	gdbThread = debuggerThread;
 }
 
@@ -382,7 +376,7 @@ void DebuggerSend(const char *string, bool echo) {
 	}
 
 	programRunning = true;
-	UIElementRepaint(&trafficLight->e, NULL);
+	UIElementRepaint(&trafficLight->e, nullptr);
 
 	// printf("sending: %s\n", string);
 
@@ -413,7 +407,7 @@ void EvaluateCommand(const char *command, bool echo = false) {
 	pthread_cond_timedwait(&evaluateEvent, &evaluateMutex, &timeout);
 	pthread_mutex_unlock(&evaluateMutex);
 	programRunning = false;
-	UIElementRepaint(&trafficLight->e, NULL);
+	UIElementRepaint(&trafficLight->e, nullptr);
 }
 
 const char *EvaluateExpression(const char *expression) {
@@ -752,7 +746,7 @@ void CommandCustom(void *_command) {
 		StringFormat(buffer, 4096, "Running shell command \"%s\"...\n", command);
 		UICodeInsertContent(displayOutput, buffer, -1, false);
 		StringFormat(buffer, 4096, "%s > .output.gf 2>&1", command);
-		int start = time(NULL);
+		int start = time(nullptr);
 		int result = system(buffer);
 		size_t bytes;
 		char *output = LoadFile(".output.gf", &bytes);
@@ -773,7 +767,7 @@ void CommandCustom(void *_command) {
 		UICodeInsertContent(displayOutput, copy, j, false);
 		free(output);
 		free(copy);
-		StringFormat(buffer, 4096, "(exit code: %d; time: %ds)\n", result, (int) (time(NULL) - start));
+		StringFormat(buffer, 4096, "(exit code: %d; time: %ds)\n", result, (int) (time(nullptr) - start));
 		UICodeInsertContent(displayOutput, buffer, -1, false);
 		UIElementRefresh(&displayOutput->e);
 	} else {
@@ -840,7 +834,7 @@ const char *themeItems[] = {
 int ThemeEditorWindowMessage(UIElement *element, UIMessage message, int di, void *dp) {
 	if (message == UI_MSG_WINDOW_CLOSE) {
 		UIElementDestroy(element);
-		themeEditor.window = NULL;
+		themeEditor.window = nullptr;
 		return 1;
 	}
 
@@ -861,7 +855,7 @@ int ThemeEditorTableMessage(UIElement *element, UIMessage message, int di, void 
 		themeEditor.selectedColor = UITableHitTest((UITable *) element, element->window->cursorX, element->window->cursorY);
 		UIColorToHSV(ui.theme.colors[themeEditor.selectedColor],
 			&themeEditor.colorPicker->hue, &themeEditor.colorPicker->saturation, &themeEditor.colorPicker->value);
-		UIElementRepaint(&themeEditor.colorPicker->e, NULL);
+		UIElementRepaint(&themeEditor.colorPicker->e, nullptr);
 	}
 
 	return 0;
@@ -871,8 +865,8 @@ int ThemeEditorColorPickerMessage(UIElement *element, UIMessage message, int di,
 	if (message == UI_MSG_VALUE_CHANGED && themeEditor.selectedColor >= 0) {
 		UIColorToRGB(themeEditor.colorPicker->hue, themeEditor.colorPicker->saturation, themeEditor.colorPicker->value,
 			&ui.theme.colors[themeEditor.selectedColor]);
-		UIElementRepaint(&windowMain->e, NULL);
-		UIElementRepaint(&element->window->e, NULL);
+		UIElementRepaint(&windowMain->e, nullptr);
+		UIElementRepaint(&element->window->e, nullptr);
 	}
 
 	return 0;
@@ -887,10 +881,10 @@ void CommandLoadTheme(void *) {
 		fread(&ui.theme, 1, sizeof(ui.theme), f);
 		fclose(f);
 
-		UIElementRepaint(&windowMain->e, NULL);
+		UIElementRepaint(&windowMain->e, nullptr);
 
 		if (themeEditor.window) {
-			UIElementRepaint(&themeEditor.window->e, NULL);
+			UIElementRepaint(&themeEditor.window->e, nullptr);
 		}
 	}
 }
@@ -908,8 +902,8 @@ void CommandSaveTheme(void *) {
 
 void ColorPresetLoad(void *cp) {
 	memcpy(&ui.theme, cp, sizeof(UITheme));
-	UIElementRepaint(&windowMain->e, NULL);
-	UIElementRepaint(&themeEditor.window->e, NULL);
+	UIElementRepaint(&windowMain->e, nullptr);
+	UIElementRepaint(&themeEditor.window->e, nullptr);
 }
 
 void CommandThemeEditor(void *) {
@@ -1432,7 +1426,7 @@ void BitmapViewerUpdate(const char *pointerString, const char *widthString, cons
 		UIPanel *panel = UIPanelCreate(owner, UI_PANEL_EXPAND);
 		bitmap->display = UIImageDisplayCreate(&panel->e, UI_IMAGE_DISPLAY_INTERACTIVE | UI_ELEMENT_V_FILL, bits, width, height, stride);
 		bitmap->labelPanel = UIPanelCreate(&panel->e, UI_PANEL_GRAY | UI_ELEMENT_V_FILL);
-		bitmap->label = UILabelCreate(&bitmap->labelPanel->e, UI_ELEMENT_H_FILL, NULL, 0);
+		bitmap->label = UILabelCreate(&bitmap->labelPanel->e, UI_ELEMENT_H_FILL, nullptr, 0);
 	}
 
 	BitmapViewer *bitmap = (BitmapViewer *) owner->cp;
@@ -2030,7 +2024,7 @@ int WatchWindowMessage(UIElement *element, UIMessage message, int di, void *dp) 
 	} else if (message == UI_MSG_LEFT_DOWN) {
 		w->selectedRow = (element->window->cursorY - element->bounds.t) / rowHeight;
 		UIElementFocus(element);
-		UIElementRepaint(element, NULL);
+		UIElementRepaint(element, nullptr);
 	} else if (message == UI_MSG_RIGHT_DOWN) {
 		int index = (element->window->cursorY - element->bounds.t) / rowHeight;
 
@@ -2052,7 +2046,7 @@ int WatchWindowMessage(UIElement *element, UIMessage message, int di, void *dp) 
 			UIMenuShow(menu);
 		}
 	} else if (message == UI_MSG_UPDATE) {
-		UIElementRepaint(element, NULL);
+		UIElementRepaint(element, nullptr);
 	} else if (message == UI_MSG_KEY_TYPED) {
 		UIKeyTyped *m = (UIKeyTyped *) dp;
 		result = 1;
@@ -2147,7 +2141,7 @@ int WatchPanelMessage(UIElement *element, UIMessage message, int di, void *dp) {
 	if (message == UI_MSG_LEFT_DOWN) {
 		UIElement *window = ((WatchWindow *) element->cp)->element;
 		UIElementFocus(window);
-		UIElementRepaint(window, NULL);
+		UIElementRepaint(window, nullptr);
 	}
 
 	return 0;
@@ -2224,7 +2218,7 @@ int TableStackMessage(UIElement *element, UIMessage message, int di, void *dp) {
 			DebuggerSend(buffer, false);
 			stackSelected = index;
 			stackChanged = true;
-			UIElementRepaint(element, NULL);
+			UIElementRepaint(element, nullptr);
 		}
 	}
 
@@ -2599,6 +2593,7 @@ struct InterfaceWindow {
 	UIElement *(*create)(UIElement *parent);
 	void (*update)(const char *data, UIElement *element);
 	UIElement *element;
+	bool queuedUpdate;
 };
 
 const InterfaceCommand interfaceCommands[] = {
@@ -2617,7 +2612,7 @@ const InterfaceCommand interfaceCommands[] = {
 	{ .label = "Sync with gvim\tF2", { .code = UI_KEYCODE_F2, .invoke = CommandSyncWithGvim } },
 	{ .label = "Ask GDB for PWD\tCtrl+Shift+P", { .code = UI_KEYCODE_LETTER('P'), .ctrl = true, .shift = true, .invoke = CommandAskGDBForPWD } },
 	{ .label = "Toggle disassembly\tCtrl+D", { .code = UI_KEYCODE_LETTER('D'), .ctrl = true, .invoke = CommandToggleDisassembly } },
-	{ .label = NULL, { .code = UI_KEYCODE_LETTER('B'), .ctrl = true, .invoke = CommandToggleFillDataTab } },
+	{ .label = nullptr, { .code = UI_KEYCODE_LETTER('B'), .ctrl = true, .invoke = CommandToggleFillDataTab } },
 	{ .label = "Theme Editor", { .invoke = CommandThemeEditor } },
 };
 
@@ -2627,11 +2622,11 @@ InterfaceWindow interfaceWindows[] = {
 	{ "Breakpoints", BreakpointsWindowCreate, BreakpointsWindowUpdate, },
 	{ "Registers", RegistersWindowCreate, RegistersWindowUpdate, },
 	{ "Watch", WatchWindowCreate, WatchWindowUpdate, },
-	{ "Commands", CommandsWindowCreate, NULL, },
-	{ "Data", DataWindowCreate, NULL, },
-	{ "Struct", StructWindowCreate, NULL, },
-	{ "Files", FilesWindowCreate, NULL, },
-	{ "Console", ConsoleWindowCreate, NULL, },
+	{ "Commands", CommandsWindowCreate, nullptr, },
+	{ "Data", DataWindowCreate, nullptr, },
+	{ "Struct", StructWindowCreate, nullptr, },
+	{ "Files", FilesWindowCreate, nullptr, },
+	{ "Console", ConsoleWindowCreate, nullptr, },
 };
 
 void LoadSettings(bool earlyPass) {
@@ -2728,6 +2723,18 @@ void InterfaceShowMenu(void *) {
 	UIMenuShow(menu);
 }
 
+bool ElementHidden(UIElement *element) {
+	while (element) {
+		if (element->flags & UI_ELEMENT_HIDE) {
+			return true;
+		} else {
+			element = element->parent;
+		}
+	}
+
+	return false;
+}
+
 int WindowMessage(UIElement *, UIMessage message, int di, void *dp) {
 	if (message == MSG_RECEIVED_DATA) {
 		programRunning = false;
@@ -2743,15 +2750,17 @@ int WindowMessage(UIElement *, UIMessage message, int di, void *dp) {
 		DebuggerGetBreakpoints();
 
 		for (uintptr_t i = 0; i < sizeof(interfaceWindows) / sizeof(interfaceWindows[0]); i++) {
-			if (!interfaceWindows[i].update || !interfaceWindows[i].element) continue;
-			interfaceWindows[i].update(input, interfaceWindows[i].element);
+			InterfaceWindow *window = &interfaceWindows[i];
+			if (!window->update || !window->element) continue;
+			if (ElementHidden(window->element)) window->queuedUpdate = true;
+			else window->update(input, window->element);
 		}
 
 		BitmapViewerUpdateAll();
 
 		UICodeInsertContent(displayOutput, input, -1, false);
 		UIElementRefresh(&displayOutput->e);
-		UIElementRepaint(&trafficLight->e, NULL);
+		UIElementRepaint(&trafficLight->e, nullptr);
 		skip:;
 		free(input);
 	} else if (message == MSG_RECEIVED_CONTROL) {
@@ -2762,12 +2771,31 @@ int WindowMessage(UIElement *, UIMessage message, int di, void *dp) {
 		if (input[0] == 'f' && input[1] == ' ') {
 			DisplaySetPosition(input + 2, 1, false);
 		} else if (input[0] == 'l' && input[1] == ' ') {
-			DisplaySetPosition(NULL, atoi(input + 2), false);
+			DisplaySetPosition(nullptr, atoi(input + 2), false);
 		} else if (input[0] == 'c' && input[1] == ' ') {
 			DebuggerSend(input + 2, true);
 		}
 
 		free(input);
+	}
+
+	return 0;
+}
+
+int InterfaceTabPaneMessage(UIElement *element, UIMessage message, int di, void *dp) {
+	if (message == UI_MSG_LAYOUT) {
+		element->messageClass(element, message, di, dp);
+
+		for (uintptr_t i = 0; i < sizeof(interfaceWindows) / sizeof(interfaceWindows[0]); i++) {
+			InterfaceWindow *window = &interfaceWindows[i];
+
+			if ((~window->element->flags & UI_ELEMENT_HIDE) && window->queuedUpdate) {
+				window->queuedUpdate = false;
+				window->update("", window->element);
+			}
+		}
+
+		return 1;
 	}
 
 	return 0;
@@ -2789,6 +2817,7 @@ void InterfaceLayoutCreate(UIElement *parent) {
 		char *copy = strdup(layoutString);
 		for (uintptr_t i = 0; copy[i]; i++) if (copy[i] == ',') copy[i] = '\t'; else if (copy[i] == ')') copy[i] = 0;
 		container = &UITabPaneCreate(parent, UI_ELEMENT_V_FILL | UI_ELEMENT_H_FILL, copy)->e;
+		container->messageUser = InterfaceTabPaneMessage;
 	} else {
 		bool found = false;
 
@@ -2840,10 +2869,10 @@ extern "C" void InterfaceCreate(UIWindow *_window) {
 	}
 
 	LoadSettings(false);
-	CommandLoadTheme(NULL);
+	CommandLoadTheme(nullptr);
 
-	pthread_cond_init(&evaluateEvent, NULL);
-	pthread_mutex_init(&evaluateMutex, NULL);
+	pthread_cond_init(&evaluateEvent, nullptr);
+	pthread_mutex_init(&evaluateMutex, nullptr);
 	DebuggerStartThread();
 }
 
@@ -2856,12 +2885,12 @@ void SignalINT(int sig) {
 int main(int argc, char **argv) {
 	struct sigaction sigintHandler = {};
 	sigintHandler.sa_handler = SignalINT;
-	sigaction(SIGINT, &sigintHandler, NULL);
+	sigaction(SIGINT, &sigintHandler, nullptr);
 
 	StringFormat(controlPipePath, sizeof(controlPipePath), "%s/.config/gf2_control.dat", getenv("HOME"));
 	mkfifo(controlPipePath, 6 + 6 * 8 + 6 * 64);
 	pthread_t thread;
-	pthread_create(&thread, NULL, ControlPipeThread, NULL);
+	pthread_create(&thread, nullptr, ControlPipeThread, nullptr);
 
 	// Setup GDB arguments.
 	gdbArgv = (char **) malloc(sizeof(char *) * (argc + 1));
@@ -2872,7 +2901,7 @@ int main(int argc, char **argv) {
 	LoadSettings(true);
 	UIInitialise();
 	InterfaceCreate(UIWindowCreate(0, 0, "gf2", 0, 0));
-	CommandSyncWithGvim(NULL);
+	CommandSyncWithGvim(nullptr);
 	UIMessageLoop();
 	DebuggerClose();
 
