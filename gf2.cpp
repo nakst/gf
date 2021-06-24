@@ -1,7 +1,3 @@
-// TODO Config file security concerns.
-// 	We should probably ask the user if they trust the local config file the first time it's seen, and each time it's modified.
-// 	Otherwise opening the application in the wrong directory could be dangerous (you can easily get GDB to run shell commands).
-
 // TODO Run until current line reached again, maybe Ctrl+F10? I think "tbreak\nc" should work.
 
 // TODO Disassembly window extensions.
@@ -2632,9 +2628,60 @@ InterfaceWindow interfaceWindows[] = {
 void LoadSettings(bool earlyPass) {
 	char globalConfigPath[4096];
 	StringFormat(globalConfigPath, 4096, "%s/.config/gf2_config.ini", getenv("HOME"));
+	bool currentFolderIsTrusted = false;
+	static bool cwdConfigNotTrusted = false;
 
 	for (int i = 0; i < 2; i++) {
 		INIState state = { .buffer = LoadFile(i ? ".project.gf" : globalConfigPath, &state.bytes) };
+
+		if (earlyPass && i && !currentFolderIsTrusted && state.buffer) {
+			fprintf(stderr, "Would you like to load the config file .project.gf from your current directory?\n");
+			fprintf(stderr, "You have not loaded this config file before.\n");
+			fprintf(stderr, "(Y) - Yes, and add it to the list of trusted files\n");
+			fprintf(stderr, "(N) - No\n");
+			char c = 'n';
+			fread(&c, 1, 1, stdin);
+
+			if (c != 'y') {
+				cwdConfigNotTrusted = true;
+				break;
+			} else {
+				char *config = LoadFile(globalConfigPath, nullptr);
+				size_t length = config ? strlen(config) : 0;
+				size_t insert = 0;
+				const char *sectionString = "\n[trusted_folders]\n";
+				bool addSectionString = true;
+
+				if (config) {
+					char *section = strstr(config, sectionString);
+
+					if (section) {
+						insert = section - config + strlen(sectionString);
+						addSectionString = false;
+					} else {
+						insert = length;
+					}
+				}
+
+				FILE *f = fopen(globalConfigPath, "wb");
+				
+				if (!f) {
+					fprintf(stderr, "Error: Could not modify the global config file!\n");
+				} else {
+					if (insert) fwrite(config, 1, insert, f);
+					if (addSectionString) fwrite(sectionString, 1, strlen(sectionString), f);
+					char path[PATH_MAX];
+					getcwd(path, sizeof(path));
+					fwrite(path, 1, strlen(path), f);
+					char newline = '\n';
+					fwrite(&newline, 1, 1, f);
+					if (length - insert) fwrite(config + insert, 1, length - insert, f);
+					fclose(f);
+				}
+			}
+		} else if (!earlyPass && cwdConfigNotTrusted && i) {
+			break;
+		}
 
 		while (INIParse(&state)) {
 			if (0 == strcmp(state.section, "shortcuts") && *state.key && !earlyPass) {
@@ -2707,6 +2754,10 @@ void LoadSettings(bool earlyPass) {
 				}
 			} else if (0 == strcmp(state.section, "commands") && earlyPass && state.keyBytes && state.valueBytes) {
 				presetCommands.Add(state);
+			} else if (0 == strcmp(state.section, "trusted_folders") && earlyPass && state.keyBytes) {
+				char path[PATH_MAX];
+				getcwd(path, sizeof(path));
+				if (0 == strcmp(path, state.key)) currentFolderIsTrusted = true;
 			}
 		}
 	}
