@@ -1,5 +1,3 @@
-// TODO Run until current line reached again, maybe Ctrl+F10? I think "tbreak\nc" should work.
-
 // TODO Disassembly window extensions.
 // 	- Split source and disassembly view.
 // 	- Setting/clearing/showing breakpoints.
@@ -1959,6 +1957,21 @@ bool WatchLoggerUpdate(char *data) {
 	return false;
 }
 
+void WatchCreateTextboxForRow(WatchWindow *w, bool addExistingText) {
+	int rowHeight = (int) (UI_SIZE_TEXTBOX_HEIGHT * w->element->window->scale);
+	UIRectangle row = w->element->bounds;
+	row.t += w->selectedRow * rowHeight, row.b = row.t + rowHeight;
+	w->textbox = UITextboxCreate(w->element, 0);
+	w->textbox->e.messageUser = WatchTextboxMessage;
+	w->textbox->e.cp = w;
+	UIElementMove(&w->textbox->e, row, true);
+	UIElementFocus(&w->textbox->e);
+
+	if (addExistingText) {
+		UITextboxReplace(w->textbox, w->rows[w->selectedRow]->key, -1, false);
+	}
+}
+
 int WatchWindowMessage(UIElement *element, UIMessage message, int di, void *dp) {
 	WatchWindow *w = (WatchWindow *) element->cp;
 	int rowHeight = (int) (UI_SIZE_TEXTBOX_HEIGHT * element->window->scale);
@@ -2028,12 +2041,18 @@ int WatchWindowMessage(UIElement *element, UIMessage message, int di, void *dp) 
 			WatchWindowMessage(element, UI_MSG_LEFT_DOWN, di, dp);
 			UIMenu *menu = UIMenuCreate(&element->window->e, 0);
 
-			UIMenuAddItem(menu, 0, "Delete", -1, [] (void *cp) { 
-				WatchWindow *w = (WatchWindow *) cp;
-				WatchDeleteExpression(w); 
-				UIElementRefresh(w->element->parent);
-				UIElementRefresh(w->element);
-			}, w);
+			if (!w->rows[index]->parent) {
+				UIMenuAddItem(menu, 0, "Edit expression", -1, [] (void *cp) { 
+					WatchCreateTextboxForRow((WatchWindow *) cp, true); 
+				}, w);
+
+				UIMenuAddItem(menu, 0, "Delete", -1, [] (void *cp) { 
+					WatchWindow *w = (WatchWindow *) cp;
+					WatchDeleteExpression(w); 
+					UIElementRefresh(w->element->parent);
+					UIElementRefresh(w->element);
+				}, w);
+			}
 
 			UIMenuAddItem(menu, 0, "Log changes", -1, [] (void *cp) { 
 				WatchChangeLoggerCreate((WatchWindow *) cp); 
@@ -2050,26 +2069,13 @@ int WatchWindowMessage(UIElement *element, UIMessage message, int di, void *dp) 
 		if ((m->code == UI_KEYCODE_ENTER || m->code == UI_KEYCODE_BACKSPACE) 
 				&& w->selectedRow != w->rows.Length() && !w->textbox
 				&& !w->rows[w->selectedRow]->parent) {
-			UIRectangle row = element->bounds;
-			row.t += w->selectedRow * rowHeight, row.b = row.t + rowHeight;
-			w->textbox = UITextboxCreate(element, 0);
-			w->textbox->e.messageUser = WatchTextboxMessage;
-			w->textbox->e.cp = w;
-			UIElementMove(&w->textbox->e, row, true);
-			UIElementFocus(&w->textbox->e);
-			UITextboxReplace(w->textbox, w->rows[w->selectedRow]->key, -1, false);
+			WatchCreateTextboxForRow(w, true);
 		} else if (m->code == UI_KEYCODE_DELETE && !w->textbox
 				&& w->selectedRow != w->rows.Length() && !w->rows[w->selectedRow]->parent) {
 			WatchDeleteExpression(w);
 		} else if (m->textBytes && m->code != UI_KEYCODE_TAB && !w->textbox && !element->window->ctrl && !element->window->alt
 				&& (w->selectedRow == w->rows.Length() || !w->rows[w->selectedRow]->parent)) {
-			UIRectangle row = element->bounds;
-			row.t += w->selectedRow * rowHeight, row.b = row.t + rowHeight;
-			w->textbox = UITextboxCreate(element, 0);
-			w->textbox->e.messageUser = WatchTextboxMessage;
-			w->textbox->e.cp = w;
-			UIElementMove(&w->textbox->e, row, true);
-			UIElementFocus(&w->textbox->e);
+			WatchCreateTextboxForRow(w, false);
 			UIElementMessage(&w->textbox->e, message, di, dp);
 		} else if (m->code == UI_KEYCODE_ENTER && w->textbox) {
 			WatchAddExpression(w);
