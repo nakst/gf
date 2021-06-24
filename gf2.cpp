@@ -656,32 +656,20 @@ void CommandPause(void *) {
 }
 
 void CommandSyncWithGvim(void *) {
-	if (system("vim --servername GVIM --remote-expr \"execute(\\\"ls\\\")\" | grep % > .temp.gf")) {
-		return;
-	}
-
+	FILE *file = popen("vim --servername GVIM --remote-expr \"execute(\\\"ls\\\")\" | grep %", "r");
+	if (!file) return;
 	char buffer[1024];
-	FILE *file = fopen(".temp.gf", "r");
-
-	if (file) {
-		buffer[fread(buffer, 1, 1023, file)] = 0;
-		fclose(file);
-
-		{
-			char *name = strchr(buffer, '"');
-			if (!name) goto done;
-			char *nameEnd = strchr(++name, '"');
-			if (!nameEnd) goto done;
-			*nameEnd = 0;
-			char *line = strstr(nameEnd + 1, "line ");
-			if (!line) goto done;
-			int lineNumber = atoi(line + 5);
-			DisplaySetPosition(name, lineNumber, false);
-		}
-
-		done:;
-		unlink(".temp.gf");
-	}
+	buffer[fread(buffer, 1, 1023, file)] = 0;
+	pclose(file);
+	char *name = strchr(buffer, '"');
+	if (!name) return;
+	char *nameEnd = strchr(++name, '"');
+	if (!nameEnd) return;
+	*nameEnd = 0;
+	char *line = strstr(nameEnd + 1, "line ");
+	if (!line) return;
+	int lineNumber = atoi(line + 5);
+	DisplaySetPosition(name, lineNumber, false);
 }
 
 void CommandToggleBreakpoint(void *_line) {
