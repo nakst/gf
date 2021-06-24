@@ -71,7 +71,7 @@ typedef struct UITheme {
 		};
 
 		struct {
-			uint32_t colors[30];
+			uint32_t colors[32];
 		};
 	};
 } UITheme;

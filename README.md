@@ -55,6 +55,10 @@ You can also configure the interface layout, with the `layout` parameter. Use `h
 
     layout=h(75,v(75,Source,Console),v(50,t(Watch,Breakpoints,Commands,Struct),t(Stack,Files,Registers,Data))))
 
+### Themes
+
+You can change the theme in the `theme` section. See https://github.com/nakst/gf/wiki/Themes for a list of examples.
+
 ### Preset commands
 
 You can create a list of quickly accessible commands, available in the "Commands" tab in the UI. Separate individual commands using a semicolon. For example,
@@ -65,7 +69,15 @@ You can create a list of quickly accessible commands, available in the "Commands
     Run tests=file bin/app;run test_cases.txt
     Set breakpoints=b main;b LoadFile;b AssertionFailure
 
-### Control pipe
+## Tips
+
+- You can run the application with `./gf2`. Any additional command line arguments passed to `gf` will be forwarded to GDB.
+- To view RGBA bitmaps, select the `Data` tab and then select `Add bitmap...`.
+- Ctrl+Click a line in the source view to run "until" that line. Alt+Click a line in the source view to skip to it without executing the code in between.
+- Press Shift+F10 to step out of a block, and press Shift+F11 to step out a function.
+- Press Tab while entering a watch expression to auto-complete it.
+
+## Control pipe
 
 You can change the loaded file and line by sending commands to the control pipe, located at `$HOME/.config/gf2_control.dat`. For example,
 
@@ -78,9 +90,4 @@ You can change the loaded file and line by sending commands to the control pipe,
     # Send a GDB command.
     echo c file myapp > $HOME/.config/gf2_control.dat
 
-## Tips
-
-- You can run the application with `./gf2`. Any additional command line arguments passed to `gf` will be forwarded to GDB.
-- To view RGBA bitmaps, select the `Data` tab and then select `Add bitmap...`.
-- Ctrl+Click a line in the source view to run "until" that line. Alt+Click a line in the source view to skip to it without executing the code in between.
-- Press Shift+F10 to step out of a block, and press Shift+F11 to step out a function.
+This can be used for text editor integration.

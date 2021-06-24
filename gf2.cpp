@@ -763,47 +763,8 @@ void CommandDonate(void *) {
 }
 
 //////////////////////////////////////////////////////
-// Theme editor:
+// Themes:
 //////////////////////////////////////////////////////
-
-struct {
-	UIWindow *window;
-	UIColorPicker *colorPicker;
-	int selectedColor;
-} themeEditor;
-
-const uint8_t colorPresetClassic[] = {
-	0xF0, 0xF0, 0xF0, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x00, 0x00, 0x00, 0xFF, 0x40, 0x40, 0x40, 0xFF,
-	0x40, 0x40, 0x40, 0xFF, 0xE0, 0xE0, 0xE0, 0xFF, 0xF0, 0xF0, 0xF0, 0xFF, 0xA0, 0xA0, 0xA0, 0xFF,
-	0xFF, 0xE4, 0xD3, 0xFF, 0xF0, 0xF0, 0xF0, 0xFF, 0xF8, 0xF8, 0xF8, 0xFF, 0x00, 0x00, 0x00, 0xFF,
-	0xFF, 0xFF, 0xFF, 0xFF, 0xC9, 0x5E, 0x17, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x60, 0x60, 0x60, 0xFF,
-	0xB0, 0xB0, 0xB0, 0xFF, 0xD0, 0xD0, 0xD0, 0xFF, 0x90, 0x90, 0x90, 0xFF, 0xCC, 0xC0, 0xC0, 0x00,
-	0xFF, 0xFF, 0xFF, 0x00, 0x00, 0x00, 0x00, 0x00, 0x76, 0x73, 0x81, 0x00, 0x14, 0x47, 0xCF, 0x00,
-	0x12, 0x9C, 0x00, 0x00, 0xDF, 0x14, 0x13, 0x00, 0x5C, 0x6B, 0x97, 0x00, 0x42, 0xE3, 0x2C, 0xFF,
-	0xFE, 0xBE, 0x94, 0xFF, 0x00, 0x00, 0x00, 0xFF, 0xFF, 0xE4, 0xD3, 0xFF, 0x00, 0x00, 0x00, 0xFF,
-};
-
-const uint8_t colorPresetIce[] = {
-	0xFF, 0xF4, 0xF1, 0x00, 0xFF, 0xFF, 0xFF, 0x00, 0x00, 0x00, 0x00, 0x00, 0x81, 0x7D, 0x78, 0xFF,
-	0x00, 0x00, 0x00, 0x00, 0xFF, 0xED, 0xEA, 0x00, 0xFF, 0xF8, 0xF0, 0x00, 0xFB, 0xC5, 0xB6, 0x00,
-	0xF7, 0xCD, 0xB4, 0x00, 0x23, 0x1F, 0x1B, 0xFF, 0xFF, 0xFF, 0xFF, 0x00, 0x00, 0x00, 0x00, 0x00,
-	0xFF, 0xFF, 0xFF, 0x00, 0xFF, 0xCB, 0xA0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-	0x51, 0x47, 0x38, 0x00, 0x65, 0x65, 0x65, 0x00, 0x27, 0x27, 0x27, 0x00, 0xFF, 0xD6, 0x9C, 0x00,
-	0xFF, 0xF2, 0xE8, 0x00, 0x00, 0x00, 0x00, 0x00, 0x81, 0x6F, 0x7B, 0x00, 0x32, 0x7D, 0x0F, 0x00,
-	0xF5, 0x58, 0x00, 0x00, 0xE7, 0x0E, 0x72, 0x00, 0x92, 0x00, 0x90, 0x00, 0x42, 0xE3, 0x2C, 0xFF,
-	0xFE, 0xD0, 0xB5, 0x00, 0x00, 0x00, 0x00, 0xFF, 0xFF, 0xEC, 0xEC, 0x00, 0x00, 0x00, 0x00, 0xFF,
-};
-
-const uint8_t colorPresetPink[] = {
-	0xF4, 0xF1, 0xFF, 0x00, 0xFF, 0xFF, 0xFF, 0x00, 0x00, 0x00, 0x00, 0x00, 0x7D, 0x78, 0x81, 0x00,
-	0x00, 0x00, 0x00, 0x00, 0xED, 0xEA, 0xFF, 0x00, 0xF8, 0xF0, 0xFF, 0x00, 0xC5, 0xB6, 0xFB, 0x00,
-	0xCD, 0xB4, 0xF7, 0x00, 0x1F, 0x1B, 0x23, 0x00, 0xFF, 0xFF, 0xFF, 0x00, 0x00, 0x00, 0x00, 0x00,
-	0xFF, 0xFF, 0xFF, 0x00, 0xCB, 0xA0, 0xFF, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-	0xD5, 0xBA, 0xEF, 0x00, 0xDF, 0xD5, 0xE0, 0x00, 0x9A, 0x89, 0x99, 0x00, 0xFF, 0xBA, 0xFC, 0x00,
-	0xF2, 0xE8, 0xFF, 0x00, 0x00, 0x00, 0x00, 0x00, 0x6F, 0x7B, 0x81, 0x00, 0x97, 0x46, 0x70, 0x00,
-	0x40, 0x11, 0xC2, 0x00, 0x16, 0x67, 0xC7, 0x00, 0x92, 0x70, 0x7A, 0x00, 0xE3, 0x2B, 0x41, 0x00,
-	0xD0, 0xB5, 0xFE, 0x00, 0x00, 0x00, 0x00, 0x00, 0xFF, 0xEC, 0xEC, 0x00, 0x00, 0x00, 0x00, 0xFF,
-};
 
 const char *themeItems[] = {
 	"panel1", "panel2", "text", "textDisabled", "border",
@@ -814,107 +775,26 @@ const char *themeItems[] = {
 	"gaugeFilled", "tableSelected", "tableSelectedText", "tableHovered", "tableHoveredText",
 };
 
-int ThemeEditorWindowMessage(UIElement *element, UIMessage message, int di, void *dp) {
-	if (message == UI_MSG_WINDOW_CLOSE) {
-		UIElementDestroy(element);
-		themeEditor.window = nullptr;
-		return 1;
-	}
+void ConvertOldTheme() {
+	// TODO Remove this, eventually.
 
-	return 0;
-}
-
-int ThemeEditorTableMessage(UIElement *element, UIMessage message, int di, void *dp) {
-	if (message == UI_MSG_TABLE_GET_ITEM) {
-		UITableGetItem *m = (UITableGetItem *) dp;
-		m->isSelected = themeEditor.selectedColor == m->index;
-
-		if (m->column == 0) {
-			return StringFormat(m->buffer, m->bufferBytes, "%s", themeItems[m->index]);
-		} else {
-			return StringFormat(m->buffer, m->bufferBytes, "#%.6x", ui.theme.colors[m->index]);
-		}
-	} else if (message == UI_MSG_CLICKED) {
-		themeEditor.selectedColor = UITableHitTest((UITable *) element, element->window->cursorX, element->window->cursorY);
-		UIColorToHSV(ui.theme.colors[themeEditor.selectedColor],
-			&themeEditor.colorPicker->hue, &themeEditor.colorPicker->saturation, &themeEditor.colorPicker->value);
-		UIElementRepaint(&themeEditor.colorPicker->e, nullptr);
-	}
-
-	return 0;
-}
-
-int ThemeEditorColorPickerMessage(UIElement *element, UIMessage message, int di, void *dp) {
-	if (message == UI_MSG_VALUE_CHANGED && themeEditor.selectedColor >= 0) {
-		UIColorToRGB(themeEditor.colorPicker->hue, themeEditor.colorPicker->saturation, themeEditor.colorPicker->value,
-			&ui.theme.colors[themeEditor.selectedColor]);
-		UIElementRepaint(&windowMain->e, nullptr);
-		UIElementRepaint(&element->window->e, nullptr);
-	}
-
-	return 0;
-}
-
-void CommandLoadTheme(void *) {
-	char buffer[4096];
-	StringFormat(buffer, 4096, "%s/.config/gf2_theme.dat", getenv("HOME"));
+	char buffer[PATH_MAX];
+	StringFormat(buffer, sizeof(buffer), "%s/.config/gf2_theme.dat", getenv("HOME"));
 	FILE *f = fopen(buffer, "rb");
+	if (!f) return;
+	fread(&ui.theme, 1, sizeof(ui.theme), f);
+	fclose(f);
+	unlink(buffer);
+	StringFormat(buffer, sizeof(buffer), "%s/.config/gf2_config.ini", getenv("HOME"));
+	f = fopen(buffer, "a");
+	if (!f) return;
+	fprintf(f, "\n[theme]\n");
 
-	if (f) {
-		fread(&ui.theme, 1, sizeof(ui.theme), f);
-		fclose(f);
-
-		UIElementRepaint(&windowMain->e, nullptr);
-
-		if (themeEditor.window) {
-			UIElementRepaint(&themeEditor.window->e, nullptr);
-		}
+	for (uintptr_t i = 0; i < sizeof(themeItems) / sizeof(themeItems[0]); i++) {
+		fprintf(f, "%s=%.6X\n", themeItems[i], ui.theme.colors[i] & 0xFFFFFF);
 	}
-}
 
-void CommandSaveTheme(void *) {
-	char buffer[4096];
-	StringFormat(buffer, 4096, "%s/.config/gf2_theme.dat", getenv("HOME"));
-	FILE *f = fopen(buffer, "wb");
-
-	if (f) {
-		fwrite(&ui.theme, 1, sizeof(ui.theme), f);
-		fclose(f);
-	}
-}
-
-void ColorPresetLoad(void *cp) {
-	memcpy(&ui.theme, cp, sizeof(UITheme));
-	UIElementRepaint(&windowMain->e, nullptr);
-	UIElementRepaint(&themeEditor.window->e, nullptr);
-}
-
-void CommandThemeEditor(void *) {
-	if (themeEditor.window) return;
-	themeEditor.selectedColor = -1;
-	themeEditor.window = UIWindowCreate(0, 0, "Theme Editor", 0, 0);
-	themeEditor.window->scale = uiScale;
-	themeEditor.window->e.messageUser = ThemeEditorWindowMessage;
-	UISplitPane *splitPane = UISplitPaneCreate(&themeEditor.window->e, 0, 0.5f);
-	UIPanel *panel = UIPanelCreate(&splitPane->e, UI_PANEL_GRAY);
-	panel->border = UI_RECT_1(5);
-	panel->gap = 5;
-	themeEditor.colorPicker = UIColorPickerCreate(&panel->e, 0);
-	themeEditor.colorPicker->e.messageUser = ThemeEditorColorPickerMessage;
-	UISpacerCreate(&panel->e, 0, 10, 10);
-	UIButtonCreate(&panel->e, 0, "Save theme", -1)->invoke = CommandSaveTheme;
-	UIButtonCreate(&panel->e, 0, "Load theme", -1)->invoke = CommandLoadTheme;
-	UISpacerCreate(&panel->e, UI_ELEMENT_H_FILL | UI_SPACER_LINE, 0, 1);
-	UILabelCreate(&panel->e, UI_ELEMENT_H_FILL, "Presets:", -1);
-#define PRESET_THEME(x, y) { UIButton *b = UIButtonCreate(&panel->e, 0, x, -1); b->invoke = ColorPresetLoad; b->e.cp = (void *) y; }
-	PRESET_THEME("Dark", &_uiThemeDark);
-	PRESET_THEME("Classic", colorPresetClassic);
-	PRESET_THEME("Ice", colorPresetIce);
-	PRESET_THEME("Pink", colorPresetPink);
-	UITable *table = UITableCreate(&splitPane->e, 0, "Item\tColor");
-	table->itemCount = sizeof(themeItems) / sizeof(themeItems[0]);
-	table->e.messageUser = ThemeEditorTableMessage;
-	UITableResizeColumns(table);
+	fclose(f);
 }
 
 //////////////////////////////////////////////////////
@@ -2617,7 +2497,6 @@ const InterfaceCommand interfaceCommands[] = {
 	{ .label = "Ask GDB for PWD\tCtrl+Shift+P", { .code = UI_KEYCODE_LETTER('P'), .ctrl = true, .shift = true, .invoke = CommandAskGDBForPWD } },
 	{ .label = "Toggle disassembly\tCtrl+D", { .code = UI_KEYCODE_LETTER('D'), .ctrl = true, .invoke = CommandToggleDisassembly } },
 	{ .label = nullptr, { .code = UI_KEYCODE_LETTER('B'), .ctrl = true, .invoke = CommandToggleFillDataTab } },
-	{ .label = "Theme Editor", { .invoke = CommandThemeEditor } },
 	{ .label = "Donate", { .invoke = CommandDonate } },
 };
 
@@ -2767,6 +2646,11 @@ void LoadSettings(bool earlyPass) {
 				char path[PATH_MAX];
 				getcwd(path, sizeof(path));
 				if (0 == strcmp(path, state.key)) currentFolderIsTrusted = true;
+			} else if (0 == strcmp(state.section, "theme") && earlyPass && state.keyBytes && state.valueBytes) {
+				for (uintptr_t i = 0; i < sizeof(themeItems) / sizeof(themeItems[0]); i++) {
+					if (strcmp(state.key, themeItems[i])) continue;
+					ui.theme.colors[i] = strtoul(state.value, nullptr, 16);
+				}
 			}
 		}
 	}
@@ -2933,7 +2817,6 @@ extern "C" void InterfaceCreate(UIWindow *_window) {
 	}
 
 	LoadSettings(false);
-	CommandLoadTheme(nullptr);
 
 	pthread_cond_init(&evaluateEvent, nullptr);
 	pthread_mutex_init(&evaluateMutex, nullptr);
@@ -2962,6 +2845,7 @@ int main(int argc, char **argv) {
 	memcpy(gdbArgv + 1, argv + 1, sizeof(argv) * argc);
 	gdbArgc = argc;
 
+	ConvertOldTheme();
 	LoadSettings(true);
 	UIInitialise();
 	InterfaceCreate(UIWindowCreate(0, 0, "gf2", 0, 0));
