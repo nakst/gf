@@ -66,7 +66,6 @@ char previousLocation[256];
 
 UIWindow *windowMain;
 
-UIButton *buttonMenu;
 UICode *displayCode;
 UICode *displayOutput;
 UISpacer *trafficLight;
@@ -149,7 +148,7 @@ def gf_typeof(expression):
     if value == None: return
     print(value.type)
 
-def gf_valueof(expression):
+def gf_valueof(expression, format):
     value = _gf_value(expression)
     if value == None: return
     result = ''
@@ -162,7 +161,8 @@ def gf_valueof(expression):
         except:
             break
     try:
-        result = result + value.format_string(max_elements=10,max_depth=3)[0:200]
+        if format[0] != ' ': result = result + value.format_string(max_elements=10,max_depth=3,format=format)[0:200]
+        else: result = result + value.format_string(max_elements=10,max_depth=3)[0:200]
     except:
         result = result + '??'
     print(result)
@@ -196,7 +196,7 @@ end
 // Forward declarations:
 
 extern "C" bool DisplaySetPosition(const char *file, int line, bool useGDBToGetFullPath);
-void InterfaceShowMenu(void *);
+void InterfaceShowMenu(void *self);
 
 //////////////////////////////////////////////////////
 // Utilities:
@@ -370,13 +370,13 @@ void DebuggerSend(const char *string, bool echo) {
 	}
 
 	programRunning = true;
-	UIElementRepaint(&trafficLight->e, nullptr);
+	if (trafficLight) UIElementRepaint(&trafficLight->e, nullptr);
 
 	// printf("sending: %s\n", string);
 
 	char newline = '\n';
 
-	if (echo) {
+	if (echo && displayOutput) {
 		UICodeInsertContent(displayOutput, string, -1, false);
 		UIElementRefresh(&displayOutput->e);
 	}
@@ -401,7 +401,7 @@ void EvaluateCommand(const char *command, bool echo = false) {
 	pthread_cond_timedwait(&evaluateEvent, &evaluateMutex, &timeout);
 	pthread_mutex_unlock(&evaluateMutex);
 	programRunning = false;
-	UIElementRepaint(&trafficLight->e, nullptr);
+	if (trafficLight) UIElementRepaint(&trafficLight->e, nullptr);
 }
 
 const char *EvaluateExpression(const char *expression) {
@@ -709,6 +709,7 @@ void CommandAskGDBForPWD(void *) {
 		if (end) *end = 0;
 
 		if (!chdir(pwd)) {
+			if (!displayOutput) return;
 			char buffer[4096];
 			StringFormat(buffer, sizeof(buffer), "New working directory: %s", pwd);
 			UICodeInsertContent(displayOutput, buffer, -1, false);
@@ -726,7 +727,7 @@ void CommandCustom(void *_command) {
 	if (0 == memcmp(command, "shell ", 6)) {
 		char buffer[4096];
 		StringFormat(buffer, 4096, "Running shell command \"%s\"...\n", command);
-		UICodeInsertContent(displayOutput, buffer, -1, false);
+		if (displayOutput) UICodeInsertContent(displayOutput, buffer, -1, false);
 		StringFormat(buffer, 4096, "%s > .output.gf 2>&1", command);
 		int start = time(nullptr);
 		int result = system(buffer);
@@ -746,12 +747,12 @@ void CommandCustom(void *_command) {
 			}
 		}
 
-		UICodeInsertContent(displayOutput, copy, j, false);
+		if (displayOutput) UICodeInsertContent(displayOutput, copy, j, false);
 		free(output);
 		free(copy);
 		StringFormat(buffer, 4096, "(exit code: %d; time: %ds)\n", result, (int) (time(nullptr) - start));
-		UICodeInsertContent(displayOutput, buffer, -1, false);
-		UIElementRefresh(&displayOutput->e);
+		if (displayOutput) UICodeInsertContent(displayOutput, buffer, -1, false);
+		if (displayOutput) UIElementRefresh(&displayOutput->e);
 	} else {
 		DebuggerSend(command, true);
 	}
@@ -1520,9 +1521,9 @@ UIElement *ConsoleWindowCreate(UIElement *parent) {
 	panel3->gap = 5;
 	trafficLight = UISpacerCreate(&panel3->e, 0, 30, 30);
 	trafficLight->e.messageUser = TrafficLightMessage;
-	buttonMenu = UIButtonCreate(&panel3->e, 0, "Menu", -1);
+	UIButton *buttonMenu = UIButtonCreate(&panel3->e, 0, "Menu", -1);
 	buttonMenu->invoke = InterfaceShowMenu;
-	UIButtonCreate(&panel3->e, 0, "Donate", -1)->invoke = CommandDonate;
+	buttonMenu->e.cp = buttonMenu;
 	UITextbox *textboxInput = UITextboxCreate(&panel3->e, UI_ELEMENT_H_FILL);
 	textboxInput->e.messageUser = TextboxInputMessage;
 	UIElementFocus(&textboxInput->e);
@@ -1536,6 +1537,7 @@ UIElement *ConsoleWindowCreate(UIElement *parent) {
 struct Watch {
 	bool open, hasFields, loadedFields, isArray;
 	uint8_t depth;
+	char format;
 	uintptr_t arrayIndex;
 	char *key, *value, *type;
 	Array<Watch *> fields;
@@ -1550,6 +1552,7 @@ struct WatchWindow {
 	UITextbox *textbox;
 	int selectedRow;
 	uint64_t updateIndex;
+	bool waitingForFormatCharacter;
 };
 
 struct WatchLogEntry {
@@ -1642,7 +1645,6 @@ void WatchEvaluate(const char *function, Watch *watch) {
 	uintptr_t position = 0;
 
 	position += StringFormat(buffer + position, sizeof(buffer) - position, "py %s([", function);
-	if (position > sizeof(buffer)) position = sizeof(buffer);
 
 	Watch *stack[32];
 	int stackCount = 0;
@@ -1661,7 +1663,6 @@ void WatchEvaluate(const char *function, Watch *watch) {
 
 		if (!first) {
 			position += StringFormat(buffer + position, sizeof(buffer) - position, ",");
-			if (position > sizeof(buffer)) position = sizeof(buffer);
 		} else {
 			first = false;
 		}
@@ -1671,12 +1672,15 @@ void WatchEvaluate(const char *function, Watch *watch) {
 		} else {
 			position += StringFormat(buffer + position, sizeof(buffer) - position, "%lu", stack[stackCount]->arrayIndex);
 		}
-
-		if (position > sizeof(buffer)) position = sizeof(buffer);
 	}
 
-	position += StringFormat(buffer + position, sizeof(buffer) - position, "])");
-	if (position > sizeof(buffer)) position = sizeof(buffer);
+	position += StringFormat(buffer + position, sizeof(buffer) - position, "]");
+
+	if (0 == strcmp(function, "gf_valueof")) {
+		position += StringFormat(buffer + position, sizeof(buffer) - position, ",'%c'", watch->format ?: ' ');
+	}
+
+	position += StringFormat(buffer + position, sizeof(buffer) - position, ")");
 
 	EvaluateCommand(buffer);
 }
@@ -2002,12 +2006,16 @@ int WatchWindowMessage(UIElement *element, UIMessage message, int di, void *dp) 
 					StringFormat(keyIndex, sizeof(keyIndex), "[%lu]", watch->arrayIndex);
 				}
 
-				StringFormat(buffer, sizeof(buffer), "%.*s%s%s%s%s", 
-						watch->depth * 2, "                                ",
-						watch->open ? "v " : watch->hasFields ? "> " : "", 
-						watch->key ?: keyIndex, 
-						watch->open ? "" : " = ", 
-						watch->open ? "" : watch->value);
+				if (focused && w->waitingForFormatCharacter) {
+					StringFormat(buffer, sizeof(buffer), "Enter format character: (e.g. 'x' for hex)");
+				} else {
+					StringFormat(buffer, sizeof(buffer), "%.*s%s%s%s%s", 
+							watch->depth * 2, "                                ",
+							watch->open ? "v " : watch->hasFields ? "> " : "", 
+							watch->key ?: keyIndex, 
+							watch->open ? "" : " = ", 
+							watch->open ? "" : watch->value);
+				}
 
 				if (focused) {
 					UIDrawString(painter, row, buffer, -1, ui.theme.tableSelectedText, UI_ALIGN_LEFT, nullptr);
@@ -2054,13 +2062,19 @@ int WatchWindowMessage(UIElement *element, UIMessage message, int di, void *dp) 
 		UIKeyTyped *m = (UIKeyTyped *) dp;
 		result = 1;
 
-		if ((m->code == UI_KEYCODE_ENTER || m->code == UI_KEYCODE_BACKSPACE) 
+		if (w->waitingForFormatCharacter) {
+			w->rows[w->selectedRow]->format = (m->textBytes && isalpha(m->text[0])) ? m->text[0] : 0;
+			w->rows[w->selectedRow]->updateIndex--;
+			w->waitingForFormatCharacter = false;
+		} else if ((m->code == UI_KEYCODE_ENTER || m->code == UI_KEYCODE_BACKSPACE) 
 				&& w->selectedRow != w->rows.Length() && !w->textbox
 				&& !w->rows[w->selectedRow]->parent) {
 			WatchCreateTextboxForRow(w, true);
 		} else if (m->code == UI_KEYCODE_DELETE && !w->textbox
 				&& w->selectedRow != w->rows.Length() && !w->rows[w->selectedRow]->parent) {
 			WatchDeleteExpression(w);
+		} else if (m->textBytes && m->text[0] == '/' && w->selectedRow != w->rows.Length()) {
+			w->waitingForFormatCharacter = true;
 		} else if (m->textBytes && m->code != UI_KEYCODE_TAB && !w->textbox && !element->window->ctrl && !element->window->alt
 				&& (w->selectedRow == w->rows.Length() || !w->rows[w->selectedRow]->parent)) {
 			WatchCreateTextboxForRow(w, false);
@@ -2547,12 +2561,12 @@ void CommandPreset(void *_index) {
 		char *end = strchr(position, ';');
 		if (end) *end = 0;
 		EvaluateCommand(position, true);
-		UICodeInsertContent(displayOutput, evaluateResult, -1, false);
+		if (displayOutput) UICodeInsertContent(displayOutput, evaluateResult, -1, false);
 		if (end) position = end + 1;
 		else break;
 	}
 
-	UIElementRefresh(&displayOutput->e);
+	if (displayOutput) UIElementRefresh(&displayOutput->e);
 	free(copy);
 }
 
@@ -2604,6 +2618,7 @@ const InterfaceCommand interfaceCommands[] = {
 	{ .label = "Toggle disassembly\tCtrl+D", { .code = UI_KEYCODE_LETTER('D'), .ctrl = true, .invoke = CommandToggleDisassembly } },
 	{ .label = nullptr, { .code = UI_KEYCODE_LETTER('B'), .ctrl = true, .invoke = CommandToggleFillDataTab } },
 	{ .label = "Theme Editor", { .invoke = CommandThemeEditor } },
+	{ .label = "Donate", { .invoke = CommandDonate } },
 };
 
 InterfaceWindow interfaceWindows[] = {
@@ -2757,8 +2772,8 @@ void LoadSettings(bool earlyPass) {
 	}
 }
 
-void InterfaceShowMenu(void *) {
-	UIMenu *menu = UIMenuCreate(&buttonMenu->e, UI_MENU_PLACE_ABOVE);
+void InterfaceShowMenu(void *self) {
+	UIMenu *menu = UIMenuCreate((UIElement *) self, UI_MENU_PLACE_ABOVE);
 
 	for (uintptr_t i = 0; i < sizeof(interfaceCommands) / sizeof(interfaceCommands[0]); i++) {
 		if (!interfaceCommands[i].label) continue;
@@ -2803,9 +2818,13 @@ int WindowMessage(UIElement *, UIMessage message, int di, void *dp) {
 
 		BitmapViewerUpdateAll();
 
-		UICodeInsertContent(displayOutput, input, -1, false);
-		UIElementRefresh(&displayOutput->e);
-		UIElementRepaint(&trafficLight->e, nullptr);
+		if (displayOutput) {
+			UICodeInsertContent(displayOutput, input, -1, false);
+			UIElementRefresh(&displayOutput->e);
+		}
+
+		if (trafficLight) UIElementRepaint(&trafficLight->e, nullptr);
+
 		skip:;
 		free(input);
 	} else if (message == MSG_RECEIVED_CONTROL) {
@@ -2834,7 +2853,7 @@ int InterfaceTabPaneMessage(UIElement *element, UIMessage message, int di, void 
 		for (uintptr_t i = 0; i < sizeof(interfaceWindows) / sizeof(interfaceWindows[0]); i++) {
 			InterfaceWindow *window = &interfaceWindows[i];
 
-			if ((~window->element->flags & UI_ELEMENT_HIDE) && window->queuedUpdate) {
+			if (window->element && (~window->element->flags & UI_ELEMENT_HIDE) && window->queuedUpdate) {
 				window->queuedUpdate = false;
 				window->update("", window->element);
 			}
