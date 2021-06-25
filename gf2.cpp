@@ -2751,15 +2751,18 @@ int InterfaceTabPaneMessage(UIElement *element, UIMessage message, int di, void 
 
 void InterfaceLayoutCreate(UIElement *parent) {
 	UIElement *container = nullptr;
+	uintptr_t exactChildCount = 0, currentChildCount = 0;
 
 	if (layoutString[0] == 'h' && layoutString[1] == '(') {
 		layoutString += 2;
 		container = &UISplitPaneCreate(parent, UI_ELEMENT_V_FILL | UI_ELEMENT_H_FILL, strtol(layoutString, &layoutString, 10) * 0.01f)->e;
 		layoutString++;
+		exactChildCount = 2;
 	} else if (layoutString[0] == 'v' && layoutString[1] == '(') {
 		layoutString += 2;
 		container = &UISplitPaneCreate(parent, UI_SPLIT_PANE_VERTICAL | UI_ELEMENT_V_FILL | UI_ELEMENT_H_FILL, strtol(layoutString, &layoutString, 10) * 0.01f)->e;
 		layoutString++;
+		exactChildCount = 2;
 	} else if (layoutString[0] == 't' && layoutString[1] == '(') {
 		layoutString += 2;
 		char *copy = strdup(layoutString);
@@ -2781,7 +2784,10 @@ void InterfaceLayoutCreate(UIElement *parent) {
 			}
 		}
 
-		assert(found);
+		if (!found) {
+			fprintf(stderr, "Error: Invalid layout string! The specified window was not found.\n");
+			exit(1);
+		}
 	}
 
 	while (container) {
@@ -2789,10 +2795,16 @@ void InterfaceLayoutCreate(UIElement *parent) {
 			layoutString++;
 		} else if (layoutString[0] == ')') {
 			layoutString++;
-			return;
+			break;
 		} else {
 			InterfaceLayoutCreate(container);
+			currentChildCount++;
 		}
+	}
+
+	if (currentChildCount != exactChildCount && exactChildCount) {
+		fprintf(stderr, "Error: Invalid layout string! Split panes, h(...) and v(...), must have exactly 2 children.\n");
+		exit(1);
 	}
 }
 

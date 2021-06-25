@@ -55,6 +55,8 @@ You can also configure the interface layout, with the `layout` parameter. Use `h
 
     layout=h(75,v(75,Source,Console),v(50,t(Watch,Breakpoints,Commands,Struct),t(Stack,Files,Registers,Data))))
 
+**NB: Horizontal and vertical splits must have exactly two children.** Instead, you can nest them to create more complex layouts.
+
 ### Themes
 
 You can change the theme in the `theme` section. See https://github.com/nakst/gf/wiki/Themes for a list of examples.
