@@ -2811,7 +2811,7 @@ int _UITextboxMessage(UIElement *element, UIMessage message, int di, void *dp) {
 		} else if (m->code == UI_KEYCODE_LETTER('A') && element->window->ctrl) {
 			textbox->carets[1] = 0;
 			textbox->carets[0] = textbox->bytes;
-		} else if (m->textBytes && !element->window->ctrl && m->text[0] >= 0x20) {
+		} else if (m->textBytes && !element->window->alt && !element->window->ctrl && m->text[0] >= 0x20) {
 			UITextboxReplace(textbox, m->text, m->textBytes, true);
 		} else {
 			handled = false;
@@ -3446,6 +3446,9 @@ const char *UIDialogShow(UIWindow *window, uint32_t flags, const char *format, .
 				if (!focus) focus = &button->e;
 				button->invoke = _UIDialogButtonInvoke;
 				button->e.cp = (void *) label;
+			} else if (format[i] == 's') {
+				const char *label = va_arg(arguments, const char *);
+				UILabelCreate(&row->e, 0, label, -1);
 			} else if (format[i] == 't') {
 				char **buffer = va_arg(arguments, char **);
 				UITextbox *textbox = UITextboxCreate(&row->e, UI_ELEMENT_H_FILL);

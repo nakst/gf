@@ -43,6 +43,8 @@ Keyboard shortcuts are placed in the `[shortcuts]` section. For example,
     Ctrl+Shift+F10=reverse-next
     Ctrl+Shift+F11=reverse-step
 
+You can use the special command `gf-switch-to <window-name>` to switch to a specific window; the window names are the same as given in the layout string, as seen in the "User interface" section.
+
 ### User interface
 
 You can change the font size and user interface scaling in the `[ui]` section. For example,

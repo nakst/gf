@@ -197,6 +197,7 @@ end
 
 extern "C" bool DisplaySetPosition(const char *file, int line, bool useGDBToGetFullPath);
 void InterfaceShowMenu(void *self);
+void InterfaceWindowSwitchToAndFocus(const char *name);
 
 //////////////////////////////////////////////////////
 // Utilities:
@@ -753,6 +754,8 @@ void CommandCustom(void *_command) {
 		StringFormat(buffer, 4096, "(exit code: %d; time: %ds)\n", result, (int) (time(nullptr) - start));
 		if (displayOutput) UICodeInsertContent(displayOutput, buffer, -1, false);
 		if (displayOutput) UIElementRefresh(&displayOutput->e);
+	} else if (0 == memcmp(command, "gf-switch-to ", 13)) {
+		InterfaceWindowSwitchToAndFocus(command + 13);
 	} else {
 		DebuggerSend(command, true);
 	}
@@ -2074,6 +2077,11 @@ void WatchWindowUpdate(const char *, UIElement *element) {
 	UIElementRefresh(element);
 }
 
+void WatchWindowFocus(UIElement *element) {
+	WatchWindow *w = (WatchWindow *) element->cp;
+	UIElementFocus(w->element);
+}
+
 //////////////////////////////////////////////////////
 // Stack window:
 //////////////////////////////////////////////////////
@@ -2476,6 +2484,7 @@ struct InterfaceWindow {
 	const char *name;
 	UIElement *(*create)(UIElement *parent);
 	void (*update)(const char *data, UIElement *element);
+	void (*focus)(UIElement *element);
 	UIElement *element;
 	bool queuedUpdate;
 };
@@ -2505,7 +2514,7 @@ InterfaceWindow interfaceWindows[] = {
 	{ "Source", SourceWindowCreate, SourceWindowUpdate, },
 	{ "Breakpoints", BreakpointsWindowCreate, BreakpointsWindowUpdate, },
 	{ "Registers", RegistersWindowCreate, RegistersWindowUpdate, },
-	{ "Watch", WatchWindowCreate, WatchWindowUpdate, },
+	{ "Watch", WatchWindowCreate, WatchWindowUpdate, WatchWindowFocus, },
 	{ "Commands", CommandsWindowCreate, nullptr, },
 	{ "Data", DataWindowCreate, nullptr, },
 	{ "Struct", StructWindowCreate, nullptr, },
@@ -2665,6 +2674,33 @@ void InterfaceShowMenu(void *self) {
 	}
 
 	UIMenuShow(menu);
+}
+
+void InterfaceWindowSwitchToAndFocus(const char *name) {
+	for (uintptr_t i = 0; i < sizeof(interfaceWindows) / sizeof(interfaceWindows[0]); i++) {
+		InterfaceWindow *window = &interfaceWindows[i];
+		if (!window->element) continue;
+		if (strcmp(window->name, name)) continue;
+
+		if ((window->element->flags & UI_ELEMENT_HIDE)
+				&& window->element->parent->messageClass == _UITabPaneMessage) {
+			UITabPane *tabPane = (UITabPane *) window->element->parent;
+			tabPane->active = 0;
+			UIElement *child = tabPane->e.children;
+			while (child != window->element) child = child->next, tabPane->active++;
+			UIElementRefresh(&tabPane->e);
+		}
+
+		if (window->focus) {
+			window->focus(window->element);
+		} else if (window->element->flags & UI_ELEMENT_TAB_STOP) {
+			UIElementFocus(window->element);
+		}
+
+		return;
+	}
+
+	UIDialogShow(windowMain, 0, "Couldn't find the window '%s'.\n%f%b", name, "OK");
 }
 
 bool ElementHidden(UIElement *element) {
