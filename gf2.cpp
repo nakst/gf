@@ -838,7 +838,7 @@ bool DisplaySetPosition(const char *file, int line, bool useGDBToGetFullPath) {
 	bool reloadFile = false;
 
 	if (file) {
-		if (strcmp(currentFile, originalFile)) {
+		if (strcmp(currentFile, file)) {
 			reloadFile = true;
 		}
 
@@ -855,7 +855,7 @@ bool DisplaySetPosition(const char *file, int line, bool useGDBToGetFullPath) {
 
 	if (reloadFile) {
 		currentLine = 0;
-		StringFormat(currentFile, 4096, "%s", originalFile);
+		StringFormat(currentFile, 4096, "%s", file);
 		realpath(currentFile, currentFileFull);
 
 		size_t bytes;
