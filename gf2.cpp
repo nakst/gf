@@ -405,9 +405,9 @@ void EvaluateCommand(const char *command, bool echo = false) {
 	if (trafficLight) UIElementRepaint(&trafficLight->e, nullptr);
 }
 
-const char *EvaluateExpression(const char *expression) {
+const char *EvaluateExpression(const char *expression, const char *format = nullptr) {
 	char buffer[1024];
-	StringFormat(buffer, sizeof(buffer), "p %s", expression);
+	StringFormat(buffer, sizeof(buffer), "p%s %s", format ?: "", expression);
 	EvaluateCommand(buffer);
 	char *result = strchr(evaluateResult, '=');
 
@@ -1069,7 +1069,7 @@ void SourceWindowUpdate(const char *data, UIElement *) {
 	if (!stackChanged && changedSourceLine) stackSelected = 0;
 	stackChanged = false;
 
-	if (changedSourceLine && strcmp(stack[stackSelected].location, previousLocation)) {
+	if (changedSourceLine && stackSelected < stack.Length() && strcmp(stack[stackSelected].location, previousLocation)) {
 		DisplaySetPositionFromStack();
 	}
 	
@@ -1232,7 +1232,7 @@ const char *BitmapViewerGetBits(const char *pointerString, const char *widthStri
 	if (!heightResult) { return "Could not evaluate height."; }
 	int height = atoi(heightResult + 1);
 	int stride = width * 4;
-	const char *pointerResult = EvaluateExpression(pointerString);
+	const char *pointerResult = EvaluateExpression(pointerString, "/x");
 	if (!pointerResult) { return "Could not evaluate pointer."; }
 	char _pointerResult[1024];
 	StringFormat(_pointerResult, sizeof(_pointerResult), "%s", pointerResult);
