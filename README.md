@@ -7,11 +7,15 @@
 
 Download this project's source.
 
-    git clone https://github.com/nakst/gf.git
+```bash
+git clone https://github.com/nakst/gf.git
+```
 
 And compile the application.
 
-    ./build.sh
+```bash
+./build.sh
+```
 
 ## Support
 
@@ -25,23 +29,29 @@ On startup, settings are loaded from `~/.config/gf2_config.ini`, followed by `.p
 
 You can pass additional arguments to GDB in the `[gdb]` section. For example,
 
-    [gdb]
-    argument=-nx
-    argument=-ex record
+```ini
+[gdb]
+argument=-nx
+argument=-ex record
+```
 
 You can also change the location of the GDB executable. For example,
 
-    [gdb]
-    path=/home/a/opt/gdb
+```ini
+[gdb]
+path=/home/a/opt/gdb
+```
 
 ### Custom keyboard shortcuts
 
 Keyboard shortcuts are placed in the `[shortcuts]` section. For example,
 
-    [shortcuts]
-    Ctrl+I=print i
-    Ctrl+Shift+F10=reverse-next
-    Ctrl+Shift+F11=reverse-step
+```ini
+[shortcuts]
+Ctrl+I=print i
+Ctrl+Shift+F10=reverse-next
+Ctrl+Shift+F11=reverse-step
+```
 
 You can use the special command `gf-switch-to <window-name>` to switch to a specific window; the window names are the same as given in the layout string, as seen in the "User interface" section.
 
@@ -49,13 +59,17 @@ You can use the special command `gf-switch-to <window-name>` to switch to a spec
 
 You can change the font size and user interface scaling in the `[ui]` section. For example,
 
-    [ui]
-    scale=1.5
-    font_size=20
+```ini
+[ui]
+scale=1.5
+font_size=20
+```
     
 You can also configure the interface layout, with the `layout` parameter. Use `h(position,left,right)` to create a horizontal split, `v(position,left,right)` to create a vertical split, and `t(...)` to create a tab pane. This value should not contain any whitespace. Please note this value is not validated, so make sure it is formatted correctly!
 
-    layout=h(75,v(75,Source,Console),v(50,t(Watch,Breakpoints,Commands,Struct),t(Stack,Files,Registers,Data))))
+```ini
+layout=h(75,v(75,Source,Console),v(50,t(Watch,Breakpoints,Commands,Struct),t(Stack,Files,Registers,Data))))
+```
 
 **NB: Horizontal and vertical splits must have exactly two children.** Instead, you can nest them to create more complex layouts.
 
@@ -67,11 +81,13 @@ You can change the theme in the `theme` section. See https://github.com/nakst/gf
 
 You can create a list of quickly accessible commands, available in the "Commands" tab in the UI. Separate individual commands using a semicolon. For example,
 
-    [commands]
-    Compile=shell gcc -o bin/app src/main.c
-    Run normal=file bin/app;run
-    Run tests=file bin/app;run test_cases.txt
-    Set breakpoints=b main;b LoadFile;b AssertionFailure
+```ini
+[commands]
+Compile=shell gcc -o bin/app src/main.c
+Run normal=file bin/app;run
+Run tests=file bin/app;run test_cases.txt
+Set breakpoints=b main;b LoadFile;b AssertionFailure
+```
 
 ## Tips
 
@@ -85,13 +101,15 @@ You can create a list of quickly accessible commands, available in the "Commands
 
 You can change the loaded file and line by sending commands to the control pipe, located at `$HOME/.config/gf2_control.dat`. For example,
 
-    # Load the specified file (must be a full path).
-    echo f /home/a/test.c > $HOME/.config/gf2_control.dat
+```bash
+# Load the specified file (must be a full path).
+echo f /home/a/test.c > $HOME/.config/gf2_control.dat
 
-    # Go to line 123.
-    echo l 123 > $HOME/.config/gf2_control.dat
-    
-    # Send a GDB command.
-    echo c file myapp > $HOME/.config/gf2_control.dat
+# Go to line 123.
+echo l 123 > $HOME/.config/gf2_control.dat
+
+# Send a GDB command.
+echo c file myapp > $HOME/.config/gf2_control.dat
+```
 
 This can be used for text editor integration.
