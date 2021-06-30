@@ -43,36 +43,6 @@ extern "C" {
 #define MSG_RECEIVED_DATA ((UIMessage) (UI_MSG_USER + 1))
 #define MSG_RECEIVED_CONTROL ((UIMessage) (UI_MSG_USER + 2))
 
-struct INIState {
-	char *buffer, *section, *key, *value;
-	size_t bytes, sectionBytes, keyBytes, valueBytes;
-};
-
-FILE *commandLog;
-char controlPipePath[PATH_MAX];
-char emptyString;
-bool programRunning;
-
-// Current file and line:
-
-char currentFile[PATH_MAX];
-char currentFileFull[PATH_MAX];
-int currentLine;
-time_t currentFileReadTime;
-bool showingDisassembly;
-char previousLocation[256];
-
-// User interface:
-
-UIWindow *windowMain;
-
-UICode *displayCode;
-UICode *displayOutput;
-UISpacer *trafficLight;
-
-UIMDIClient *dataWindow;
-UIPanel *dataTab;
-
 // Dynamic arrays:
 
 template <class T>
@@ -105,6 +75,39 @@ struct Array {
 	inline void Pop() { length--; }
 	inline void DeleteSwap(uintptr_t index) { if (index != length - 1) array[index] = Last(); Pop(); }
 };
+
+// General:
+
+struct INIState {
+	char *buffer, *section, *key, *value;
+	size_t bytes, sectionBytes, keyBytes, valueBytes;
+};
+
+FILE *commandLog;
+char controlPipePath[PATH_MAX];
+char emptyString;
+bool programRunning;
+Array<INIState> presetCommands;
+
+// Current file and line:
+
+char currentFile[PATH_MAX];
+char currentFileFull[PATH_MAX];
+int currentLine;
+time_t currentFileReadTime;
+bool showingDisassembly;
+char previousLocation[256];
+
+// User interface:
+
+UIWindow *windowMain;
+
+UICode *displayCode;
+UICode *displayOutput;
+UISpacer *trafficLight;
+
+UIMDIClient *dataWindow;
+UIPanel *dataTab;
 
 // Breakpoints:
 
@@ -365,7 +368,18 @@ void DebuggerStartThread() {
 	gdbThread = debuggerThread;
 }
 
-void DebuggerSend(const char *string, bool echo) {
+void DebuggerSend(const char *string, bool echo, bool synchronous) {
+	if (synchronous) {
+		if (programRunning) {
+			kill(gdbPID, SIGINT);
+			usleep(1000 * 1000);
+			programRunning = false;
+		}
+
+		evaluateMode = true;
+		pthread_mutex_lock(&evaluateMutex);
+	}
+
 	if (programRunning) {
 		kill(gdbPID, SIGINT);
 	}
@@ -384,25 +398,20 @@ void DebuggerSend(const char *string, bool echo) {
 
 	write(pipeToGDB, string, strlen(string));
 	write(pipeToGDB, &newline, 1);
+
+	if (synchronous) {
+		struct timespec timeout;
+		clock_gettime(CLOCK_REALTIME, &timeout);
+		timeout.tv_sec++;
+		pthread_cond_timedwait(&evaluateEvent, &evaluateMutex, &timeout);
+		pthread_mutex_unlock(&evaluateMutex);
+		programRunning = false;
+		if (trafficLight) UIElementRepaint(&trafficLight->e, nullptr);
+	}
 }
 
 void EvaluateCommand(const char *command, bool echo = false) {
-	if (programRunning) {
-		kill(gdbPID, SIGINT);
-		usleep(1000 * 1000);
-		programRunning = false;
-	}
-
-	evaluateMode = true;
-	pthread_mutex_lock(&evaluateMutex);
-	DebuggerSend(command, echo);
-	struct timespec timeout;
-	clock_gettime(CLOCK_REALTIME, &timeout);
-	timeout.tv_sec++;
-	pthread_cond_timedwait(&evaluateEvent, &evaluateMutex, &timeout);
-	pthread_mutex_unlock(&evaluateMutex);
-	programRunning = false;
-	if (trafficLight) UIElementRepaint(&trafficLight->e, nullptr);
+	DebuggerSend(command, echo, true);
 }
 
 const char *EvaluateExpression(const char *expression, const char *format = nullptr) {
@@ -591,49 +600,99 @@ void TabCompleterRun(TabCompleter *completer, UITextbox *textbox, bool lastKeyWa
 // Commands:
 //////////////////////////////////////////////////////
 
-void CommandSendToGDB(void *_string) {
-	DebuggerSend((const char *) _string, true);
-}
+bool CommandParseInternal(const char *command, bool synchronous) {
+	if (0 == strcmp(command, "gf-step")) {
+		DebuggerSend(showingDisassembly ? "stepi" : "s", true, synchronous);
+		return true;
+	} else if (0 == strcmp(command, "gf-next")) {
+		DebuggerSend(showingDisassembly ? "nexti" : "n", true, synchronous);
+		return true;
+	} else if (0 == strcmp(command, "gf-step-out-of-block")) {
+		if (currentLine - 1 >= displayCode->lineCount) return false;
 
-void CommandSendToGDBStep(void *_string) {
-	const char *command = (const char *) _string;
+		int tabs = 0;
 
-	if (showingDisassembly) {
-		if (0 == strcmp(command, "s")) {
-			command = "stepi";
-		} else if (0 == strcmp(command, "n")) {
-			command = "nexti";
-		}
-	}
-
-	DebuggerSend(command, true);
-}
-
-void CommandStepOutOfBlock(void *) {
-	if (currentLine - 1 >= displayCode->lineCount) return;
-
-	int tabs = 0;
-
-	for (int i = 0; i < displayCode->lines[currentLine - 1].bytes; i++) {
-		if (displayCode->content[displayCode->lines[currentLine - 1].offset + i] == '\t') tabs++;
-		else break;
-	}
-
-	for (int j = currentLine; j < displayCode->lineCount; j++) {
-		int t = 0;
-
-		for (int i = 0; i < displayCode->lines[j].bytes - 1; i++) {
-			if (displayCode->content[displayCode->lines[j].offset + i] == '\t') t++;
+		for (int i = 0; i < displayCode->lines[currentLine - 1].bytes; i++) {
+			if (displayCode->content[displayCode->lines[currentLine - 1].offset + i] == '\t') tabs++;
 			else break;
 		}
 
-		if (t < tabs && displayCode->content[displayCode->lines[j].offset + t] == '}') {
-			char buffer[256];
-			StringFormat(buffer, sizeof(buffer), "until %d", j + 1);
-			DebuggerSend(buffer, true);
-			return;
+		for (int j = currentLine; j < displayCode->lineCount; j++) {
+			int t = 0;
+
+			for (int i = 0; i < displayCode->lines[j].bytes - 1; i++) {
+				if (displayCode->content[displayCode->lines[j].offset + i] == '\t') t++;
+				else break;
+			}
+
+			if (t < tabs && displayCode->content[displayCode->lines[j].offset + t] == '}') {
+				char buffer[256];
+				StringFormat(buffer, sizeof(buffer), "until %d", j + 1);
+				DebuggerSend(buffer, true, synchronous);
+				return false;
+			}
 		}
+	} else if (0 == strcmp(command, "gf-restart-gdb")) {
+		firstUpdate = true;
+		kill(gdbPID, SIGKILL);
+		pthread_cancel(gdbThread); // TODO Is there a nicer way to do this?
+		receiveBufferPosition = 0;
+		DebuggerStartThread();
+	} else if (0 == strcmp(command, "gf-get-pwd")) {
+		EvaluateCommand("info source");
+		const char *needle = "Compilation directory is ";
+		char *pwd = strstr(evaluateResult, needle);
+
+		if (pwd) {
+			pwd += strlen(needle);
+			char *end = strchr(pwd, '\n');
+			if (end) *end = 0;
+
+			if (!chdir(pwd)) {
+				if (!displayOutput) return false;
+				char buffer[4096];
+				StringFormat(buffer, sizeof(buffer), "New working directory: %s", pwd);
+				UICodeInsertContent(displayOutput, buffer, -1, false);
+				UIElementRefresh(&displayOutput->e);
+				return false;
+			}
+		}
+
+		UIDialogShow(windowMain, 0, "Couldn't get the working directory.\n%f%b", "OK");
+	} else if (strlen(command) > 13 && 0 == memcmp(command, "gf-switch-to ", 13)) {
+		InterfaceWindowSwitchToAndFocus(command + 13);
+	} else if (strlen(command) > 11 && 0 == memcmp(command, "gf-command ", 11)) {
+		for (int i = 0; i < presetCommands.Length(); i++) {
+			if (strcmp(command + 11, presetCommands[i].key)) continue;
+			char *copy = strdup(presetCommands[i].value);
+			char *position = copy;
+
+			while (true) {
+				char *end = strchr(position, ';');
+				if (end) *end = 0;
+				char *async = strchr(position, '&');
+				if (async && !async[1]) *async = 0; else async = nullptr;
+				if (synchronous) async = nullptr; // Trim the '&' character, but run synchronously anyway.
+				bool hasOutput = CommandParseInternal(position, !async) && !async;
+				if (displayOutput && hasOutput) UICodeInsertContent(displayOutput, evaluateResult, -1, false);
+				if (end) position = end + 1;
+				else break;
+			}
+
+			if (displayOutput) UIElementRefresh(&displayOutput->e);
+			free(copy);
+			break;
+		}
+	} else {
+		DebuggerSend(command, true, synchronous);
+		return true;
 	}
+
+	return false;
+}
+
+void CommandSendToGDB(void *_string) {
+	CommandParseInternal((const char *) _string, false);
 }
 
 void CommandDeleteBreakpoint(void *_index) {
@@ -641,15 +700,7 @@ void CommandDeleteBreakpoint(void *_index) {
 	Breakpoint *breakpoint = &breakpoints[index];
 	char buffer[1024];
 	StringFormat(buffer, 1024, "clear %s:%d", breakpoint->file, breakpoint->line);
-	DebuggerSend(buffer, true);
-}
-
-void CommandRestartGDB(void *) {
-	firstUpdate = true;
-	kill(gdbPID, SIGKILL);
-	pthread_cancel(gdbThread); // TODO Is there a nicer way to do this?
-	receiveBufferPosition = 0;
-	DebuggerStartThread();
+	DebuggerSend(buffer, true, false);
 }
 
 void CommandPause(void *) {
@@ -689,43 +740,22 @@ void CommandToggleBreakpoint(void *_line) {
 		if (breakpoints[i].line == line && 0 == strcmp(breakpoints[i].fileFull, currentFileFull)) {
 			char buffer[1024];
 			StringFormat(buffer, 1024, "clear %s:%d", currentFile, line);
-			DebuggerSend(buffer, true);
+			DebuggerSend(buffer, true, false);
 			return;
 		}
 	}
 
 	char buffer[1024];
 	StringFormat(buffer, 1024, "b %s:%d", currentFile, line);
-	DebuggerSend(buffer, true);
-}
-
-void CommandAskGDBForPWD(void *) {
-	EvaluateCommand("info source");
-	const char *needle = "Compilation directory is ";
-	char *pwd = strstr(evaluateResult, needle);
-
-	if (pwd) {
-		pwd += strlen(needle);
-		char *end = strchr(pwd, '\n');
-		if (end) *end = 0;
-
-		if (!chdir(pwd)) {
-			if (!displayOutput) return;
-			char buffer[4096];
-			StringFormat(buffer, sizeof(buffer), "New working directory: %s", pwd);
-			UICodeInsertContent(displayOutput, buffer, -1, false);
-			UIElementRefresh(&displayOutput->e);
-			return;
-		}
-	}
-
-	UIDialogShow(windowMain, 0, "Couldn't get the working directory.\n%f%b", "OK");
+	DebuggerSend(buffer, true, false);
 }
 
 void CommandCustom(void *_command) {
 	const char *command = (const char *) _command;
 
 	if (0 == memcmp(command, "shell ", 6)) {
+		// TODO Move this into CommandParseInternal?
+
 		char buffer[4096];
 		StringFormat(buffer, 4096, "Running shell command \"%s\"...\n", command);
 		if (displayOutput) UICodeInsertContent(displayOutput, buffer, -1, false);
@@ -754,10 +784,8 @@ void CommandCustom(void *_command) {
 		StringFormat(buffer, 4096, "(exit code: %d; time: %ds)\n", result, (int) (time(nullptr) - start));
 		if (displayOutput) UICodeInsertContent(displayOutput, buffer, -1, false);
 		if (displayOutput) UIElementRefresh(&displayOutput->e);
-	} else if (0 == memcmp(command, "gf-switch-to ", 13)) {
-		InterfaceWindowSwitchToAndFocus(command + 13);
 	} else {
-		DebuggerSend(command, true);
+		CommandParseInternal(command, false);
 	}
 }
 
@@ -1005,13 +1033,13 @@ int DisplayCodeMessage(UIElement *element, UIMessage message, int di, void *dp) 
 			if (element->window->ctrl) {
 				char buffer[1024];
 				StringFormat(buffer, 1024, "until %d", line);
-				DebuggerSend(buffer, true);
+				DebuggerSend(buffer, true, false);
 			} else if (element->window->alt) {
 				char buffer[1024];
 				StringFormat(buffer, 1024, "tbreak %d", line);
 				EvaluateCommand(buffer);
 				StringFormat(buffer, 1024, "jump %d", line);
-				DebuggerSend(buffer, true);
+				DebuggerSend(buffer, true, false);
 			}
 		}
 	} else if (message == UI_MSG_CODE_GET_MARGIN_COLOR && !showingDisassembly) {
@@ -1354,7 +1382,7 @@ int TextboxInputMessage(UIElement *element, UIMessage message, int di, void *dp)
 			char buffer[1024];
 			StringFormat(buffer, 1024, "%.*s", (int) textbox->bytes, textbox->string);
 			if (commandLog) fprintf(commandLog, "%s\n", buffer);
-			DebuggerSend(buffer, true);
+			CommandSendToGDB(buffer);
 
 			char *string = (char *) malloc(textbox->bytes + 1);
 			memcpy(string, textbox->string, textbox->bytes);
@@ -1824,7 +1852,7 @@ bool WatchLoggerUpdate(char *data) {
 			watchLoggers[i]->entries.Add(entry);
 			watchLoggers[i]->table->itemCount++;
 			UIElementRefresh(&watchLoggers[i]->table->e);
-			DebuggerSend("c", false);
+			DebuggerSend("c", false, false);
 			return true;
 		}
 	}
@@ -2107,7 +2135,7 @@ int TableStackMessage(UIElement *element, UIMessage message, int di, void *dp) {
 		if (index != -1 && stackSelected != index) {
 			char buffer[64];
 			StringFormat(buffer, 64, "frame %d", index);
-			DebuggerSend(buffer, false);
+			DebuggerSend(buffer, false, false);
 			stackSelected = index;
 			stackChanged = true;
 			UIElementRepaint(element, nullptr);
@@ -2439,33 +2467,16 @@ void RegistersWindowUpdate(const char *, UIElement *panel) {
 // Commands window:
 //////////////////////////////////////////////////////
 
-Array<INIState> presetCommands;
-
-void CommandPreset(void *_index) {
-	char *copy = strdup(presetCommands[(intptr_t) _index].value);
-	char *position = copy;
-
-	while (true) {
-		char *end = strchr(position, ';');
-		if (end) *end = 0;
-		EvaluateCommand(position, true);
-		if (displayOutput) UICodeInsertContent(displayOutput, evaluateResult, -1, false);
-		if (end) position = end + 1;
-		else break;
-	}
-
-	if (displayOutput) UIElementRefresh(&displayOutput->e);
-	free(copy);
-}
-
 UIElement *CommandsWindowCreate(UIElement *parent) {
 	UIPanel *panel = UIPanelCreate(parent, UI_PANEL_GRAY | UI_PANEL_SMALL_SPACING | UI_PANEL_EXPAND | UI_PANEL_SCROLL);
 	if (!presetCommands.Length()) UILabelCreate(&panel->e, 0, "No preset commands found in config file!", -1);
 
 	for (int i = 0; i < presetCommands.Length(); i++) {
+		char buffer[256];
+		StringFormat(buffer, sizeof(buffer), "gf-command %s", presetCommands[i].key);
 		UIButton *button = UIButtonCreate(&panel->e, 0, presetCommands[i].key, -1);
-		button->e.cp = (void *) (intptr_t) i;
-		button->invoke = CommandPreset;
+		button->e.cp = strdup(buffer);
+		button->invoke = CommandSendToGDB;
 	}
 
 	return &panel->e;
@@ -2493,17 +2504,17 @@ const InterfaceCommand interfaceCommands[] = {
 	{ .label = "Run\tShift+F5", { .code = UI_KEYCODE_F5, .shift = true, .invoke = CommandSendToGDB, .cp = (void *) "r" } },
 	{ .label = "Run paused\tCtrl+F5", { .code = UI_KEYCODE_F5, .ctrl = true, .invoke = CommandSendToGDB, .cp = (void *) "start" } },
 	{ .label = "Kill\tF3", { .code = UI_KEYCODE_F3, .invoke = CommandSendToGDB, .cp = (void *) "kill" } },
-	{ .label = "Restart GDB\tCtrl+R", { .code = UI_KEYCODE_LETTER('R'), .ctrl = true, .invoke = CommandRestartGDB } },
+	{ .label = "Restart GDB\tCtrl+R", { .code = UI_KEYCODE_LETTER('R'), .ctrl = true, .invoke = CommandSendToGDB, .cp = (void *) "gf-restart-gdb" } },
 	{ .label = "Connect\tF4", { .code = UI_KEYCODE_F4, .invoke = CommandSendToGDB, .cp = (void *) "target remote :1234" } },
 	{ .label = "Continue\tF5", { .code = UI_KEYCODE_F5, .invoke = CommandSendToGDB, .cp = (void *) "c" } },
-	{ .label = "Step over\tF10", { .code = UI_KEYCODE_F10, .invoke = CommandSendToGDBStep, .cp = (void *) "n" } },
-	{ .label = "Step out of block\tShift+F10", { .code = UI_KEYCODE_F10, .shift = true, .invoke = CommandStepOutOfBlock } },
-	{ .label = "Step in\tF11", { .code = UI_KEYCODE_F11, .invoke = CommandSendToGDBStep, .cp = (void *) "s" } },
+	{ .label = "Step over\tF10", { .code = UI_KEYCODE_F10, .invoke = CommandSendToGDB, .cp = (void *) "gf-next" } },
+	{ .label = "Step out of block\tShift+F10", { .code = UI_KEYCODE_F10, .shift = true, .invoke = CommandSendToGDB, .cp = (void *) "gf-step-out-of-block" } },
+	{ .label = "Step in\tF11", { .code = UI_KEYCODE_F11, .invoke = CommandSendToGDB, .cp = (void *) "gf-step" } },
 	{ .label = "Step out\tShift+F11", { .code = UI_KEYCODE_F11, .shift = true, .invoke = CommandSendToGDB, .cp = (void *) "finish" } },
 	{ .label = "Pause\tF8", { .code = UI_KEYCODE_F8, .invoke = CommandPause } },
 	{ .label = "Toggle breakpoint\tF9", { .code = UI_KEYCODE_F9, .invoke = CommandToggleBreakpoint } },
 	{ .label = "Sync with gvim\tF2", { .code = UI_KEYCODE_F2, .invoke = CommandSyncWithGvim } },
-	{ .label = "Ask GDB for PWD\tCtrl+Shift+P", { .code = UI_KEYCODE_LETTER('P'), .ctrl = true, .shift = true, .invoke = CommandAskGDBForPWD } },
+	{ .label = "Ask GDB for PWD\tCtrl+Shift+P", { .code = UI_KEYCODE_LETTER('P'), .ctrl = true, .shift = true, .invoke = CommandSendToGDB, .cp = (void *) "gf-get-pwd" } },
 	{ .label = "Toggle disassembly\tCtrl+D", { .code = UI_KEYCODE_LETTER('D'), .ctrl = true, .invoke = CommandToggleDisassembly } },
 	{ .label = nullptr, { .code = UI_KEYCODE_LETTER('B'), .ctrl = true, .invoke = CommandToggleFillDataTab } },
 	{ .label = "Donate", { .invoke = CommandDonate } },
@@ -2614,18 +2625,18 @@ void LoadSettings(bool earlyPass) {
 					}
 				}
 
-				if (0 == strcmp(codeStart, "F1"))  shortcut.code = UI_KEYCODE_F1;
-				if (0 == strcmp(codeStart, "F2"))  shortcut.code = UI_KEYCODE_F2;
-				if (0 == strcmp(codeStart, "F3"))  shortcut.code = UI_KEYCODE_F3;
-				if (0 == strcmp(codeStart, "F4"))  shortcut.code = UI_KEYCODE_F4;
-				if (0 == strcmp(codeStart, "F5"))  shortcut.code = UI_KEYCODE_F5;
-				if (0 == strcmp(codeStart, "F6"))  shortcut.code = UI_KEYCODE_F6;
-				if (0 == strcmp(codeStart, "F7"))  shortcut.code = UI_KEYCODE_F7;
-				if (0 == strcmp(codeStart, "F8"))  shortcut.code = UI_KEYCODE_F8;
-				if (0 == strcmp(codeStart, "F9"))  shortcut.code = UI_KEYCODE_F9;
-				if (0 == strcmp(codeStart, "F10")) shortcut.code = UI_KEYCODE_F10;
-				if (0 == strcmp(codeStart, "F11")) shortcut.code = UI_KEYCODE_F11;
-				if (0 == strcmp(codeStart, "F12")) shortcut.code = UI_KEYCODE_F12;
+				if (0 == strcmp(codeStart, "f1"))  shortcut.code = UI_KEYCODE_F1;
+				if (0 == strcmp(codeStart, "f2"))  shortcut.code = UI_KEYCODE_F2;
+				if (0 == strcmp(codeStart, "f3"))  shortcut.code = UI_KEYCODE_F3;
+				if (0 == strcmp(codeStart, "f4"))  shortcut.code = UI_KEYCODE_F4;
+				if (0 == strcmp(codeStart, "f5"))  shortcut.code = UI_KEYCODE_F5;
+				if (0 == strcmp(codeStart, "f6"))  shortcut.code = UI_KEYCODE_F6;
+				if (0 == strcmp(codeStart, "f7"))  shortcut.code = UI_KEYCODE_F7;
+				if (0 == strcmp(codeStart, "f8"))  shortcut.code = UI_KEYCODE_F8;
+				if (0 == strcmp(codeStart, "f9"))  shortcut.code = UI_KEYCODE_F9;
+				if (0 == strcmp(codeStart, "f10")) shortcut.code = UI_KEYCODE_F10;
+				if (0 == strcmp(codeStart, "f11")) shortcut.code = UI_KEYCODE_F11;
+				if (0 == strcmp(codeStart, "f12")) shortcut.code = UI_KEYCODE_F12;
 
 				if (!shortcut.code) {
 					fprintf(stderr, "Warning: Could not register shortcut for '%s'.\n", state.key);
@@ -2757,7 +2768,9 @@ int WindowMessage(UIElement *, UIMessage message, int di, void *dp) {
 		} else if (input[0] == 'l' && input[1] == ' ') {
 			DisplaySetPosition(nullptr, atoi(input + 2), false);
 		} else if (input[0] == 'c' && input[1] == ' ') {
-			DebuggerSend(input + 2, true);
+			CommandParseInternal(input + 2, false);
+		} else if (input[0] == 'c' && input[1] == '&' && input[2] == ' ') {
+			CommandParseInternal(input + 3, true);
 		}
 
 		free(input);
@@ -2876,7 +2889,6 @@ void SignalINT(int sig) {
 	exit(0);
 }
 
-#ifndef EMBED_GF
 int main(int argc, char **argv) {
 	struct sigaction sigintHandler = {};
 	sigintHandler.sa_handler = SignalINT;
@@ -2903,4 +2915,3 @@ int main(int argc, char **argv) {
 
 	return 0;
 }
-#endif

@@ -3992,7 +3992,7 @@ void _UIWindowInputEvent(UIWindow *window, UIMessage message, int di, void *dp) 
 						UIElementFocus(element);
 					}
 				} else if (!window->dialog) {
-					for (uintptr_t i = 0; i < window->shortcutCount; i++) {
+					for (intptr_t i = window->shortcutCount - 1; i >= 0; i--) {
 						UIShortcut *shortcut = window->shortcuts + i;
 
 						if (shortcut->code == m->code && shortcut->ctrl == window->ctrl 

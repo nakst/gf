@@ -53,7 +53,7 @@ Ctrl+Shift+F10=reverse-next
 Ctrl+Shift+F11=reverse-step
 ```
 
-You can use the special command `gf-switch-to <window-name>` to switch to a specific window; the window names are the same as given in the layout string, as seen in the "User interface" section.
+You can use any standard GDB command, or any of the commands listed in "Special commands" below.
 
 ### User interface
 
@@ -79,15 +79,17 @@ You can change the theme in the `theme` section. See https://github.com/nakst/gf
 
 ### Preset commands
 
-You can create a list of quickly accessible commands, available in the "Commands" tab in the UI. Separate individual commands using a semicolon. For example,
+You can create a list of quickly accessible commands, available in the "Commands" tab in the UI. Separate individual commands using a semicolon. Each command in the list is run one after another; to run the final command asynchronously, put a `&` at the end. For example,
 
 ```ini
 [commands]
 Compile=shell gcc -o bin/app src/main.c
-Run normal=file bin/app;run
-Run tests=file bin/app;run test_cases.txt
+Run normal=file bin/app;run&
+Run tests=file bin/app;run test_cases.txt&
 Set breakpoints=b main;b LoadFile;b AssertionFailure
 ```
+
+You can use any standard GDB command, or any of the commands listed in "Special commands" below.
 
 ## Tips
 
@@ -96,6 +98,7 @@ Set breakpoints=b main;b LoadFile;b AssertionFailure
 - Ctrl+Click a line in the source view to run "until" that line. Alt+Click a line in the source view to skip to it without executing the code in between.
 - Press Shift+F10 to step out of a block, and press Shift+F11 to step out a function.
 - Press Tab while entering a watch expression to auto-complete it.
+- Press `/` with a watch expression highlighted to change the format specifier. For example, `/x` switches to hexadecimal view.
 
 ## Control pipe
 
@@ -113,3 +116,34 @@ echo c file myapp > $HOME/.config/gf2_control.dat
 ```
 
 This can be used for text editor integration.
+
+## Special commands
+
+### gf-step
+
+`gf-step` either steps a single line (`step`) or single instruction (`stepi`), depending whether disassembly view is active.
+
+### gf-next
+
+`gf-next` either steps over a single line (`next`) or single instruction (`nexti`), depending whether disassembly view is active.
+
+### gf-step-out-of-block
+
+`gf-step-out-of-block` steps out of the current block. That is, it steps to the next line after the first unmatched `}`, starting from the current line. 
+
+### gf-restart-gdb
+
+`gf-restart-gdb` restarts the GDB process immediately. Any state such as loaded symbol files or breakpoints will be lost.
+
+### gf-get-pwd
+
+`gf-get-pwd` asks GDB for the working directory in which the current executable file was compiled. This ensures the source view tries to load files from the correct directory.
+
+### gf-switch-to
+
+`gf-switch-to <window-name>` switches to a specific window. The window names are the same as given in the layout string, as seen in the "User interface" section.
+
+### gf-command
+
+`gf-command <name>` runs the command(s) corresponding to `name` in the `[commands]` section of your configuration file.
+
