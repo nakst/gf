@@ -91,6 +91,15 @@ Set breakpoints=b main;b LoadFile;b AssertionFailure
 
 You can use any standard GDB command, or any of the commands listed in "Special commands" below.
 
+### Vim integration
+
+You can change the server name with the `server_name` key in the `vim` section. For example,
+
+```ini
+[vim]
+server_name=MyVimServer
+```
+
 ## Tips
 
 - You can run the application with `./gf2`. Any additional command line arguments passed to `gf` will be forwarded to GDB.

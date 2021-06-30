@@ -87,6 +87,7 @@ FILE *commandLog;
 char controlPipePath[PATH_MAX];
 char emptyString;
 bool programRunning;
+const char *vimServerName = "GVIM";
 Array<INIState> presetCommands;
 
 // Current file and line:
@@ -708,9 +709,10 @@ void CommandPause(void *) {
 }
 
 void CommandSyncWithGvim(void *) {
-	FILE *file = popen("vim --servername GVIM --remote-expr \"execute(\\\"ls\\\")\" | grep %", "r");
-	if (!file) return;
 	char buffer[1024];
+	StringFormat(buffer, sizeof(buffer), "vim --servername %s --remote-expr \"execute(\\\"ls\\\")\" | grep %%", vimServerName);
+	FILE *file = popen(buffer, "r");
+	if (!file) return;
 	buffer[fread(buffer, 1, 1023, file)] = 0;
 	pclose(file);
 	char *name = strchr(buffer, '"');
@@ -721,7 +723,23 @@ void CommandSyncWithGvim(void *) {
 	char *line = strstr(nameEnd + 1, "line ");
 	if (!line) return;
 	int lineNumber = atoi(line + 5);
-	DisplaySetPosition(name, lineNumber, false);
+	char buffer2[PATH_MAX];
+
+	if (name[0] != '/' && name[0] != '~') {
+		char buffer[1024];
+		StringFormat(buffer, sizeof(buffer), "vim --servername %s --remote-expr \"execute(\\\"pwd\\\")\" | grep '/'", vimServerName);
+		FILE *file = popen(buffer, "r");
+		if (!file) return;
+		buffer[fread(buffer, 1, 1023, file)] = 0;
+		pclose(file);
+		if (!strchr(buffer, '\n')) return;
+		*strchr(buffer, '\n') = 0;
+		StringFormat(buffer2, sizeof(buffer2), "%s/%s", buffer, name);
+	} else {
+		strcpy(buffer2, name);
+	}
+
+	DisplaySetPosition(buffer2, lineNumber, false);
 }
 
 void CommandToggleBreakpoint(void *_line) {
@@ -2671,6 +2689,8 @@ void LoadSettings(bool earlyPass) {
 					if (strcmp(state.key, themeItems[i])) continue;
 					ui.theme.colors[i] = strtoul(state.value, nullptr, 16);
 				}
+			} else if (0 == strcmp(state.section, "vim") && earlyPass && 0 == strcmp(state.key, "server_name")) {
+				vimServerName = state.value;
 			}
 		}
 	}
@@ -2769,8 +2789,6 @@ int WindowMessage(UIElement *, UIMessage message, int di, void *dp) {
 			DisplaySetPosition(nullptr, atoi(input + 2), false);
 		} else if (input[0] == 'c' && input[1] == ' ') {
 			CommandParseInternal(input + 2, false);
-		} else if (input[0] == 'c' && input[1] == '&' && input[2] == ' ') {
-			CommandParseInternal(input + 3, true);
 		}
 
 		free(input);
