@@ -111,20 +111,32 @@ server_name=MyVimServer
 
 ## Control pipe
 
-You can change the loaded file and line by sending commands to the control pipe, located at `$HOME/.config/gf2_control.dat`. For example,
+You can change the loaded file and line by sending commands to the control pipe. 
+
+First, you must set the location of the control pipe. In the `[pipe]` section of the configuration file, set the `control` key to the absolute path where you want the control pipe to be.
+
+Then, you can send commands to the pipe. For example,
 
 ```bash
 # Load the specified file (must be a full path).
-echo f /home/a/test.c > $HOME/.config/gf2_control.dat
+echo f /home/a/test.c > /home/a/control_pipe.dat
 
 # Go to line 123.
-echo l 123 > $HOME/.config/gf2_control.dat
+echo l 123 > /home/a/control_pipe.dat
 
 # Send a GDB command.
-echo c file myapp > $HOME/.config/gf2_control.dat
+echo c file myapp > /home/a/control_pipe.dat
 ```
 
 This can be used for text editor integration.
+
+## Log window
+
+You can show messages send to a pipe using the log window.
+
+First, you must set the location of the log pipe. In the `[pipe]` section of the configuration file, set the `log` key to the absolute path where you want the log pipe to be. Next, you must add the "Log" window somewhere in your layout string (see the "User interface" section above).
+
+Once configured, you can then send messages to the pipe and they will appear in the log window.
 
 ## Special commands
 
@@ -155,4 +167,3 @@ This can be used for text editor integration.
 ### gf-command
 
 `gf-command <name>` runs the command(s) corresponding to `name` in the `[commands]` section of your configuration file.
-
