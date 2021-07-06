@@ -1659,21 +1659,25 @@ UIElement *CommandsWindowCreate(UIElement *parent) {
 //////////////////////////////////////////////////////
 
 void *LogWindowThread(void *context) {
-	if (!logPipePath) {
-		fprintf(stderr, "Error: The log pipe path has not been set in the configuration file!\n");
-		return nullptr;
-	}
+	if (!logPipePath) { fprintf(stderr, "Error: The log pipe path has not been set in the configuration file!\n"); return nullptr; }
+	int file = open(logPipePath, O_RDONLY | O_NONBLOCK);
+	if (file == -1) { fprintf(stderr, "Error: Could not open the log pipe!\n"); return nullptr; }
+
+	struct pollfd p = { .fd = file, .events = POLLIN };
 
 	while (true) {
-		FILE *file = fopen(logPipePath, "rb");
-		if (!file) { fprintf(stderr, "Error: Could not open the log pipe!\n"); continue; }
-		char input[16384];
-		input[fread(input, 1, sizeof(input) - 1, file)] = 0;
-		void *buffer = malloc(strlen(input) + sizeof(context) + 1);
-		memcpy(buffer, &context, sizeof(context));
-		strcpy((char *) buffer + sizeof(context), input);
-		UIWindowPostMessage(windowMain, MSG_RECEIVED_LOG, buffer);
-		fclose(file);
+		poll(&p, 1, 10000);
+
+		while (true) {
+			char input[16384];
+			int length = read(file, input, sizeof(input) - 1);
+			if (length <= 0) break;
+			input[length] = 0;
+			void *buffer = malloc(strlen(input) + sizeof(context) + 1);
+			memcpy(buffer, &context, sizeof(context));
+			strcpy((char *) buffer + sizeof(context), input);
+			UIWindowPostMessage(windowMain, MSG_RECEIVED_LOG, buffer);
+		}
 	}
 }
 

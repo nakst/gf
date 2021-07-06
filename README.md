@@ -134,9 +134,20 @@ This can be used for text editor integration.
 
 You can show messages send to a pipe using the log window.
 
-First, you must set the location of the log pipe. In the `[pipe]` section of the configuration file, set the `log` key to the absolute path where you want the log pipe to be. Next, you must add the "Log" window somewhere in your layout string (see the "User interface" section above).
+First, you must set the location of the log pipe. In the `[pipe]` section of the configuration file, set the `log` key to the absolute path where you want the log pipe to be. Next, you must add the "Log" window somewhere in your layout string (see the "User interface" section above). Once configured, you can then send messages to the pipe and they will appear in the log window. 
 
-Once configured, you can then send messages to the pipe and they will appear in the log window.
+Here is an example of how to send messages to the pipe:
+
+```c
+#define LOG(...) do { fprintf(logFile, __VA_ARGS__); fflush(logFile); } while (0)
+#define LOG_OPEN(path) logFile = fopen(path, "w")
+FILE *logFile;
+
+...
+
+LOG_OPEN("...");
+LOG("Hello, world!\n");
+```
 
 ## Special commands
 

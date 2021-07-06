@@ -27,6 +27,8 @@
 #include <sys/stat.h>
 #include <stdarg.h>
 #include <dirent.h>
+#include <fcntl.h>
+#include <poll.h>
 
 char *layoutString = (char *) "v(75,h(80,Source,v(50,t(Breakpoints,Commands,Struct),t(Stack,Files))),h(65,Console,t(Watch,Registers,Data)))";
 
