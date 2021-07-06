@@ -1039,7 +1039,7 @@ void LoadSettings(bool earlyPass) {
 				char path[PATH_MAX];
 				getcwd(path, sizeof(path));
 				if (0 == strcmp(path, state.key)) currentFolderIsTrusted = true;
-			} else if (0 == strcmp(state.section, "theme") && earlyPass && state.keyBytes && state.valueBytes) {
+			} else if (0 == strcmp(state.section, "theme") && !earlyPass && state.keyBytes && state.valueBytes) {
 				for (uintptr_t i = 0; i < sizeof(themeItems) / sizeof(themeItems[0]); i++) {
 					if (strcmp(state.key, themeItems[i])) continue;
 					ui.theme.colors[i] = strtoul(state.value, nullptr, 16);

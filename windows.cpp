@@ -235,7 +235,7 @@ UIElement *SourceWindowCreate(UIElement *parent) {
 	return &displayCode->e;
 }
 
-void SourceWindowUpdate(const char *data, UIElement *) {
+void SourceWindowUpdate(const char *data, UIElement *element) {
 	bool changedSourceLine = false;
 
 	const char *line = data;
@@ -353,6 +353,8 @@ void SourceWindowUpdate(const char *data, UIElement *) {
 
 		autoPrintExpressionLine = currentLine;
 	}
+
+	UIElementRefresh(element);
 }
 
 //////////////////////////////////////////////////////
