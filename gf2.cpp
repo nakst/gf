@@ -605,6 +605,52 @@ void TabCompleterRun(TabCompleter *completer, UITextbox *textbox, bool lastKeyWa
 // Commands:
 //////////////////////////////////////////////////////
 
+void SpawnTerminal(char *result)
+{
+    int terminal_pid = fork();
+    
+    if (terminal_pid == -1) {
+        exit(1);
+    } else if (terminal_pid == 0) {
+        char * const args[] = { "x-terminal-emulator", (char *) NULL };
+        execvp("x-terminal-emulator", args);
+    }
+
+    // wait for execvp
+    // TODO: proper way to do this
+    sleep(1);
+
+    char command[256] = { 0 };
+    FILE *fp;
+
+    // get some child process of terminal (probably bash)
+    // TODO: are we sure this always works?
+    snprintf(command, 255, "pgrep -P %d", terminal_pid);
+    fp = popen(command, "r");
+    fread(result, 255, 1, fp);
+    pclose(fp);
+
+    int pid = strtod(result, NULL);
+
+    memset(command, 0, 256);
+    memset(result, 0, 256);
+    memcpy(result, "/dev/", 5);
+
+    // get controlling terminal of this child process
+    snprintf(command, 255, "ps -p %d --no-headers -o %%y", pid);
+    fp = popen(command, "r");
+    fread(result + 5, 255, 1, fp);
+    pclose(fp);
+
+    // replace the newline
+    for (int i = 0; i < 255; ++i) {
+        if (result[i] == '\n') {
+            result[i] = 0;
+            break;
+        }
+    }
+}
+
 bool CommandParseInternal(const char *command, bool synchronous) {
 	if (0 == strcmp(command, "gf-step")) {
 		DebuggerSend(showingDisassembly ? "stepi" : "s", true, synchronous);
@@ -688,6 +734,12 @@ bool CommandParseInternal(const char *command, bool synchronous) {
 			free(copy);
 			break;
 		}
+	} else if (0 == strcmp(command, "start")) {
+		char pts[256] = { 0 };
+		char modified_command[256] = { 0 };
+		SpawnTerminal(pts);
+		snprintf(modified_command, 255, "%s &> %s", command, pts);
+		DebuggerSend(modified_command, true, synchronous);
 	} else {
 		DebuggerSend(command, true, synchronous);
 		return true;
