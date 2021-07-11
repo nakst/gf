@@ -30,7 +30,7 @@
 #include <fcntl.h>
 #include <poll.h>
 
-char *layoutString = (char *) "v(75,h(80,Source,v(50,t(Breakpoints,Commands,Struct),t(Stack,Files))),h(65,Console,t(Watch,Registers,Data)))";
+char *layoutString = (char *) "v(75,h(80,Source,v(50,t(Breakpoints,Commands,Struct),t(Stack,Files,Thread))),h(65,Console,t(Watch,Registers,Data)))";
 
 int fontSize = 13;
 float uiScale = 1;
@@ -906,6 +906,7 @@ InterfaceWindow interfaceWindows[] = {
 	{ "Files", FilesWindowCreate, nullptr, },
 	{ "Console", ConsoleWindowCreate, nullptr, },
 	{ "Log", LogWindowCreate, nullptr, },
+	{ "Thread", ThreadWindowCreate, ThreadWindowUpdate, },
 };
 
 void LoadSettings(bool earlyPass) {

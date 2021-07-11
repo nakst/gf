@@ -1693,3 +1693,85 @@ UIElement *LogWindowCreate(UIElement *parent) {
 	pthread_create(&thread, nullptr, LogWindowThread, code);
 	return &code->e;
 }
+
+//////////////////////////////////////////////////////
+// Thread window:
+//////////////////////////////////////////////////////
+
+struct Thread {
+	char frame[127];
+	bool active;
+};
+
+struct ThreadWindow {
+	Array<Thread> threads;
+};
+
+int ThreadTableMessage(UIElement *element, UIMessage message, int di, void *dp) {
+	ThreadWindow *window = (ThreadWindow *) element->cp;
+
+	if (message == UI_MSG_TABLE_GET_ITEM) {
+		UITableGetItem *m = (UITableGetItem *) dp;
+		m->isSelected = window->threads[m->index].active;
+
+		if (m->column == 0) {
+			return StringFormat(m->buffer, m->bufferBytes, "%d", m->index + 1);
+		} else if (m->column == 1) {
+			return StringFormat(m->buffer, m->bufferBytes, "%s", window->threads[m->index].frame);
+		}
+	} else if (message == UI_MSG_LEFT_DOWN) {
+		int index = UITableHitTest((UITable *) element, element->window->cursorX, element->window->cursorY);
+
+		if (index != -1) {
+			char buffer[1024];
+			StringFormat(buffer, 1024, "thread %d", index + 1);
+			DebuggerSend(buffer, true, false);
+		}
+	}
+
+	return 0;
+}
+
+UIElement *ThreadWindowCreate(UIElement *parent) {
+	UITable *table = UITableCreate(parent, 0, "ID\tFrame");
+	table->e.cp = (ThreadWindow *) calloc(1, sizeof(ThreadWindow));
+	table->e.messageUser = ThreadTableMessage;
+	return &table->e;
+}
+
+void ThreadWindowUpdate(const char *, UIElement *_table) {
+	ThreadWindow *window = (ThreadWindow *) _table->cp;
+	window->threads.length = 0;
+
+	EvaluateCommand("info threads");
+	char *position = evaluateResult;
+
+	for (int i = 0; position[i]; i++) {
+		if (position[i] == '\n' && position[i + 1] == ' ' && position[i + 2] == ' ' && position[i + 3] == ' ') {
+			memmove(position + i, position + i + 3, strlen(position) - 3 - i + 1);
+		}
+	}
+
+	while (true) {
+		position = strchr(position, '\n');
+		if (!position) break;
+		Thread thread = {};
+		if (position[1] == '*') thread.active = true;
+		position = strchr(position + 1, '"');
+		if (!position) break;
+		position = strchr(position + 1, '"');
+		if (!position) break;
+		position++;
+		char *end = strchr(position, '\n');
+		if (end - position >= (ptrdiff_t) sizeof(thread.frame)) 
+			end = position + sizeof(thread.frame) - 1;
+		memcpy(thread.frame, position, end - position);
+		thread.frame[end - position] = 0;
+		window->threads.Add(thread);
+	}
+
+	UITable *table = (UITable *) _table;
+	table->itemCount = window->threads.Length();
+	UITableResizeColumns(table);
+	UIElementRefresh(&table->e);
+}
