@@ -437,6 +437,7 @@ typedef struct UICodeLine {
 
 typedef struct UICode {
 #define UI_CODE_NO_MARGIN (1 << 0)
+#define UI_CODE_HIGHLIGHT_HOVER (1 << 1)
 	UIElement e;
 	UIScrollBar *vScroll;
 	UICodeLine *lines;
@@ -2302,6 +2303,11 @@ int _UICodeMessage(UIElement *element, UIMessage message, int di, void *dp) {
 				UIDrawBlock(painter, lineBounds, ui.theme.codeFocused);
 			}
 
+			if (UICodeHitTest(code, element->window->cursorX, element->window->cursorY) == i + 1 
+					&& element->window->hovered == element && (element->flags & UI_CODE_HIGHLIGHT_HOVER)) {
+				UIDrawBorder(painter, lineBounds, ui.theme.buttonFocused, UI_RECT_1(2));
+			}
+
 			int x = UIDrawStringHighlighted(painter, lineBounds, code->content + code->lines[i].offset, code->lines[i].bytes, code->tabSize);
 			int y = (lineBounds.t + lineBounds.b - UIMeasureStringHeight()) / 2;
 			
@@ -2330,6 +2336,8 @@ int _UICodeMessage(UIElement *element, UIMessage message, int di, void *dp) {
 		if (UICodeHitTest(code, element->window->cursorX, element->window->cursorY) < 0) {
 			return UI_CURSOR_FLIPPED_ARROW;
 		}
+	} else if ((element->flags & UI_CODE_HIGHLIGHT_HOVER) && (message == UI_MSG_MOUSE_MOVE || message == UI_MSG_UPDATE)) {
+		UIElementRefresh(element);
 	} else if (message == UI_MSG_DESTROY) {
 		UI_FREE(code->content);
 		UI_FREE(code->lines);

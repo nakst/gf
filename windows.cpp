@@ -230,7 +230,7 @@ int DisplayCodeMessage(UIElement *element, UIMessage message, int di, void *dp) 
 }
 
 UIElement *SourceWindowCreate(UIElement *parent) {
-	displayCode = UICodeCreate(parent, 0);
+	displayCode = UICodeCreate(parent, UI_CODE_HIGHLIGHT_HOVER);
 	displayCode->e.messageUser = DisplayCodeMessage;
 	return &displayCode->e;
 }
