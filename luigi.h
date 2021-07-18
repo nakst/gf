@@ -1164,12 +1164,45 @@ void UIDrawInvert(UIPainter *painter, UIRectangle rectangle) {
 
 #ifdef UI_FREETYPE
 
-static uint8_t alphaBlend(uint8_t source, uint8_t destination, uint8_t alpha) {
-    return (alpha * source + (255 - alpha) * destination) / 255;
+static float lerp(float x0, float x1, float lambda) {
+    return (1.0f - lambda) * x0 + lambda * x1;
 }
 
 static uint32_t mergeRGBA(uint8_t r, uint8_t g, uint8_t b, uint8_t a) {
     return r | (g << 8) | (b << 16) | (a << 24);
+}
+
+// https://en.wikipedia.org/wiki/SRGB
+static float srgbToLinear(uint8_t val) {
+    float valf = ((float) val) / 255.0f;
+
+    if (valf <= .0031308f) {
+        return 12.92f * valf;
+    } else {
+        float a = .055f;
+        return (1.0f + a) * powf(valf, 1.0f / 2.4f) - a;
+    }
+}
+
+// https://en.wikipedia.org/wiki/SRGB
+static uint8_t linearToSrgb(float val) {
+    float result;
+
+    if (val <= .04045f) {
+        result = val / 12.92f;
+    } else {
+        float a = .055f;
+        result = powf((val + a) / (1.0f + a), 2.4f);
+    }
+
+    if (result > 1.0f) {
+        return 255;
+    }
+    if (result < 0.0f) {
+        return 0;
+    }
+
+    return (uint8_t) (result * 255.0f);
 }
 
 void UIDrawGlyph(UIPainter *painter, int x0, int y0, int c, uint32_t color) {
@@ -1227,19 +1260,19 @@ void UIDrawGlyph(UIPainter *painter, int x0, int y0, int c, uint32_t color) {
 			uint32_t *destination = painter->bits + (x0 + x) + (y0 + y) * painter->width;
 			uint32_t original = *destination;
 
-            uint8_t alpha = bitmap->buffer[y * bitmap->pitch + x];
+            float alpha = ((float)bitmap->buffer[y * bitmap->pitch + x]) / 255.0f;
 
-            uint8_t color_r = color & 0x000000FF;
-            uint8_t color_g = (color & 0x0000FF00) >> 8;
-            uint8_t color_b = (color & 0x00FF0000) >> 16;
+            float color_r = srgbToLinear(color & 0x000000FF);
+            float color_g = srgbToLinear((color & 0x0000FF00) >> 8);
+            float color_b = srgbToLinear((color & 0x00FF0000) >> 16);
 
-            uint8_t original_r = original & 0x000000FF;
-            uint8_t original_g = (original & 0x0000FF00) >> 8;
-            uint8_t original_b = (original & 0x00FF0000) >> 16;
+            float original_r = srgbToLinear(original & 0x000000FF);
+            float original_g = srgbToLinear((original & 0x0000FF00) >> 8);
+            float original_b = srgbToLinear((original & 0x00FF0000) >> 16);
 
-            uint8_t result_r = alphaBlend(color_r, original_r, alpha);
-            uint8_t result_g = alphaBlend(color_g, original_g, alpha);
-            uint8_t result_b = alphaBlend(color_b, original_b, alpha);
+            uint8_t result_r = linearToSrgb(lerp(original_r, color_r, alpha));
+            uint8_t result_g = linearToSrgb(lerp(original_g, color_g, alpha));
+            uint8_t result_b = linearToSrgb(lerp(original_b, color_b, alpha));
 
             *destination = mergeRGBA(result_r, result_g, result_b, 255);
         }
