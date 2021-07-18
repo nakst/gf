@@ -159,12 +159,37 @@ typedef enum UIMessage {
 	UI_MSG_VALUE_CHANGED, // sent to notify that the element's value has changed
 	UI_MSG_TABLE_GET_ITEM, // dp = pointer to UITableGetItem; return string length
 	UI_MSG_CODE_GET_MARGIN_COLOR, // di = line index (starts at 1); return color
-	UI_MSG_CODE_GET_LINE_HINT, // dp = pointer to UITableGetItem (line in index field); return string length
+	UI_MSG_CODE_DECORATE_LINE, // dp = pointer to UICodeDecorateLine
 	UI_MSG_WINDOW_CLOSE, // return 1 to prevent default (process exit for UIWindow; close for UIMDIChild)
 	UI_MSG_TAB_SELECTED, // sent to the tab that was selected (not the tab pane itself)
 
 	UI_MSG_USER,
 } UIMessage;
+
+typedef struct UIRectangle {
+	int l, r, t, b;
+} UIRectangle;
+
+typedef struct UIPainter {
+	UIRectangle clip;
+	uint32_t *bits;
+	int width, height;
+#ifdef UI_DEBUG
+	int fillCount;
+#endif
+} UIPainter;
+
+typedef struct UIShortcut {
+	intptr_t code;
+	bool ctrl, shift, alt;
+	void (*invoke)(void *cp);
+	void *cp;
+} UIShortcut;
+
+typedef struct UIStringSelection {
+	int carets[2];
+	uint32_t colorText, colorBackground;
+} UIStringSelection;
 
 typedef struct UIKeyTyped {
 	char *text;
@@ -179,14 +204,17 @@ typedef struct UITableGetItem {
 	bool isSelected;
 } UITableGetItem;
 
-typedef struct UIStringSelection {
-	int carets[2];
-	uint32_t colorText, colorBackground;
-} UIStringSelection;
+typedef struct UICodeDecorateLine {
+	UIRectangle bounds;
+	int index; // Starting at 1!
+	int x, y; // Position where additional text can be drawn.
+	UIPainter *painter;
+} UICodeDecorateLine;
 
-typedef struct UIRectangle {
-	int l, r, t, b;
-} UIRectangle;
+typedef struct UIFindByPoint {
+	int x, y;
+	struct UIElement *result;
+} UIFindByPoint;
 
 #define UI_RECT_1(x) ((UIRectangle) { (x), (x), (x), (x) })
 #define UI_RECT_1I(x) ((UIRectangle) { (x), -(x), (x), -(x) })
@@ -270,20 +298,6 @@ extern const int UI_KEYCODE_0;
 #define UI_KEYCODE_LETTER(x) (UI_KEYCODE_A + (x) - 'A')
 #define UI_KEYCODE_DIGIT(x) (UI_KEYCODE_0 + (x) - '0')
 
-typedef struct UIPainter {
-	UIRectangle clip;
-	uint32_t *bits;
-	int width, height;
-#ifdef UI_DEBUG
-	int fillCount;
-#endif
-} UIPainter;
-
-typedef struct UIFindByPoint {
-	int x, y;
-	struct UIElement *result;
-} UIFindByPoint;
-
 typedef struct UIElement {
 #define UI_ELEMENT_V_FILL (1 << 16)
 #define UI_ELEMENT_H_FILL (1 << 17)
@@ -316,13 +330,6 @@ typedef struct UIElement {
 	int id;
 #endif
 } UIElement;
-
-typedef struct UIShortcut {
-	intptr_t code;
-	bool ctrl, shift, alt;
-	void (*invoke)(void *cp);
-	void *cp;
-} UIShortcut;
 
 #define UI_SHORTCUT(code, ctrl, shift, alt, invoke, cp) ((UIShortcut) { (code), (ctrl), (shift), (alt), (invoke), (cp) })
 
@@ -437,7 +444,6 @@ typedef struct UICodeLine {
 
 typedef struct UICode {
 #define UI_CODE_NO_MARGIN (1 << 0)
-#define UI_CODE_HIGHLIGHT_HOVER (1 << 1)
 	UIElement e;
 	UIScrollBar *vScroll;
 	UICodeLine *lines;
@@ -2317,27 +2323,12 @@ int _UICodeMessage(UIElement *element, UIMessage message, int di, void *dp) {
 				UIDrawBlock(painter, lineBounds, ui.theme.codeFocused);
 			}
 
-			if (UICodeHitTest(code, element->window->cursorX, element->window->cursorY) == i + 1 
-					&& element->window->hovered == element && (element->flags & UI_CODE_HIGHLIGHT_HOVER)) {
-				UIDrawBorder(painter, lineBounds, ui.theme.buttonFocused, UI_RECT_1(2));
-			}
-
 			int x = UIDrawStringHighlighted(painter, lineBounds, code->content + code->lines[i].offset, code->lines[i].bytes, code->tabSize);
 			int y = (lineBounds.t + lineBounds.b - UIMeasureStringHeight()) / 2;
-			
-			{
-				char buffer[128];
-				UITableGetItem m = { 0 };
-				m.buffer = buffer;
-				m.bufferBytes = sizeof(buffer);
-				m.index = i + 1;
-				size_t bytes = UIElementMessage(element, UI_MSG_CODE_GET_LINE_HINT, 0, &m);
-				
-				if (bytes) {
-					UIRectangle rectangle = UI_RECT_4(x + ui.glyphWidth, lineBounds.r, y, y + lineHeight);
-					UIDrawString(painter, rectangle, m.buffer, bytes, ui.theme.codeComment, UI_ALIGN_LEFT, NULL);
-				}
-			}
+
+			UICodeDecorateLine m = { 0 };
+			m.x = x, m.y = y, m.bounds = lineBounds, m.index = i + 1, m.painter = painter;
+			UIElementMessage(element, UI_MSG_CODE_DECORATE_LINE, 0, &m);
 
 			lineBounds.t += lineHeight;
 		}
@@ -2350,8 +2341,6 @@ int _UICodeMessage(UIElement *element, UIMessage message, int di, void *dp) {
 		if (UICodeHitTest(code, element->window->cursorX, element->window->cursorY) < 0) {
 			return UI_CURSOR_FLIPPED_ARROW;
 		}
-	} else if ((element->flags & UI_CODE_HIGHLIGHT_HOVER) && (message == UI_MSG_MOUSE_MOVE || message == UI_MSG_UPDATE)) {
-		UIElementRefresh(element);
 	} else if (message == UI_MSG_DESTROY) {
 		UI_FREE(code->content);
 		UI_FREE(code->lines);
@@ -4525,12 +4514,15 @@ bool _UIProcessEvent(XEvent *event) {
 			if (symbol == XK_Control_L || symbol == XK_Control_R) {
 				window->ctrl = true;
 				window->ctrlCode = event->xkey.keycode;
+				_UIWindowInputEvent(window, UI_MSG_MOUSE_MOVE, 0, 0);
 			} else if (symbol == XK_Shift_L || symbol == XK_Shift_R) {
 				window->shift = true;
 				window->shiftCode = event->xkey.keycode;
+				_UIWindowInputEvent(window, UI_MSG_MOUSE_MOVE, 0, 0);
 			} else if (symbol == XK_Alt_L || symbol == XK_Alt_R) {
 				window->alt = true;
 				window->altCode = event->xkey.keycode;
+				_UIWindowInputEvent(window, UI_MSG_MOUSE_MOVE, 0, 0);
 			}
 
 			_UIWindowInputEvent(window, UI_MSG_KEY_TYPED, 0, &m);
@@ -4541,10 +4533,13 @@ bool _UIProcessEvent(XEvent *event) {
 
 		if (event->xkey.keycode == window->ctrlCode) {
 			window->ctrl = false;
+			_UIWindowInputEvent(window, UI_MSG_MOUSE_MOVE, 0, 0);
 		} else if (event->xkey.keycode == window->shiftCode) {
 			window->shift = false;
+			_UIWindowInputEvent(window, UI_MSG_MOUSE_MOVE, 0, 0);
 		} else if (event->xkey.keycode == window->altCode) {
 			window->alt = false;
+			_UIWindowInputEvent(window, UI_MSG_MOUSE_MOVE, 0, 0);
 		}
 	} else if (event->type == FocusIn) {
 		UIWindow *window = _UIFindWindow(event->xfocus.window);

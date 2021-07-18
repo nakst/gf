@@ -783,7 +783,7 @@ void CommandCustom(void *_command) {
 		StringFormat(buffer, 4096, "%s > .output.gf 2>&1", command);
 		int start = time(nullptr);
 		int result = system(buffer);
-		size_t bytes;
+		size_t bytes = 0;
 		char *output = LoadFile(".output.gf", &bytes);
 		unlink(".output.gf");
 		char *copy = (char *) malloc(bytes + 1);

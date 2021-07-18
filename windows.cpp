@@ -218,19 +218,28 @@ int DisplayCodeMessage(UIElement *element, UIMessage message, int di, void *dp) 
 				return 0xFF0000;
 			}
 		}
-	} else if (message == UI_MSG_CODE_GET_LINE_HINT) {
-		UITableGetItem *m = (UITableGetItem *) dp;
+	} else if (message == UI_MSG_CODE_DECORATE_LINE) {
+		UICodeDecorateLine *m = (UICodeDecorateLine *) dp;
 
 		if (m->index == autoPrintResultLine) {
-			return StringFormat(m->buffer, m->bufferBytes, "%s", autoPrintResult);
+			UIRectangle rectangle = UI_RECT_4(m->x + ui.glyphWidth, m->bounds.r, m->y, m->y + UIMeasureStringHeight());
+			UIDrawString(m->painter, rectangle, autoPrintResult, -1, ui.theme.codeComment, UI_ALIGN_LEFT, NULL);
 		}
+
+		if (UICodeHitTest((UICode *) element, element->window->cursorX, element->window->cursorY) == m->index
+				&& element->window->hovered == element && (element->window->ctrl || element->window->alt)) {
+			UIDrawBorder(m->painter, m->bounds, element->window->ctrl ? 0xFF6290E0 : 0xFFE09062, UI_RECT_1(2));
+			UIDrawString(m->painter, m->bounds, element->window->ctrl ? "=> run until " : "=> skip to ", -1, ui.theme.text, UI_ALIGN_RIGHT, NULL);
+		}
+	} else if (message == UI_MSG_MOUSE_MOVE || message == UI_MSG_UPDATE) {
+		UIElementRefresh(element);
 	}
 
 	return 0;
 }
 
 UIElement *SourceWindowCreate(UIElement *parent) {
-	displayCode = UICodeCreate(parent, UI_CODE_HIGHLIGHT_HOVER);
+	displayCode = UICodeCreate(parent, 0);
 	displayCode->e.messageUser = DisplayCodeMessage;
 	return &displayCode->e;
 }
