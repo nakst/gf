@@ -1164,12 +1164,24 @@ void UIDrawInvert(UIPainter *painter, UIRectangle rectangle) {
 
 #ifdef UI_FREETYPE
 
+static uint8_t alphaBlend(uint8_t source, uint8_t destination, uint8_t alpha) {
+    return (alpha * source + (255 - alpha) * destination) / 255;
+}
+
+static uint32_t mergeRGBA(uint8_t r, uint8_t g, uint8_t b, uint8_t a) {
+    return r | (g << 8) | (b << 16) | (a << 24);
+}
+
 void UIDrawGlyph(UIPainter *painter, int x0, int y0, int c, uint32_t color) {
 	if (c < 0 || c > 127) c = '?';
 
 	if (!ui.glyphsRendered[c]) {
 		FT_Load_Char(ui.font, c == 24 ? 0x2191 : c == 25 ? 0x2193 : c == 26 ? 0x2192 : c == 27 ? 0x2190 : c, FT_LOAD_DEFAULT);
+#ifdef UI_FREETYPE_SUBPIXEL
 		FT_Render_Glyph(ui.font->glyph, FT_RENDER_MODE_LCD);
+#else
+		FT_Render_Glyph(ui.font->glyph, FT_RENDER_MODE_NORMAL);
+#endif
 		FT_Bitmap_Copy(ui.ft, &ui.font->glyph->bitmap, &ui.glyphs[c]);
 		ui.glyphOffsetsX[c] = ui.font->glyph->bitmap_left;
 		ui.glyphOffsetsY[c] = ui.font->size->metrics.ascender / 64 - ui.font->glyph->bitmap_top;
@@ -1183,6 +1195,7 @@ void UIDrawGlyph(UIPainter *painter, int x0, int y0, int c, uint32_t color) {
 		if (y0 + y < painter->clip.t) continue;
 		if (y0 + y >= painter->clip.b) break;
 
+#ifdef UI_FREETYPE_SUBPIXEL
 		for (int x = 0; x < (int) bitmap->width / 3; x++) {
 			if (x0 + x < painter->clip.l) continue;
 			if (x0 + x >= painter->clip.r) break;
@@ -1206,6 +1219,31 @@ void UIDrawGlyph(UIPainter *painter, int x0, int y0, int c, uint32_t color) {
 				| (0x000000FF & ((r1 + r2) >> 8));
 			*destination = result;
 		}
+#else
+		for (int x = 0; x < (int) bitmap->width; x++) {
+			if (x0 + x < painter->clip.l) continue;
+			if (x0 + x >= painter->clip.r) break;
+
+			uint32_t *destination = painter->bits + (x0 + x) + (y0 + y) * painter->width;
+			uint32_t original = *destination;
+
+            uint8_t alpha = bitmap->buffer[y * bitmap->pitch + x];
+
+            uint8_t color_r = color & 0x000000FF;
+            uint8_t color_g = (color & 0x0000FF00) >> 8;
+            uint8_t color_b = (color & 0x00FF0000) >> 16;
+
+            uint8_t original_r = original & 0x000000FF;
+            uint8_t original_g = (original & 0x0000FF00) >> 8;
+            uint8_t original_b = (original & 0x00FF0000) >> 16;
+
+            uint8_t result_r = alphaBlend(color_r, original_r, alpha);
+            uint8_t result_g = alphaBlend(color_g, original_g, alpha);
+            uint8_t result_b = alphaBlend(color_b, original_b, alpha);
+
+            *destination = mergeRGBA(result_r, result_g, result_b, 255);
+        }
+#endif
 	}
 }
 
