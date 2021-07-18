@@ -628,6 +628,7 @@ void UIInspectorLog(const char *cFormat, ...);
 #ifdef UI_FREETYPE
 #include <ft2build.h>
 #include FT_FREETYPE_H
+#include FT_LCD_FILTER_H
 #include <freetype/ftbitmap.h>
 #endif
 
@@ -1164,12 +1165,57 @@ void UIDrawInvert(UIPainter *painter, UIRectangle rectangle) {
 
 #ifdef UI_FREETYPE
 
+static float lerp(float x0, float x1, float lambda) {
+    return (1.0f - lambda) * x0 + lambda * x1;
+}
+
+static uint32_t mergeRGBA(uint8_t r, uint8_t g, uint8_t b, uint8_t a) {
+    return r | (g << 8) | (b << 16) | (a << 24);
+}
+
+// https://en.wikipedia.org/wiki/SRGB
+static float srgbToLinear(uint8_t val) {
+    float valf = ((float) val) / 255.0f;
+
+    if (valf <= .0031308f) {
+        return 12.92f * valf;
+    } else {
+        float a = .055f;
+        return (1.0f + a) * powf(valf, 1.0f / 2.4f) - a;
+    }
+}
+
+// https://en.wikipedia.org/wiki/SRGB
+static uint8_t linearToSrgb(float val) {
+    float result;
+
+    if (val <= .04045f) {
+        result = val / 12.92f;
+    } else {
+        float a = .055f;
+        result = powf((val + a) / (1.0f + a), 2.4f);
+    }
+
+    if (result > 1.0f) {
+        return 255;
+    }
+    if (result < 0.0f) {
+        return 0;
+    }
+
+    return (uint8_t) (result * 255.0f);
+}
+
 void UIDrawGlyph(UIPainter *painter, int x0, int y0, int c, uint32_t color) {
 	if (c < 0 || c > 127) c = '?';
 
 	if (!ui.glyphsRendered[c]) {
 		FT_Load_Char(ui.font, c == 24 ? 0x2191 : c == 25 ? 0x2193 : c == 26 ? 0x2192 : c == 27 ? 0x2190 : c, FT_LOAD_DEFAULT);
+#ifdef UI_FREETYPE_SUBPIXEL
 		FT_Render_Glyph(ui.font->glyph, FT_RENDER_MODE_LCD);
+#else
+		FT_Render_Glyph(ui.font->glyph, FT_RENDER_MODE_NORMAL);
+#endif
 		FT_Bitmap_Copy(ui.ft, &ui.font->glyph->bitmap, &ui.glyphs[c]);
 		ui.glyphOffsetsX[c] = ui.font->glyph->bitmap_left;
 		ui.glyphOffsetsY[c] = ui.font->size->metrics.ascender / 64 - ui.font->glyph->bitmap_top;
@@ -1179,10 +1225,17 @@ void UIDrawGlyph(UIPainter *painter, int x0, int y0, int c, uint32_t color) {
 	FT_Bitmap *bitmap = &ui.glyphs[c];
 	x0 += ui.glyphOffsetsX[c], y0 += ui.glyphOffsetsY[c];
 
+    uint8_t *bitmapBytes = (uint8_t*)bitmap->buffer;
+
+    float color_r = srgbToLinear(color & 0x000000FF);
+    float color_g = srgbToLinear((color & 0x0000FF00) >> 8);
+    float color_b = srgbToLinear((color & 0x00FF0000) >> 16);
+
 	for (int y = 0; y < (int) bitmap->rows; y++) {
 		if (y0 + y < painter->clip.t) continue;
 		if (y0 + y >= painter->clip.b) break;
 
+#ifdef UI_FREETYPE_SUBPIXEL
 		for (int x = 0; x < (int) bitmap->width / 3; x++) {
 			if (x0 + x < painter->clip.l) continue;
 			if (x0 + x >= painter->clip.r) break;
@@ -1190,22 +1243,42 @@ void UIDrawGlyph(UIPainter *painter, int x0, int y0, int c, uint32_t color) {
 			uint32_t *destination = painter->bits + (x0 + x) + (y0 + y) * painter->width;
 			uint32_t original = *destination;
 
-			uint32_t ra = ((uint8_t *) bitmap->buffer)[x * 3 + y * bitmap->pitch + 0];
-			uint32_t ga = ((uint8_t *) bitmap->buffer)[x * 3 + y * bitmap->pitch + 1];
-			uint32_t ba = ((uint8_t *) bitmap->buffer)[x * 3 + y * bitmap->pitch + 2];
-			ra += (ga - ra) / 2, ba += (ga - ba) / 2;
-			uint32_t r2 = (255 - ra) * ((original & 0x000000FF) >> 0);
-			uint32_t g2 = (255 - ga) * ((original & 0x0000FF00) >> 8);
-			uint32_t b2 = (255 - ba) * ((original & 0x00FF0000) >> 16);
-			uint32_t r1 = ra * ((color & 0x000000FF) >> 0);
-			uint32_t g1 = ga * ((color & 0x0000FF00) >> 8);
-			uint32_t b1 = ba * ((color & 0x00FF0000) >> 16);
+            float original_r = srgbToLinear(original & 0x000000FF);
+            float original_g = srgbToLinear((original & 0x0000FF00) >> 8);
+            float original_b = srgbToLinear((original & 0x00FF0000) >> 16);
 
-			uint32_t result = 0xFF000000 | (0x00FF0000 & ((b1 + b2) << 8)) 
-				| (0x0000FF00 & ((g1 + g2) << 0)) 
-				| (0x000000FF & ((r1 + r2) >> 8));
-			*destination = result;
+            uint32_t bitmapOffset = x * 3 + y * bitmap->pitch;
+            float alpha_r = (float)bitmapBytes[bitmapOffset + 0] / 255.0f;
+			float alpha_g = (float)bitmapBytes[bitmapOffset + 1] / 255.0f;
+			float alpha_b = (float)bitmapBytes[bitmapOffset + 2] / 255.0f;
+
+            uint8_t result_r = linearToSrgb(lerp(original_r, color_r, alpha_r));
+            uint8_t result_g = linearToSrgb(lerp(original_g, color_g, alpha_g));
+            uint8_t result_b = linearToSrgb(lerp(original_b, color_b, alpha_b));
+
+            *destination = mergeRGBA(result_r, result_g, result_b, 255);
 		}
+#else
+		for (int x = 0; x < (int) bitmap->width; x++) {
+			if (x0 + x < painter->clip.l) continue;
+			if (x0 + x >= painter->clip.r) break;
+
+			uint32_t *destination = painter->bits + (x0 + x) + (y0 + y) * painter->width;
+			uint32_t original = *destination;
+
+            float alpha = ((float)bitmap->buffer[y * bitmap->pitch + x]) / 255.0f;
+
+            float original_r = srgbToLinear(original & 0x000000FF);
+            float original_g = srgbToLinear((original & 0x0000FF00) >> 8);
+            float original_b = srgbToLinear((original & 0x00FF0000) >> 16);
+
+            uint8_t result_r = linearToSrgb(lerp(original_r, color_r, alpha));
+            uint8_t result_g = linearToSrgb(lerp(original_g, color_g, alpha));
+            uint8_t result_b = linearToSrgb(lerp(original_b, color_b, alpha));
+
+            *destination = mergeRGBA(result_r, result_g, result_b, 255);
+        }
+#endif
 	}
 }
 
@@ -4031,6 +4104,7 @@ void _UIInitialiseCommon() {
 
 #ifdef UI_FREETYPE
 	FT_Init_FreeType(&ui.ft);
+    FT_Library_SetLcdFilter(ui.ft, FT_LCD_FILTER_DEFAULT);
 	FT_New_Face(ui.ft, _UI_TO_STRING_2(UI_FONT_PATH), 0, &ui.font); 
 	FT_Set_Char_Size(ui.font, 0, UI_FONT_SIZE * 64, 100, 100);
 	FT_Load_Char(ui.font, 'a', FT_LOAD_DEFAULT);
