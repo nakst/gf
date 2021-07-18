@@ -14,7 +14,6 @@
 // TODO Future extensions.
 // 	- Memory window.
 // 	- Hover to view value.
-// 	- Thread selection.
 // 	- Data breakpoint viewer.
 // 	- Automatically restoring breakpoints and symbols files after restarting gdb.
 

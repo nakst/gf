@@ -1169,7 +1169,11 @@ void UIDrawGlyph(UIPainter *painter, int x0, int y0, int c, uint32_t color) {
 
 	if (!ui.glyphsRendered[c]) {
 		FT_Load_Char(ui.font, c == 24 ? 0x2191 : c == 25 ? 0x2193 : c == 26 ? 0x2192 : c == 27 ? 0x2190 : c, FT_LOAD_DEFAULT);
+#ifdef UI_FREETYPE_SUBPIXEL
 		FT_Render_Glyph(ui.font->glyph, FT_RENDER_MODE_LCD);
+#else
+		FT_Render_Glyph(ui.font->glyph, FT_RENDER_MODE_NORMAL);
+#endif
 		FT_Bitmap_Copy(ui.ft, &ui.font->glyph->bitmap, &ui.glyphs[c]);
 		ui.glyphOffsetsX[c] = ui.font->glyph->bitmap_left;
 		ui.glyphOffsetsY[c] = ui.font->size->metrics.ascender / 64 - ui.font->glyph->bitmap_top;
@@ -1183,17 +1187,27 @@ void UIDrawGlyph(UIPainter *painter, int x0, int y0, int c, uint32_t color) {
 		if (y0 + y < painter->clip.t) continue;
 		if (y0 + y >= painter->clip.b) break;
 
-		for (int x = 0; x < (int) bitmap->width / 3; x++) {
+		int width = bitmap->width;
+#ifdef UI_FREETYPE_SUBPIXEL
+		width /= 3;
+#endif
+
+		for (int x = 0; x < width; x++) {
 			if (x0 + x < painter->clip.l) continue;
 			if (x0 + x >= painter->clip.r) break;
 
 			uint32_t *destination = painter->bits + (x0 + x) + (y0 + y) * painter->width;
 			uint32_t original = *destination;
 
+#ifdef UI_FREETYPE_SUBPIXEL
 			uint32_t ra = ((uint8_t *) bitmap->buffer)[x * 3 + y * bitmap->pitch + 0];
 			uint32_t ga = ((uint8_t *) bitmap->buffer)[x * 3 + y * bitmap->pitch + 1];
 			uint32_t ba = ((uint8_t *) bitmap->buffer)[x * 3 + y * bitmap->pitch + 2];
 			ra += (ga - ra) / 2, ba += (ga - ba) / 2;
+#else
+			uint32_t ra = ((uint8_t *) bitmap->buffer)[x + y * bitmap->pitch];
+			uint32_t ga = ra, ba = ra;
+#endif
 			uint32_t r2 = (255 - ra) * ((original & 0x000000FF) >> 0);
 			uint32_t g2 = (255 - ga) * ((original & 0x0000FF00) >> 8);
 			uint32_t b2 = (255 - ba) * ((original & 0x00FF0000) >> 16);

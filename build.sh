@@ -19,4 +19,4 @@ fi
 
 warning_flags="-Wall -Wextra -Wno-unused-parameter -Wno-unused-result -Wno-missing-field-initializers -Wno-format-truncation"
 
-g++ gf2.cpp -o gf2 -g -O2 -lX11 -pthread $warning_flags $font_flags
+g++ gf2.cpp -o gf2 -g -O2 -lX11 -pthread $warning_flags $font_flags $extra_flags
