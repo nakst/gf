@@ -6,6 +6,7 @@ char autoPrintExpression[1024];
 char autoPrintResult[1024];
 int autoPrintExpressionLine;
 int autoPrintResultLine;
+int currentEndOfBlock;
 
 bool DisplaySetPosition(const char *file, int line, bool useGDBToGetFullPath) {
 	if (showingDisassembly) {
@@ -78,6 +79,7 @@ bool DisplaySetPosition(const char *file, int line, bool useGDBToGetFullPath) {
 		changed = true;
 	}
 
+	currentEndOfBlock = SourceFindEndOfBlock();
 	UIElementRefresh(&displayCode->e);
 
 	return changed;
@@ -181,6 +183,7 @@ void CommandToggleDisassembly(void *) {
 		DisassemblyUpdateLine();
 	} else {
 		currentLine = -1;
+		currentEndOfBlock = -1;
 		currentFile[0] = 0;
 		currentFileReadTime = 0;
 		DisplaySetPositionFromStack();
@@ -230,6 +233,8 @@ int DisplayCodeMessage(UIElement *element, UIMessage message, int di, void *dp) 
 				&& element->window->hovered == element && (element->window->ctrl || element->window->alt)) {
 			UIDrawBorder(m->painter, m->bounds, element->window->ctrl ? 0xFF6290E0 : 0xFFE09062, UI_RECT_1(2));
 			UIDrawString(m->painter, m->bounds, element->window->ctrl ? "=> run until " : "=> skip to ", -1, ui.theme.text, UI_ALIGN_RIGHT, NULL);
+		} else if (m->index == currentEndOfBlock) {
+			UIDrawString(m->painter, m->bounds, "[Shift+F10]", -1, ui.theme.codeComment, UI_ALIGN_RIGHT, NULL);
 		}
 	} else if (message == UI_MSG_MOUSE_MOVE || message == UI_MSG_UPDATE) {
 		UIElementRefresh(element);
@@ -947,6 +952,25 @@ int WatchLoggerTableMessage(UIElement *element, UIMessage message, int di, void 
 	return 0;
 }
 
+bool WatchGetAddress(Watch *watch) {
+	WatchEvaluate("gf_addressof", watch);
+
+	if (strstr(evaluateResult, "??")) {
+		UIDialogShow(windowMain, 0, "Couldn't get the address of the variable.\n%f%b", "OK");
+		return false;
+	}
+
+	char *end = strstr(evaluateResult, " ");
+
+	if (!end) {
+		UIDialogShow(windowMain, 0, "Couldn't get the address of the variable.\n%f%b", "OK");
+		return false;
+	}
+
+	*end = 0;
+	return true;
+}
+
 void WatchChangeLoggerCreate(WatchWindow *w) {
 	// TODO Using the correct variable size.
 	// TODO Make the MDI child a reasonable width/height by default.
@@ -960,21 +984,10 @@ void WatchChangeLoggerCreate(WatchWindow *w) {
 		return;
 	}
 
-	WatchEvaluate("gf_addressof", w->rows[w->selectedRow]);
-
-	if (strstr(evaluateResult, "??")) {
-		UIDialogShow(windowMain, 0, "Couldn't get the address of the variable.\n%f%b", "OK");
+	if (!WatchGetAddress(w->rows[w->selectedRow])) {
 		return;
 	}
 
-	char *end = strstr(evaluateResult, " ");
-
-	if (!end) {
-		UIDialogShow(windowMain, 0, "Couldn't get the address of the variable.\n%f%b", "OK");
-		return;
-	}
-
-	*end = 0;
 	char buffer[256];
 	StringFormat(buffer, sizeof(buffer), "Log %s", evaluateResult);
 	UIMDIChild *child = UIMDIChildCreate(&dataWindow->e, UI_MDI_CHILD_CLOSE_BUTTON, UI_RECT_1(0), buffer, -1);
@@ -1102,7 +1115,7 @@ int WatchWindowMessage(UIElement *element, UIMessage message, int di, void *dp) 
 					StringFormat(buffer, sizeof(buffer), "Enter format character: (e.g. 'x' for hex)");
 				} else {
 					StringFormat(buffer, sizeof(buffer), "%.*s%s%s%s%s", 
-							watch->depth * 2, "                                ",
+							watch->depth * 3, "                                           ",
 							watch->open ? "v " : watch->hasFields ? "> " : "", 
 							watch->key ?: keyIndex, 
 							watch->open ? "" : " = ", 
@@ -1144,6 +1157,15 @@ int WatchWindowMessage(UIElement *element, UIMessage message, int di, void *dp) 
 
 			UIMenuAddItem(menu, 0, "Log changes", -1, [] (void *cp) { 
 				WatchChangeLoggerCreate((WatchWindow *) cp); 
+			}, w);
+
+			UIMenuAddItem(menu, 0, "Break on write", -1, [] (void *cp) { 
+				WatchWindow *w = (WatchWindow *) cp;
+				if (w->selectedRow == w->rows.Length()) return;
+				if (!WatchGetAddress(w->rows[w->selectedRow])) return;
+				char buffer[256];
+				StringFormat(buffer, sizeof(buffer), "watch * %s", evaluateResult);
+				DebuggerSend(buffer, true, false);
 			}, w);
 
 			UIMenuShow(menu);

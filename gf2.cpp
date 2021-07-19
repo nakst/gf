@@ -294,6 +294,32 @@ int TrafficLightMessage(UIElement *element, UIMessage message, int di, void *dp)
 	return 0;
 }
 
+int SourceFindEndOfBlock() {
+	if (currentLine - 1 >= displayCode->lineCount) return -1;
+
+	int tabs = 0;
+
+	for (int i = 0; i < displayCode->lines[currentLine - 1].bytes; i++) {
+		if (isspace(displayCode->content[displayCode->lines[currentLine - 1].offset + i])) tabs++;
+		else break;
+	}
+
+	for (int j = currentLine; j < displayCode->lineCount; j++) {
+		int t = 0;
+
+		for (int i = 0; i < displayCode->lines[j].bytes - 1; i++) {
+			if (isspace(displayCode->content[displayCode->lines[j].offset + i])) t++;
+			else break;
+		}
+
+		if (t < tabs && displayCode->content[displayCode->lines[j].offset + t] == '}') {
+			return j + 1;
+		}
+	}
+
+	return -1;
+}
+
 //////////////////////////////////////////////////////
 // Debugger interaction:
 //////////////////////////////////////////////////////
@@ -612,29 +638,13 @@ bool CommandParseInternal(const char *command, bool synchronous) {
 		DebuggerSend(showingDisassembly ? "nexti" : "n", true, synchronous);
 		return true;
 	} else if (0 == strcmp(command, "gf-step-out-of-block")) {
-		if (currentLine - 1 >= displayCode->lineCount) return false;
+		int line = SourceFindEndOfBlock();
 
-		int tabs = 0;
-
-		for (int i = 0; i < displayCode->lines[currentLine - 1].bytes; i++) {
-			if (displayCode->content[displayCode->lines[currentLine - 1].offset + i] == '\t') tabs++;
-			else break;
-		}
-
-		for (int j = currentLine; j < displayCode->lineCount; j++) {
-			int t = 0;
-
-			for (int i = 0; i < displayCode->lines[j].bytes - 1; i++) {
-				if (displayCode->content[displayCode->lines[j].offset + i] == '\t') t++;
-				else break;
-			}
-
-			if (t < tabs && displayCode->content[displayCode->lines[j].offset + t] == '}') {
-				char buffer[256];
-				StringFormat(buffer, sizeof(buffer), "until %d", j + 1);
-				DebuggerSend(buffer, true, synchronous);
-				return false;
-			}
+		if (line != -1) {
+			char buffer[256];
+			StringFormat(buffer, sizeof(buffer), "until %d", line);
+			DebuggerSend(buffer, true, synchronous);
+			return false;
 		}
 	} else if (0 == strcmp(command, "gf-restart-gdb")) {
 		firstUpdate = true;
