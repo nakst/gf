@@ -2180,6 +2180,7 @@ int UICodeHitTest(UICode *code, int x, int y) {
 
 int UIDrawStringHighlighted(UIPainter *painter, UIRectangle lineBounds, const char *string, ptrdiff_t bytes, int tabSize) {
 	if (bytes == -1) bytes = _UIStringLength(string);
+	if (bytes > 10000) bytes = 10000;
 
 	uint32_t colors[] = {
 		ui.theme.codeDefault,

@@ -357,6 +357,9 @@ void *DebuggerThread(void *) {
 
 	pipeToGDB = inputPipe[1];
 
+	const char *setPrompt = "set prompt (gdb) \n";
+	write(pipeToGDB, setPrompt, strlen(setPrompt));
+
 	while (true) {
 		char buffer[512 + 1];
 		int count = read(outputPipe[0], buffer, 512);
