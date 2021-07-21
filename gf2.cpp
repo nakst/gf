@@ -24,6 +24,8 @@
 #include <stdio.h>
 #include <ctype.h>
 #include <sys/stat.h>
+#include <sys/types.h>
+#include <sys/wait.h>
 #include <stdarg.h>
 #include <dirent.h>
 #include <fcntl.h>
@@ -101,6 +103,11 @@ int currentLine;
 time_t currentFileReadTime;
 bool showingDisassembly;
 char previousLocation[256];
+
+// Terminal window:
+
+pid_t terminalPID = 0; // zero means we never tried to spawn the terminal
+char terminalPTS[256] = { 0 };
 
 // User interface:
 
@@ -467,6 +474,7 @@ const char *EvaluateExpression(const char *expression, const char *format = null
 
 extern "C" void DebuggerClose() {
 	kill(gdbPID, SIGKILL);
+	if (terminalPID != -1 && terminalPID != 0) kill(terminalPID, SIGKILL);
 	pthread_cancel(gdbThread);
 }
 
@@ -633,6 +641,71 @@ void TabCompleterRun(TabCompleter *completer, UITextbox *textbox, bool lastKeyWa
 // Commands:
 //////////////////////////////////////////////////////
 
+void SpawnTerminal()
+{
+	if (terminalPID != 0) {
+		// Fully restart the terminal. Trying to reuse the existing terminal
+		// gets tricky because it could have been closed by the user, so the zombie
+		// pid remains valid, and there is no easy way to check if terminal is a zombie (is there?)
+		kill(terminalPID, SIGINT);
+		
+		// Wait for terminal to return (so as to not leave zombie terminals, unrelated to commend above)
+		waitpid(terminalPID, 0, 0);
+		
+		terminalPID = 0;
+		memset(terminalPTS, 0, 256);
+	}
+	
+	// We need to get the pseudoterminal slave ("pts") of the terminal
+	// To get it, we:
+	// 1. Spawn a terminal (it, in turn, creates a child process for the shell)
+	// 2. Get the shells pid using "pgrep -P"
+	// 3. Get the controlling terminal from the shells pid using "ps -o %y"
+	char command[256] = { 0 };
+	char result[256] = { 0 };
+	
+	terminalPID = fork();
+	
+	if (terminalPID == -1) {
+		fprintf(stderr, "Error: terminal fork failed!\n");
+		exit(1);
+	} else if (terminalPID == 0) {
+		char * const args[] = { "x-terminal-emulator", (char *) NULL };
+		execvp("x-terminal-emulator", args);
+	}
+
+	snprintf(command, 255, "pgrep -P %d", terminalPID);
+	
+	do {
+		FILE *fp = popen(command, "r");
+		fread(result, 255, 1, fp);
+		pclose(fp);
+		usleep(10 * 1000);
+	} while (strlen(result) == 0);
+	
+	int shellPID = strtod(result, NULL);
+	
+	memset(command, 0, 256);
+	memset(result, 0, 256);
+	memcpy(terminalPTS, "/dev/", 5);
+	
+	do {
+		snprintf(command, 255, "ps -p %d --no-headers -o %%y", shellPID);
+		FILE *fp = popen(command, "r");
+		fread(terminalPTS + 5, 250, 1, fp);
+		pclose(fp);
+		usleep(10 * 1000);
+	} while (strlen(terminalPTS + 5) == 0);
+		
+	// Replace the newline
+	for (int i = 0; i < 255; ++i) {
+		if (terminalPTS[i] == '\n') {
+			terminalPTS[i] = 0;
+			break;
+		}
+	}
+}
+
 bool CommandParseInternal(const char *command, bool synchronous) {
 	if (0 == strcmp(command, "gf-step")) {
 		DebuggerSend(showingDisassembly ? "stepi" : "s", true, synchronous);
@@ -700,6 +773,17 @@ bool CommandParseInternal(const char *command, bool synchronous) {
 			free(copy);
 			break;
 		}
+	} else if (0 == strcmp(command, "gf-start-with-terminal")) {
+		SpawnTerminal();
+		char changeTtyCommand[256] = { 0 };
+		snprintf(changeTtyCommand, 255, "tty %s", terminalPTS);
+		DebuggerSend(changeTtyCommand, true, true);
+		DebuggerSend("start", true, synchronous);
+		
+		// Calling "start" after "tty" causes gdb to print a warning:
+		//	 "warning: GDB: Failed to set controlling terminal: Operation not permitted"
+		// This seems to be a gdb bug and "is harmless":
+		// https://github.com/microsoft/vscode-cpptools/issues/264#issuecomment-250220570
 	} else {
 		DebuggerSend(command, true, synchronous);
 		return true;
@@ -889,6 +973,7 @@ struct InterfaceWindow {
 const InterfaceCommand interfaceCommands[] = {
 	{ .label = "Run\tShift+F5", { .code = UI_KEYCODE_F5, .shift = true, .invoke = CommandSendToGDB, .cp = (void *) "r" } },
 	{ .label = "Run paused\tCtrl+F5", { .code = UI_KEYCODE_F5, .ctrl = true, .invoke = CommandSendToGDB, .cp = (void *) "start" } },
+	{ .label = "Run paused with terminal\tCtrl+Shift+F5", { .code = UI_KEYCODE_F5, .ctrl = true, .shift = true, .invoke = CommandSendToGDB, .cp = (void *) "gf-start-with-terminal" } },
 	{ .label = "Kill\tF3", { .code = UI_KEYCODE_F3, .invoke = CommandSendToGDB, .cp = (void *) "kill" } },
 	{ .label = "Restart GDB\tCtrl+R", { .code = UI_KEYCODE_LETTER('R'), .ctrl = true, .invoke = CommandSendToGDB, .cp = (void *) "gf-restart-gdb" } },
 	{ .label = "Connect\tF4", { .code = UI_KEYCODE_F4, .invoke = CommandSendToGDB, .cp = (void *) "target remote :1234" } },
