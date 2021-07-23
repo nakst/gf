@@ -53,6 +53,19 @@
 #define UI_CLOCK_T clock_t
 #endif
 
+#if defined(UI_ESSENCE)
+#include <essence.h>
+
+#define UI_ASSERT EsAssert
+#define UI_CALLOC(x) EsHeapAllocate((x), true)
+#define UI_FREE EsHeapFree
+#define UI_MALLOC(x) EsHeapAllocate((x), false)
+#define UI_REALLOC(x, y) EsHeapReallocate((x), (y), false)
+#define UI_CLOCK EsTimeStampMs
+#define UI_CLOCKS_PER_SECOND 1000
+#define UI_CLOCK_T uint64_t
+#endif
+
 #ifdef UI_DEBUG
 #include <stdio.h>
 #endif
@@ -166,9 +179,13 @@ typedef enum UIMessage {
 	UI_MSG_USER,
 } UIMessage;
 
+#ifdef UI_ESSENCE
+#define UIRectangle EsRectangle
+#else
 typedef struct UIRectangle {
 	int l, r, t, b;
 } UIRectangle;
+#endif
 
 typedef struct UIPainter {
 	UIRectangle clip;
@@ -276,17 +293,6 @@ extern const int UI_KEYCODE_END;
 extern const int UI_KEYCODE_ENTER;
 extern const int UI_KEYCODE_ESCAPE;
 extern const int UI_KEYCODE_F1;
-extern const int UI_KEYCODE_F10;
-extern const int UI_KEYCODE_F11;
-extern const int UI_KEYCODE_F12;
-extern const int UI_KEYCODE_F2;
-extern const int UI_KEYCODE_F3;
-extern const int UI_KEYCODE_F4;
-extern const int UI_KEYCODE_F5;
-extern const int UI_KEYCODE_F6;
-extern const int UI_KEYCODE_F7;
-extern const int UI_KEYCODE_F8;
-extern const int UI_KEYCODE_F9;
 extern const int UI_KEYCODE_HOME;
 extern const int UI_KEYCODE_LEFT;
 extern const int UI_KEYCODE_RIGHT;
@@ -297,6 +303,7 @@ extern const int UI_KEYCODE_0;
 
 #define UI_KEYCODE_LETTER(x) (UI_KEYCODE_A + (x) - 'A')
 #define UI_KEYCODE_DIGIT(x) (UI_KEYCODE_0 + (x) - '0')
+#define UI_KEYCODE_FKEY(x) (UI_KEYCODE_F1 + (x) - 1)
 
 typedef struct UIElement {
 #define UI_ELEMENT_V_FILL (1 << 16)
@@ -375,6 +382,12 @@ typedef struct UIWindow {
 #ifdef UI_WINDOWS
 	HWND hwnd;
 	bool trackingLeave;
+#endif
+
+#ifdef UI_ESSENCE
+	EsWindow *window;
+	EsElement *canvas;
+	int cursor;
 #endif
 } UIWindow;
 
@@ -672,6 +685,10 @@ struct {
 	bool assertionFailure;
 #endif
 
+#ifdef UI_ESSENCE
+	EsInstance *instance;
+#endif
+
 #ifdef UI_FREETYPE
 	FT_Face font;
 	FT_Library ft;
@@ -728,8 +745,8 @@ UITheme _uiThemeClassic = {
 
 UITheme _uiThemeDark = {
 	{{
-		.panel1 = 0xFF1B1F23,
-		.panel2 = 0xFF0B0D11,
+		.panel1 = 0xFF252B31,
+		.panel2 = 0xFF14181E,
 
 		.text = 0xFFFFFFFF,
 		.textDisabled = 0xFF787D81,
@@ -4062,6 +4079,7 @@ int _UIWindowMessageCommon(UIElement *element, UIMessage message, int di, void *
 	} else if (message == UI_MSG_FIND_BY_POINT) {
 		UIFindByPoint *m = (UIFindByPoint *) dp;
 		if (element->window->dialog) m->result = UIElementFindByPoint(element->window->dialog, m->x, m->y);
+		else if (!element->children) m->result = NULL;
 		else m->result = UIElementFindByPoint(element->children, m->x, m->y);
 		return 1;
 	}
@@ -4227,17 +4245,6 @@ const int UI_KEYCODE_END = XK_End;
 const int UI_KEYCODE_ENTER = XK_Return;
 const int UI_KEYCODE_ESCAPE = XK_Escape;
 const int UI_KEYCODE_F1 = XK_F1;
-const int UI_KEYCODE_F10 = XK_F10;
-const int UI_KEYCODE_F11 = XK_F11;
-const int UI_KEYCODE_F12 = XK_F12;
-const int UI_KEYCODE_F2 = XK_F2;
-const int UI_KEYCODE_F3 = XK_F3;
-const int UI_KEYCODE_F4 = XK_F4;
-const int UI_KEYCODE_F5 = XK_F5;
-const int UI_KEYCODE_F6 = XK_F6;
-const int UI_KEYCODE_F7 = XK_F7;
-const int UI_KEYCODE_F8 = XK_F8;
-const int UI_KEYCODE_F9 = XK_F9;
 const int UI_KEYCODE_HOME = XK_Home;
 const int UI_KEYCODE_LEFT = XK_Left;
 const int UI_KEYCODE_RIGHT = XK_Right;
@@ -4633,17 +4640,6 @@ const int UI_KEYCODE_END = VK_END;
 const int UI_KEYCODE_ENTER = VK_RETURN;
 const int UI_KEYCODE_ESCAPE = VK_ESCAPE;
 const int UI_KEYCODE_F1 = VK_F1;
-const int UI_KEYCODE_F10 = VK_F10;
-const int UI_KEYCODE_F11 = VK_F11;
-const int UI_KEYCODE_F12 = VK_F12;
-const int UI_KEYCODE_F2 = VK_F2;
-const int UI_KEYCODE_F3 = VK_F3;
-const int UI_KEYCODE_F4 = VK_F4;
-const int UI_KEYCODE_F5 = VK_F5;
-const int UI_KEYCODE_F6 = VK_F6;
-const int UI_KEYCODE_F7 = VK_F7;
-const int UI_KEYCODE_F8 = VK_F8;
-const int UI_KEYCODE_F9 = VK_F9;
 const int UI_KEYCODE_HOME = VK_HOME;
 const int UI_KEYCODE_LEFT = VK_LEFT;
 const int UI_KEYCODE_RIGHT = VK_RIGHT;
@@ -4923,6 +4919,170 @@ void *_UIHeapReAlloc(void *pointer, size_t size) {
 			return NULL;
 		}
 	}
+}
+
+#endif
+
+#ifdef UI_ESSENCE
+
+const int UI_KEYCODE_A = ES_SCANCODE_A;
+const int UI_KEYCODE_0 = ES_SCANCODE_0;
+const int UI_KEYCODE_BACKSPACE = ES_SCANCODE_BACKSPACE;
+const int UI_KEYCODE_DELETE = ES_SCANCODE_DELETE;
+const int UI_KEYCODE_DOWN = ES_SCANCODE_DOWN_ARROW;
+const int UI_KEYCODE_END = ES_SCANCODE_END;
+const int UI_KEYCODE_ENTER = ES_SCANCODE_ENTER;
+const int UI_KEYCODE_ESCAPE = ES_SCANCODE_ESCAPE;
+const int UI_KEYCODE_F1 = ES_SCANCODE_F1;
+const int UI_KEYCODE_HOME = ES_SCANCODE_HOME;
+const int UI_KEYCODE_LEFT = ES_SCANCODE_LEFT_ARROW;
+const int UI_KEYCODE_RIGHT = ES_SCANCODE_RIGHT_ARROW;
+const int UI_KEYCODE_SPACE = ES_SCANCODE_SPACE;
+const int UI_KEYCODE_TAB = ES_SCANCODE_TAB;
+const int UI_KEYCODE_UP = ES_SCANCODE_UP_ARROW;
+
+int _UIWindowMessage(UIElement *element, UIMessage message, int di, void *dp) {
+	if (message == UI_MSG_DESTROY) {
+		// TODO Non-main windows.
+		element->window = NULL;
+		EsInstanceDestroy(ui.instance);
+	}
+
+	return _UIWindowMessageCommon(element, message, di, dp);
+}
+
+void UIInitialise() {
+	_UIInitialiseCommon();
+
+	while (true) {
+		EsMessage *message = EsMessageReceive();
+
+		if (message->type == ES_MSG_INSTANCE_CREATE) {
+			ui.instance = EsInstanceCreate(message, NULL, 0);
+			break;
+		}
+	}
+}
+
+bool _UIMessageLoopSingle(int *result) {
+	if (ui.animating) {
+		// TODO.
+	} else {
+		EsMessageReceive();
+	}
+
+	return true;
+}
+
+void UIMenuShow(UIMenu *menu) {
+	// TODO.
+}
+
+int _UIWindowCanvasMessage(EsElement *element, EsMessage *message) {
+	UIWindow *window = (UIWindow *) element->window->userData.p;
+
+	if (!window) {
+		return 0;
+	} else if (message->type == ES_MSG_PAINT) {
+		EsRectangle bounds = ES_RECT_4PD(message->painter->offsetX, message->painter->offsetY, window->width, window->height);
+		EsDrawBitmap(message->painter, bounds, window->bits, window->width * 4, 0xFFFF);
+	} else if (message->type == ES_MSG_LAYOUT) {
+		EsElementGetSize(element, &window->width, &window->height);
+		window->bits = (uint32_t *) UI_REALLOC(window->bits, window->width * window->height * 4);
+		window->e.bounds = UI_RECT_2S(window->width, window->height);
+		window->e.clip = UI_RECT_2S(window->width, window->height);
+		UIElementMessage(&window->e, UI_MSG_LAYOUT, 0, 0);
+		_UIUpdate();
+	} else if (message->type == ES_MSG_MOUSE_MOVED || message->type == ES_MSG_MOUSE_DRAGGED || message->type == ES_MSG_HOVERED_END) {
+		EsPoint point = EsMouseGetPosition(element); 
+		window->cursorX = point.x, window->cursorY = point.y;
+		_UIWindowInputEvent(window, UI_MSG_MOUSE_MOVE, 0, 0);
+	} else if (message->type == ES_MSG_KEY_DOWN) {
+		window->ctrl = EsKeyboardIsCtrlHeld();
+		window->shift = EsKeyboardIsShiftHeld();
+		window->alt = EsKeyboardIsAltHeld();
+		UIKeyTyped m = { 0 };
+		char c[64];
+		m.text = c;
+		m.textBytes = EsMessageGetInputText(message, c);
+		m.code = message->keyboard.scancode;
+		_UIWindowInputEvent(window, UI_MSG_KEY_TYPED, 0, &m);
+	} else if (message->type == ES_MSG_CLICKED) {
+		_UIInspectorSetFocusedWindow(window);
+	} else if (message->type == ES_MSG_USER_START) {
+		UIElementMessage(&window->e, (UIMessage) message->user.context1.u, 0, (void *) message->user.context2.p);
+		_UIUpdate();
+	} else if (message->type == ES_MSG_GET_CURSOR) {
+		message->cursorStyle = ES_CURSOR_NORMAL;
+		if (window->cursor == UI_CURSOR_TEXT)              message->cursorStyle = ES_CURSOR_TEXT;
+		if (window->cursor == UI_CURSOR_SPLIT_V)           message->cursorStyle = ES_CURSOR_SPLIT_VERTICAL;
+		if (window->cursor == UI_CURSOR_SPLIT_H)           message->cursorStyle = ES_CURSOR_SPLIT_HORIZONTAL;
+		if (window->cursor == UI_CURSOR_FLIPPED_ARROW)     message->cursorStyle = ES_CURSOR_SELECT_LINES;
+		if (window->cursor == UI_CURSOR_CROSS_HAIR)        message->cursorStyle = ES_CURSOR_CROSS_HAIR_PICK;
+		if (window->cursor == UI_CURSOR_HAND)              message->cursorStyle = ES_CURSOR_HAND_HOVER;
+		if (window->cursor == UI_CURSOR_RESIZE_UP)         message->cursorStyle = ES_CURSOR_RESIZE_VERTICAL;
+		if (window->cursor == UI_CURSOR_RESIZE_LEFT)       message->cursorStyle = ES_CURSOR_RESIZE_HORIZONTAL;
+		if (window->cursor == UI_CURSOR_RESIZE_UP_RIGHT)   message->cursorStyle = ES_CURSOR_RESIZE_DIAGONAL_1;
+		if (window->cursor == UI_CURSOR_RESIZE_UP_LEFT)    message->cursorStyle = ES_CURSOR_RESIZE_DIAGONAL_2;
+		if (window->cursor == UI_CURSOR_RESIZE_DOWN)       message->cursorStyle = ES_CURSOR_RESIZE_VERTICAL;
+		if (window->cursor == UI_CURSOR_RESIZE_RIGHT)      message->cursorStyle = ES_CURSOR_RESIZE_HORIZONTAL;
+		if (window->cursor == UI_CURSOR_RESIZE_DOWN_RIGHT) message->cursorStyle = ES_CURSOR_RESIZE_DIAGONAL_1;
+		if (window->cursor == UI_CURSOR_RESIZE_DOWN_LEFT)  message->cursorStyle = ES_CURSOR_RESIZE_DIAGONAL_2;
+	}
+	
+	else if (message->type == ES_MSG_MOUSE_LEFT_DOWN)   _UIWindowInputEvent(window, UI_MSG_LEFT_DOWN, 0, 0);
+	else if (message->type == ES_MSG_MOUSE_LEFT_UP)     _UIWindowInputEvent(window, UI_MSG_LEFT_UP, 0, 0);
+	else if (message->type == ES_MSG_MOUSE_MIDDLE_DOWN) _UIWindowInputEvent(window, UI_MSG_MIDDLE_DOWN, 0, 0);
+	else if (message->type == ES_MSG_MOUSE_MIDDLE_UP)   _UIWindowInputEvent(window, UI_MSG_MIDDLE_UP, 0, 0);
+	else if (message->type == ES_MSG_MOUSE_RIGHT_DOWN)  _UIWindowInputEvent(window, UI_MSG_RIGHT_DOWN, 0, 0);
+	else if (message->type == ES_MSG_MOUSE_RIGHT_UP)    _UIWindowInputEvent(window, UI_MSG_RIGHT_UP, 0, 0);
+
+	else return 0;
+
+	return ES_HANDLED;
+}
+
+UIWindow *UIWindowCreate(UIWindow *owner, uint32_t flags, const char *cTitle, int width, int height) {
+	_UIMenusClose();
+
+	UIWindow *window = (UIWindow *) UIElementCreate(sizeof(UIWindow), NULL, flags | UI_ELEMENT_WINDOW, _UIWindowMessage, "Window");
+	_UIWindowAdd(window);
+	if (owner) window->scale = owner->scale;
+
+	if (flags & UI_WINDOW_MENU) {
+		// TODO.
+	} else {
+		// TODO Non-main windows.
+		window->window = ui.instance->window;
+		window->window->userData = window;
+		window->canvas = EsCustomElementCreate(window->window, ES_CELL_FILL | ES_ELEMENT_FOCUSABLE);
+		window->canvas->messageUser = _UIWindowCanvasMessage;
+		EsWindowSetTitle(window->window, cTitle, -1);
+		EsElementFocus(window->canvas);
+	}
+
+	return window;
+}
+
+void _UIWindowEndPaint(UIWindow *window, UIPainter *painter) {
+	EsElementRepaint(window->canvas, &window->updateRegion);
+}
+
+void _UIWindowSetCursor(UIWindow *window, int cursor) {
+	window->cursor = cursor;
+}
+
+void _UIWindowGetScreenPosition(UIWindow *window, int *_x, int *_y) {
+	EsRectangle r = EsElementGetScreenBounds(window->window);
+	*_x = r.l, *_y = r.t;
+}
+
+void UIWindowPostMessage(UIWindow *window, UIMessage message, void *_dp) {
+	EsMessage m = {};
+	m.type = ES_MSG_USER_START;
+	m.user.context1.u = message;
+	m.user.context2.p = _dp;
+	EsMessagePost(window->canvas, &m);
 }
 
 #endif
