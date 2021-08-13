@@ -4954,7 +4954,8 @@ int _UIWindowCanvasMessage(EsElement *element, EsMessage *message) {
 		window->e.clip = UI_RECT_2S(window->width, window->height);
 		UIElementMessage(&window->e, UI_MSG_LAYOUT, 0, 0);
 		_UIUpdate();
-	} else if (message->type == ES_MSG_MOUSE_MOVED || message->type == ES_MSG_MOUSE_DRAGGED || message->type == ES_MSG_HOVERED_END) {
+	} else if (message->type == ES_MSG_MOUSE_MOVED || message->type == ES_MSG_HOVERED_END
+			|| message->type == ES_MSG_MOUSE_LEFT_DRAG || message->type == ES_MSG_MOUSE_RIGHT_DRAG || message->type == ES_MSG_MOUSE_MIDDLE_DRAG) {
 		EsPoint point = EsMouseGetPosition(element); 
 		window->cursorX = point.x, window->cursorY = point.y;
 		_UIWindowInputEvent(window, UI_MSG_MOUSE_MOVE, 0, 0);
@@ -4968,7 +4969,7 @@ int _UIWindowCanvasMessage(EsElement *element, EsMessage *message) {
 		m.textBytes = EsMessageGetInputText(message, c);
 		m.code = message->keyboard.scancode;
 		_UIWindowInputEvent(window, UI_MSG_KEY_TYPED, 0, &m);
-	} else if (message->type == ES_MSG_CLICKED) {
+	} else if (message->type == ES_MSG_MOUSE_LEFT_CLICK) {
 		_UIInspectorSetFocusedWindow(window);
 	} else if (message->type == ES_MSG_USER_START) {
 		UIElementMessage(&window->e, (UIMessage) message->user.context1.u, 0, (void *) message->user.context2.p);
