@@ -402,9 +402,9 @@ int BitmapViewerWindowMessage(UIElement *element, UIMessage message, int di, voi
 	if (message == UI_MSG_DESTROY) {
 		free(element->cp);
 	} else if (message == UI_MSG_GET_WIDTH) {
-		return ((BitmapViewer *) element->cp)->parsedWidth;
+		return ((BitmapViewer *) element->cp)->parsedWidth + 40;
 	} else if (message == UI_MSG_GET_HEIGHT) {
-		return ((BitmapViewer *) element->cp)->parsedHeight;
+		return ((BitmapViewer *) element->cp)->parsedHeight + 40;
 	}
 	
 	return 0;
@@ -470,16 +470,19 @@ const char *BitmapViewerGetBits(const char *pointerString, const char *widthStri
 
 	uint32_t *bits = (uint32_t *) malloc(stride * height * 4);
 
-	char buffer[1024];
-	StringFormat(buffer, sizeof(buffer), "dump binary memory .bitmap.gf (%s) (%s+%d)", pointerResult, pointerResult, stride * height);
+	char bitmapPath[PATH_MAX];
+	realpath(".bitmap.gf", bitmapPath);
+
+	char buffer[PATH_MAX * 2];
+	StringFormat(buffer, sizeof(buffer), "dump binary memory %s (%s) (%s+%d)", bitmapPath, pointerResult, pointerResult, stride * height);
 	EvaluateCommand(buffer);
 
-	FILE *f = fopen(".bitmap.gf", "rb");
+	FILE *f = fopen(bitmapPath, "rb");
 
 	if (f) {
 		fread(bits, 1, stride * height * 4, f);
 		fclose(f);
-		unlink(".bitmap.gf");
+		unlink(bitmapPath);
 	}
 
 	if (!f || strstr(evaluateResult, "access")) {
