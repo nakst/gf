@@ -402,9 +402,11 @@ int BitmapViewerWindowMessage(UIElement *element, UIMessage message, int di, voi
 	if (message == UI_MSG_DESTROY) {
 		free(element->cp);
 	} else if (message == UI_MSG_GET_WIDTH) {
-		return ((BitmapViewer *) element->cp)->parsedWidth + 40;
+		int fit = ((BitmapViewer *) element->cp)->parsedWidth + 40;
+		return fit > 300 ? fit : 300;
 	} else if (message == UI_MSG_GET_HEIGHT) {
-		return ((BitmapViewer *) element->cp)->parsedHeight + 40;
+		int fit = ((BitmapViewer *) element->cp)->parsedHeight + 40;
+		return fit > 100 ? fit : 100;
 	}
 	
 	return 0;
