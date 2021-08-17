@@ -1182,6 +1182,8 @@ int WindowMessage(UIElement *, UIMessage message, int di, void *dp) {
 		free(input);
 	} else if (message == MSG_RECEIVED_LOG) {
 		LogReceived(dp);
+	} else if (message == UI_MSG_WINDOW_ACTIVATE) {
+		DisplaySetPosition(currentFileFull, currentLine, false);
 	}
 
 	return 0;

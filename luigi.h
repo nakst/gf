@@ -164,6 +164,8 @@ typedef enum UIMessage {
 	UI_MSG_CODE_DECORATE_LINE, // dp = pointer to UICodeDecorateLine
 	UI_MSG_WINDOW_CLOSE, // return 1 to prevent default (process exit for UIWindow; close for UIMDIChild)
 	UI_MSG_TAB_SELECTED, // sent to the tab that was selected (not the tab pane itself)
+	UI_MSG_WINDOW_DROP_FILES, // di = count, dp = char ** of paths
+	UI_MSG_WINDOW_ACTIVATE,
 
 	UI_MSG_USER,
 } UIMessage;
@@ -370,6 +372,7 @@ typedef struct UIWindow {
 	XImage *image;
 	XIC xic;
 	unsigned ctrlCode, shiftCode, altCode;
+	Window dragSource;
 #endif
 
 #ifdef UI_WINDOWS
@@ -392,6 +395,7 @@ typedef struct UIPanel {
 #define UI_PANEL_MEDIUM_SPACING (1 << 5)
 #define UI_PANEL_SMALL_SPACING (1 << 6)
 #define UI_PANEL_SCROLL (1 << 7)
+#define UI_PANEL_BORDER (1 << 8)
 	UIElement e;
 	struct UIScrollBar *scrollBar;
 	UIRectangle border;
@@ -668,7 +672,8 @@ struct {
 	Display *display;
 	Visual *visual;
 	XIM xim;
-	Atom windowClosedID;
+	Atom windowClosedID, primaryID, uriListID, plainTextID;
+	Atom dndEnterID, dndPositionID, dndStatusID, dndActionCopyID, dndDropID, dndSelectionID, dndFinishedID, dndAwareID;
 	Cursor cursors[UI_CURSOR_COUNT];
 #endif
 
@@ -1608,6 +1613,10 @@ int _UIPanelMessage(UIElement *element, UIMessage message, int di, void *dp) {
 			UIDrawBlock((UIPainter *) dp, element->bounds, ui.theme.panel1);
 		} else if (element->flags & UI_PANEL_WHITE) {
 			UIDrawBlock((UIPainter *) dp, element->bounds, ui.theme.panel2);
+		} 
+		
+		if (element->flags & UI_PANEL_BORDER) {
+			UIDrawBorder((UIPainter *) dp, element->bounds, ui.theme.border, UI_RECT_1((int) element->window->scale));
 		}
 	} else if (message == UI_MSG_MOUSE_WHEEL && panel->scrollBar) {
 		return UIElementMessage(&panel->scrollBar->e, message, di, dp);
@@ -3430,26 +3439,29 @@ const char *UIDialogShow(UIWindow *window, uint32_t flags, const char *format, .
 		} else if (format[i] == '%') {
 			i++;
 
-			if (format[i] == 'b') {
+			if (format[i] == 'b' /* button */) {
 				const char *label = va_arg(arguments, const char *);
 				UIButton *button = UIButtonCreate(&row->e, 0, label, -1);
 				if (!focus) focus = &button->e;
 				button->invoke = _UIDialogButtonInvoke;
 				button->e.cp = (void *) label;
-			} else if (format[i] == 's') {
+			} else if (format[i] == 's' /* label from string */) {
 				const char *label = va_arg(arguments, const char *);
 				UILabelCreate(&row->e, 0, label, -1);
-			} else if (format[i] == 't') {
+			} else if (format[i] == 't' /* textbox */) {
 				char **buffer = va_arg(arguments, char **);
 				UITextbox *textbox = UITextboxCreate(&row->e, UI_ELEMENT_H_FILL);
 				if (!focus) focus = &textbox->e;
 				if (*buffer) UITextboxReplace(textbox, *buffer, _UIStringLength(*buffer), false);
 				textbox->e.cp = buffer;
 				textbox->e.messageUser = _UIDialogTextboxMessage;
-			} else if (format[i] == 'f') {
+			} else if (format[i] == 'f' /* horizontal fill */) {
 				UISpacerCreate(&row->e, UI_ELEMENT_H_FILL, 0, 0);
-			} else if (format[i] == 'l') {
+			} else if (format[i] == 'l' /* horizontal line */) {
 				UISpacerCreate(&row->e, UI_SPACER_LINE | UI_ELEMENT_H_FILL, 0, 1);
+			} else if (format[i] == 'u' /* user */) {
+				void (*callback)(UIElement *) = va_arg(arguments, void (*)(UIElement *));
+				callback(&row->e);
 			}
 		} else {
 			int j = i;
@@ -3462,7 +3474,7 @@ const char *UIDialogShow(UIWindow *window, uint32_t flags, const char *format, .
 	va_end(arguments);
 
 	window->dialogOldFocus = window->focused;
-	UIElementFocus(focus);
+	UIElementFocus(focus ? focus : window->dialog);
 
 	// Run the modal message loop.
 
@@ -4262,6 +4274,9 @@ UIWindow *UIWindowCreate(UIWindow *owner, uint32_t flags, const char *cTitle, in
 
 	window->xic = XCreateIC(ui.xim, XNInputStyle, XIMPreeditNothing | XIMStatusNothing, XNClientWindow, window->window, XNFocusWindow, window->window, NULL);
 
+	int dndVersion = 4;
+	XChangeProperty(ui.display, window->window, ui.dndAwareID, XA_ATOM, 32 /* bits */, PropModeReplace, (uint8_t *) &dndVersion, 1);
+
 	return window;
 }
 
@@ -4276,7 +4291,19 @@ void UIInitialise() {
 
 	ui.display = XOpenDisplay(NULL);
 	ui.visual = XDefaultVisual(ui.display, 0);
+
 	ui.windowClosedID = XInternAtom(ui.display, "WM_DELETE_WINDOW", 0);
+	ui.primaryID = XInternAtom(ui.display, "PRIMARY", 0);
+	ui.dndEnterID = XInternAtom(ui.display, "XdndEnter", 0);
+	ui.dndPositionID = XInternAtom(ui.display, "XdndPosition", 0);
+	ui.dndStatusID = XInternAtom(ui.display, "XdndStatus", 0);
+	ui.dndActionCopyID = XInternAtom(ui.display, "XdndActionCopy", 0);
+	ui.dndDropID = XInternAtom(ui.display, "XdndDrop", 0);
+	ui.dndSelectionID = XInternAtom(ui.display, "XdndSelection", 0);
+	ui.dndFinishedID = XInternAtom(ui.display, "XdndFinished", 0);
+	ui.dndAwareID = XInternAtom(ui.display, "XdndAware", 0);
+	ui.uriListID = XInternAtom(ui.display, "text/uri-list", 0);
+	ui.plainTextID = XInternAtom(ui.display, "text/plain", 0);
 
 	ui.cursors[UI_CURSOR_ARROW] = XCreateFontCursor(ui.display, XC_left_ptr);
 	ui.cursors[UI_CURSOR_TEXT] = XCreateFontCursor(ui.display, XC_xterm);
@@ -4394,8 +4421,6 @@ void UIWindowPack(UIWindow *window, int _width) {
 }
 
 bool _UIProcessEvent(XEvent *event) {
-	// printf("x11 event: %d\n", event->type);
-
 	if (event->type == ClientMessage && (Atom) event->xclient.data.l[0] == ui.windowClosedID) {
 		UIWindow *window = _UIFindWindow(event->xclient.window);
 		if (!window) return false;
@@ -4514,6 +4539,116 @@ bool _UIProcessEvent(XEvent *event) {
 		UIWindow *window = _UIFindWindow(event->xfocus.window);
 		if (!window) return false;
 		window->ctrl = window->shift = window->alt = false;
+		UIElementMessage(&window->e, UI_MSG_WINDOW_ACTIVATE, 0, 0);
+	} else if (event->type == ClientMessage && event->xclient.message_type == ui.dndEnterID) {
+		UIWindow *window = _UIFindWindow(event->xclient.window);
+		if (!window) return false;
+		window->dragSource = (Window) event->xclient.data.l[0];
+	} else if (event->type == ClientMessage && event->xclient.message_type == ui.dndPositionID) {
+		UIWindow *window = _UIFindWindow(event->xclient.window);
+		if (!window) return false;
+		XClientMessageEvent m = { 0 };
+		m.type = ClientMessage;
+		m.display = event->xclient.display;
+		m.window = (Window) event->xclient.data.l[0];
+		m.message_type = ui.dndStatusID;
+		m.format = 32;
+		m.data.l[0] = window->window;
+		m.data.l[1] = true;
+		m.data.l[4] = ui.dndActionCopyID;
+		XSendEvent(ui.display, m.window, False, NoEventMask, (XEvent *) &m);
+		XFlush(ui.display);
+	} else if (event->type == ClientMessage && event->xclient.message_type == ui.dndDropID) {
+		UIWindow *window = _UIFindWindow(event->xclient.window);
+		if (!window) return false;
+
+		// TODO Dropping text.
+
+		if (!XConvertSelection(ui.display, ui.dndSelectionID, ui.uriListID, ui.primaryID, window->window, event->xclient.data.l[2])) {
+			XClientMessageEvent m = { 0 };
+			m.type = ClientMessage;
+			m.display = ui.display;
+			m.window = window->dragSource;
+			m.message_type = ui.dndFinishedID;
+			m.format = 32;
+			m.data.l[0] = window->window;
+			m.data.l[1] = 0;
+			m.data.l[2] = ui.dndActionCopyID;
+			XSendEvent(ui.display, m.window, False, NoEventMask, (XEvent *) &m);
+			XFlush(ui.display);
+		}
+	} else if (event->type == SelectionNotify) {
+		UIWindow *window = _UIFindWindow(event->xselection.requestor);
+		if (!window) return false;
+		if (!window->dragSource) return false;
+
+		Atom type = None;
+		int format = 0;
+		uint64_t count = 0, bytesLeft = 0;
+		uint8_t *data = NULL;
+		XGetWindowProperty(ui.display, window->window, ui.primaryID, 0, 65536, False, AnyPropertyType, &type, &format, &count, &bytesLeft, &data);
+
+		if (format == 8 /* bits per character */) {
+			if (event->xselection.target == ui.uriListID) {
+				char *copy = (char *) UI_MALLOC(count);
+				int fileCount = 0;
+
+				for (int i = 0; i < (int) count; i++) {
+					copy[i] = data[i];
+
+					if (i && data[i - 1] == '\r' && data[i] == '\n') {
+						fileCount++;
+					}
+				}
+
+				char **files = (char **) UI_MALLOC(sizeof(char *) * fileCount);
+				fileCount = 0;
+
+				for (int i = 0; i < (int) count; i++) {
+					char *s = copy + i;
+					while (!(i && data[i - 1] == '\r' && data[i] == '\n' && i < (int) count)) i++;
+					copy[i - 1] = 0;
+
+					for (int j = 0; s[j]; j++) {
+						if (s[j] == '%' && s[j + 1] && s[j + 2]) {
+							char n[3];
+							n[0] = s[j + 1], n[1] = s[j + 2], n[2] = 0;
+							s[j] = strtol(n, NULL, 16);
+							if (!s[j]) break;
+							memmove(s + j + 1, s + j + 3, strlen(s) - j - 2);
+						}
+					}
+
+					if (s[0] == 'f' && s[1] == 'i' && s[2] == 'l' && s[3] == 'e' && s[4] == ':' && s[5] == '/' && s[6] == '/') {
+						files[fileCount++] = s + 7;
+					}
+				}
+
+				UIElementMessage(&window->e, UI_MSG_WINDOW_DROP_FILES, fileCount, files);
+
+				UI_FREE(files);
+				UI_FREE(copy);
+			} else if (event->xselection.target == ui.plainTextID) {
+				// TODO.
+			}
+		}
+
+		XFree(data);
+
+		XClientMessageEvent m = { 0 };
+		m.type = ClientMessage;
+		m.display = ui.display;
+		m.window = window->dragSource;
+		m.message_type = ui.dndFinishedID;
+		m.format = 32;
+		m.data.l[0] = window->window;
+		m.data.l[1] = true;
+		m.data.l[2] = ui.dndActionCopyID;
+		XSendEvent(ui.display, m.window, False, NoEventMask, (XEvent *) &m);
+		XFlush(ui.display);
+
+		window->dragSource = 0; // Drag complete.
+		_UIUpdate();
 	}
 
 	return false;
@@ -4569,6 +4704,7 @@ bool _UIMessageLoopSingle(int *result) {
 void UIWindowPostMessage(UIWindow *window, UIMessage message, void *_dp) {
 	// HACK! Xlib doesn't seem to have a nice way to do this,
 	// so send a specially crafted key press event instead.
+	// TODO Maybe ClientMessage is what this should use?
 	uintptr_t dp = (uintptr_t) _dp;
 	XKeyEvent event = { 0 };
 	event.display = ui.display;
@@ -4721,9 +4857,27 @@ LRESULT CALLBACK _UIWindowProcedure(HWND hwnd, UINT message, WPARAM wParam, LPAR
 
 		if (message == WM_SETFOCUS) {
 			_UIInspectorSetFocusedWindow(window);
+			UIElementMessage(&window->e, UI_MSG_WINDOW_ACTIVATE, 0, 0);
 		}
 	} else if (message == WM_MOUSEACTIVATE && (window->e.flags & UI_WINDOW_MENU)) {
 		return MA_NOACTIVATE;
+	} else if (message == WM_DROPFILES) {
+		HDROP drop = (HDROP) wParam;
+		int count = DragQueryFile(drop, 0xFFFFFFFF, NULL, 0);
+		char **files = (char **) UI_MALLOC(sizeof(char *) * count);
+		
+		for (int i = 0; i < count; i++) {
+			int length = DragQueryFile(drop, i, NULL, 0);
+			files[i] = (char *) UI_MALLOC(length + 1);
+			files[i][length] = 0;
+			DragQueryFile(drop, i, files[i], length + 1);
+		}
+		
+		UIElementMessage(&window->e, UI_MSG_WINDOW_DROP_FILES, count, files);
+		for (int i = 0; i < count; i++) UI_FREE(files[i]);		
+		UI_FREE(files);
+		DragFinish(drop);
+		_UIUpdate();
 	} else if (message == WM_APP + 1) {
 		UIElementMessage(&window->e, (UIMessage) wParam, 0, (void *) lParam);
 		_UIUpdate();
@@ -4819,7 +4973,7 @@ UIWindow *UIWindowCreate(UIWindow *owner, uint32_t flags, const char *cTitle, in
 		window->hwnd = CreateWindowEx(WS_EX_TOPMOST | WS_EX_NOACTIVATE, "shadow", 0, WS_POPUP, 
 			0, 0, 0, 0, owner->hwnd, NULL, NULL, NULL);
 	} else {
-		window->hwnd = CreateWindow("normal", cTitle, WS_OVERLAPPEDWINDOW, 
+		window->hwnd = CreateWindowEx(WS_EX_ACCEPTFILES, "normal", cTitle, WS_OVERLAPPEDWINDOW, 
 			CW_USEDEFAULT, CW_USEDEFAULT, width ? width : CW_USEDEFAULT, height ? height : CW_USEDEFAULT,
 			owner ? owner->hwnd : NULL, NULL, NULL, NULL);
 	}
