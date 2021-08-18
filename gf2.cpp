@@ -315,7 +315,7 @@ int TrafficLightMessage(UIElement *element, UIMessage message, int di, void *dp)
 }
 
 int SourceFindEndOfBlock() {
-	if (currentLine - 1 >= displayCode->lineCount) return -1;
+	if (!currentLine || currentLine - 1 >= displayCode->lineCount) return -1;
 
 	int tabs = 0;
 
