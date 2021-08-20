@@ -4,13 +4,6 @@
 // 	- Jump to line and run to line.
 // 	- Shift+F10: run to next instruction (for skipping past loops).
 
-// TODO Data window extensions.
-// 	- Copy bitmap to clipboard, or save to file.
-
-// TODO Watch window.
-//	- Better toggle buttons.
-// 	- Lock pointer address.
-
 // TODO Future extensions.
 // 	- Memory window.
 // 	- Hover to view value.

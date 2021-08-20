@@ -1,4 +1,4 @@
-//////////////////////////////////////////////////////
+/////////////////////////////////////////////////////
 // Source display:
 //////////////////////////////////////////////////////
 
@@ -495,6 +495,33 @@ const char *BitmapViewerGetBits(const char *pointerString, const char *widthStri
 	return nullptr;
 }
 
+int BitmapViewerDisplayMessage(UIElement *element, UIMessage message, int di, void *dp) {
+	if (message == UI_MSG_RIGHT_UP) {
+		UIMenu *menu = UIMenuCreate(&element->window->e, 0);
+
+		UIMenuAddItem(menu, 0, "Save to file...", -1, [] (void *cp) { 
+			static char *path = NULL;
+			const char *result = UIDialogShow(windowMain, 0, "Save to file       \nPath:\n%t\n%f%b%b", &path, "Save", "Cancel");
+			if (strcmp(result, "Save")) return;
+
+			UIImageDisplay *display = (UIImageDisplay *) cp;
+			FILE *f = fopen(path, "wb");
+			fprintf(f, "P6\n%d %d\n255\n", display->width, display->height);
+
+			for (int i = 0; i < display->width * display->height; i++) {
+				uint8_t pixel[3] = { (uint8_t) (display->bits[i] >> 16), (uint8_t) (display->bits[i] >> 8), (uint8_t) display->bits[i] };
+				fwrite(pixel, 1, 3, f);
+			}
+
+			fclose(f);
+		}, element);
+
+		UIMenuShow(menu);
+	}
+
+	return 0;
+}
+
 void BitmapViewerUpdate(const char *pointerString, const char *widthString, const char *heightString, const char *strideString, UIElement *owner) {
 	uint32_t *bits = nullptr;
 	int width = 0, height = 0, stride = 0;
@@ -520,6 +547,7 @@ void BitmapViewerUpdate(const char *pointerString, const char *widthString, cons
 		bitmap->display = UIImageDisplayCreate(&panel->e, UI_IMAGE_DISPLAY_INTERACTIVE | UI_ELEMENT_V_FILL, bits, width, height, stride);
 		bitmap->labelPanel = UIPanelCreate(&panel->e, UI_PANEL_GRAY | UI_ELEMENT_V_FILL);
 		bitmap->label = UILabelCreate(&bitmap->labelPanel->e, UI_ELEMENT_H_FILL, nullptr, 0);
+		bitmap->display->e.messageUser = BitmapViewerDisplayMessage;
 	}
 
 	BitmapViewer *bitmap = (BitmapViewer *) owner->cp;
@@ -1221,6 +1249,18 @@ int WatchWindowMessage(UIElement *element, UIMessage message, int di, void *dp) 
 		return (w->rows.Length() + 1) * rowHeight;
 	} else if (message == UI_MSG_LEFT_DOWN) {
 		w->selectedRow = (element->window->cursorY - element->bounds.t) / rowHeight;
+
+		if (w->selectedRow >= 0 && w->selectedRow < w->rows.Length()) {
+			Watch *watch = w->rows[w->selectedRow];
+			int x = (element->window->cursorX - element->bounds.l) / ui.glyphWidth;
+
+			if (x >= watch->depth * 3 - 1 && x <= watch->depth * 3 + 1 && watch->hasFields) {
+				UIKeyTyped m = { 0 };
+				m.code = watch->open ? UI_KEYCODE_LEFT : UI_KEYCODE_RIGHT;
+				WatchWindowMessage(element, UI_MSG_KEY_TYPED, 0, &m);
+			}
+		}
+
 		UIElementFocus(element);
 		UIElementRepaint(element, nullptr);
 	} else if (message == UI_MSG_RIGHT_DOWN) {
@@ -1254,6 +1294,27 @@ int WatchWindowMessage(UIElement *element, UIMessage message, int di, void *dp) 
 				char buffer[256];
 				StringFormat(buffer, sizeof(buffer), "watch * %s", evaluateResult);
 				DebuggerSend(buffer, true, false);
+			}, w);
+
+			UIMenuAddItem(menu, 0, "Add entry for address", -1, [] (void *cp) { 
+				WatchWindow *w = (WatchWindow *) cp;
+				if (w->selectedRow == w->rows.Length()) return;
+				Watch *watch = w->rows[w->selectedRow];
+				if (!WatchGetAddress(watch)) return;
+				char address[64];
+				StringFormat(address, sizeof(address), "%s", evaluateResult);
+				WatchEvaluate("gf_typeof", watch);
+				if (strstr(evaluateResult, "??")) return;
+				char *end = strchr(evaluateResult, '\n');
+				if (end) *end = 0;
+				size_t size = strlen(address) + strlen(evaluateResult) + 16;
+				char *buffer = (char *) malloc(size);
+				StringFormat(buffer, size, "(%s*)%s", evaluateResult, address);
+				w->selectedRow = w->rows.Length();
+				WatchAddExpression(w, buffer);
+				WatchEnsureRowVisible(w, w->selectedRow);
+				UIElementRefresh(w->element->parent);
+				UIElementRefresh(w->element);
 			}, w);
 
 			UIMenuShow(menu);

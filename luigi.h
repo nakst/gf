@@ -1072,9 +1072,21 @@ void UIDrawBlock(UIPainter *painter, UIRectangle rectangle, uint32_t color) {
 		return;
 	}
 
+#ifdef UI_SSE2
+	__m128i color4 = _mm_set_epi32(color, color, color, color);
+#endif
+
 	for (int line = rectangle.t; line < rectangle.b; line++) {
 		uint32_t *bits = painter->bits + line * painter->width + rectangle.l;
 		int count = UI_RECT_WIDTH(rectangle);
+
+#ifdef UI_SSE2
+		while (count >= 4) {
+			_mm_storeu_si128((__m128i *) bits, color4);
+			bits += 4;
+			count -= 4;
+		} 
+#endif
 
 		while (count--) {
 			*bits++ = color;
