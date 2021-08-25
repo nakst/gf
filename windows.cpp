@@ -1668,34 +1668,50 @@ struct FilesWindow {
 
 bool FilesPanelPopulate(FilesWindow *window);
 
+mode_t FilesGetMode(FilesWindow *window, UIButton *button, size_t *oldLength) {
+	const char *name = button->label;
+	*oldLength = strlen(window->directory);
+	strcat(window->directory, "/");
+	strcat(window->directory, name);
+	struct stat s;
+	stat(window->directory, &s);
+	return s.st_mode;
+}
+
 int FilesButtonMessage(UIElement *element, UIMessage message, int di, void *dp) {
+	UIButton *button = (UIButton *) element;
+
 	if (message == UI_MSG_CLICKED) {
 		FilesWindow *window = (FilesWindow *) element->cp;
-		const char *name = ((UIButton *) element)->label;
-		size_t oldLength = strlen(window->directory);
-		strcat(window->directory, "/");
-		strcat(window->directory, name);
-		struct stat s;
-		stat(window->directory, &s);
+		size_t oldLength;
+		mode_t mode = FilesGetMode(window, button, &oldLength);
 
-		if (S_ISDIR(s.st_mode)) {
+		if (S_ISDIR(mode)) {
 			if (FilesPanelPopulate(window)) {
 				char copy[PATH_MAX];
 				realpath(window->directory, copy);
 				strcpy(window->directory, copy);
 				return 0;
 			}
-		} else if (S_ISREG(s.st_mode)) {
+		} else if (S_ISREG(mode)) {
 			DisplaySetPosition(window->directory, 1, false);
 		}
 
 		window->directory[oldLength] = 0;
+	} else if (message == UI_MSG_PAINT) {
+		UIPainter *painter = (UIPainter *) dp;
+		int i = (element == element->window->pressed) + (element == element->window->hovered);
+		if (i) UIDrawBlock(painter, element->bounds, i == 2 ? ui.theme.buttonPressed : ui.theme.buttonHovered);
+		UIDrawString(painter, UIRectangleAdd(element->bounds, UI_RECT_4(UI_SIZE_BUTTON_PADDING, 0, 0, 0)), button->label, button->labelBytes, 
+				button->e.flags & UI_BUTTON_CHECKED ? ui.theme.codeNumber : ui.theme.codeDefault, UI_ALIGN_LEFT, NULL);
+		return 1;
 	}
 
 	return 0;
 }
 
 bool FilesPanelPopulate(FilesWindow *window) {
+	size_t oldLength;
 	DIR *directory = opendir(window->directory);
 	struct dirent *entry;
 	if (!directory) return false;
@@ -1713,6 +1729,12 @@ bool FilesPanelPopulate(FilesWindow *window) {
 			UIButton *button = UIButtonCreate(&window->panel->e, 0, names[i], -1);
 			button->e.cp = window;
 			button->e.messageUser = FilesButtonMessage;
+
+			if (S_ISDIR(FilesGetMode(window, button, &oldLength))) {
+				button->e.flags |= UI_BUTTON_CHECKED;
+			}
+
+			window->directory[oldLength] = 0;
 		}
 
 		free(names[i]);
