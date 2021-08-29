@@ -1,7 +1,8 @@
 # **gf** – A GDB Frontend
 
-![Screenshot of the debugger's interface, showing the source view, breakpoints list, call stack, bitmap viewer, and command prompt.](https://cdn.discordapp.com/attachments/462643277321994245/848264598673948672/sc2.png)
-![Another screenshot, showing the watch window and different color scheme.](https://cdn.discordapp.com/attachments/462643277321994245/848264595621675068/sc1.png)
+![Screenshot of the debugger's interface, showing the source view, breakpoints list, call stack, bitmap viewer, and command prompt.](https://raw.githubusercontent.com/nakst/cdn/main/gf2.png)
+![Another screenshot, showing the watch window and different color scheme.](https://raw.githubusercontent.com/nakst/cdn/main/gf1.png)
+![Another screenshot, showing the disassembly and register windows.](https://raw.githubusercontent.com/nakst/cdn/main/gf3.png)
 
 ## Building
 
