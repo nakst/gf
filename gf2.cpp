@@ -34,18 +34,6 @@ extern "C" {
 #include "luigi.h"
 }
 
-#define UI_KEYCODE_F2  UI_KEYCODE_FKEY(2)
-#define UI_KEYCODE_F3  UI_KEYCODE_FKEY(3)
-#define UI_KEYCODE_F4  UI_KEYCODE_FKEY(4)
-#define UI_KEYCODE_F5  UI_KEYCODE_FKEY(5)
-#define UI_KEYCODE_F6  UI_KEYCODE_FKEY(6)
-#define UI_KEYCODE_F7  UI_KEYCODE_FKEY(7)
-#define UI_KEYCODE_F8  UI_KEYCODE_FKEY(8)
-#define UI_KEYCODE_F9  UI_KEYCODE_FKEY(9)
-#define UI_KEYCODE_F10 UI_KEYCODE_FKEY(10)
-#define UI_KEYCODE_F11 UI_KEYCODE_FKEY(11)
-#define UI_KEYCODE_F12 UI_KEYCODE_FKEY(12)
-
 #define MSG_RECEIVED_DATA ((UIMessage) (UI_MSG_USER + 1))
 #define MSG_RECEIVED_CONTROL ((UIMessage) (UI_MSG_USER + 2))
 #define MSG_RECEIVED_LOG ((UIMessage) (UI_MSG_USER + 3))
@@ -215,7 +203,7 @@ end
 
 // Forward declarations:
 
-extern "C" bool DisplaySetPosition(const char *file, int line, bool useGDBToGetFullPath);
+bool DisplaySetPosition(const char *file, int line, bool useGDBToGetFullPath);
 void InterfaceShowMenu(void *self);
 void InterfaceWindowSwitchToAndFocus(const char *name);
 
@@ -479,7 +467,7 @@ const char *EvaluateExpression(const char *expression, const char *format = null
 	return nullptr;
 }
 
-extern "C" void DebuggerClose() {
+void DebuggerClose() {
 	kill(gdbPID, SIGKILL);
 	pthread_cancel(gdbThread);
 }
@@ -890,19 +878,19 @@ struct InterfaceWindow {
 };
 
 const InterfaceCommand interfaceCommands[] = {
-	{ .label = "Run\tShift+F5", { .code = UI_KEYCODE_F5, .shift = true, .invoke = CommandSendToGDB, .cp = (void *) "r" } },
-	{ .label = "Run paused\tCtrl+F5", { .code = UI_KEYCODE_F5, .ctrl = true, .invoke = CommandSendToGDB, .cp = (void *) "start" } },
-	{ .label = "Kill\tF3", { .code = UI_KEYCODE_F3, .invoke = CommandSendToGDB, .cp = (void *) "kill" } },
+	{ .label = "Run\tShift+F5", { .code = UI_KEYCODE_FKEY(5), .shift = true, .invoke = CommandSendToGDB, .cp = (void *) "r" } },
+	{ .label = "Run paused\tCtrl+F5", { .code = UI_KEYCODE_FKEY(5), .ctrl = true, .invoke = CommandSendToGDB, .cp = (void *) "start" } },
+	{ .label = "Kill\tF3", { .code = UI_KEYCODE_FKEY(3), .invoke = CommandSendToGDB, .cp = (void *) "kill" } },
 	{ .label = "Restart GDB\tCtrl+R", { .code = UI_KEYCODE_LETTER('R'), .ctrl = true, .invoke = CommandSendToGDB, .cp = (void *) "gf-restart-gdb" } },
-	{ .label = "Connect\tF4", { .code = UI_KEYCODE_F4, .invoke = CommandSendToGDB, .cp = (void *) "target remote :1234" } },
-	{ .label = "Continue\tF5", { .code = UI_KEYCODE_F5, .invoke = CommandSendToGDB, .cp = (void *) "c" } },
-	{ .label = "Step over\tF10", { .code = UI_KEYCODE_F10, .invoke = CommandSendToGDB, .cp = (void *) "gf-next" } },
-	{ .label = "Step out of block\tShift+F10", { .code = UI_KEYCODE_F10, .shift = true, .invoke = CommandSendToGDB, .cp = (void *) "gf-step-out-of-block" } },
-	{ .label = "Step in\tF11", { .code = UI_KEYCODE_F11, .invoke = CommandSendToGDB, .cp = (void *) "gf-step" } },
-	{ .label = "Step out\tShift+F11", { .code = UI_KEYCODE_F11, .shift = true, .invoke = CommandSendToGDB, .cp = (void *) "finish" } },
-	{ .label = "Pause\tF8", { .code = UI_KEYCODE_F8, .invoke = CommandPause } },
-	{ .label = "Toggle breakpoint\tF9", { .code = UI_KEYCODE_F9, .invoke = CommandToggleBreakpoint } },
-	{ .label = "Sync with gvim\tF2", { .code = UI_KEYCODE_F2, .invoke = CommandSyncWithGvim } },
+	{ .label = "Connect\tF4", { .code = UI_KEYCODE_FKEY(4), .invoke = CommandSendToGDB, .cp = (void *) "target remote :1234" } },
+	{ .label = "Continue\tF5", { .code = UI_KEYCODE_FKEY(5), .invoke = CommandSendToGDB, .cp = (void *) "c" } },
+	{ .label = "Step over\tF10", { .code = UI_KEYCODE_FKEY(10), .invoke = CommandSendToGDB, .cp = (void *) "gf-next" } },
+	{ .label = "Step out of block\tShift+F10", { .code = UI_KEYCODE_FKEY(10), .shift = true, .invoke = CommandSendToGDB, .cp = (void *) "gf-step-out-of-block" } },
+	{ .label = "Step in\tF11", { .code = UI_KEYCODE_FKEY(11), .invoke = CommandSendToGDB, .cp = (void *) "gf-step" } },
+	{ .label = "Step out\tShift+F11", { .code = UI_KEYCODE_FKEY(11), .shift = true, .invoke = CommandSendToGDB, .cp = (void *) "finish" } },
+	{ .label = "Pause\tF8", { .code = UI_KEYCODE_FKEY(8), .invoke = CommandPause } },
+	{ .label = "Toggle breakpoint\tF9", { .code = UI_KEYCODE_FKEY(9), .invoke = CommandToggleBreakpoint } },
+	{ .label = "Sync with gvim\tF2", { .code = UI_KEYCODE_FKEY(2), .invoke = CommandSyncWithGvim } },
 	{ .label = "Ask GDB for PWD\tCtrl+Shift+P", { .code = UI_KEYCODE_LETTER('P'), .ctrl = true, .shift = true, .invoke = CommandSendToGDB, .cp = (void *) "gf-get-pwd" } },
 	{ .label = "Toggle disassembly\tCtrl+D", { .code = UI_KEYCODE_LETTER('D'), .ctrl = true, .invoke = CommandToggleDisassembly } },
 	{ .label = nullptr, { .code = UI_KEYCODE_LETTER('B'), .ctrl = true, .invoke = CommandToggleFillDataTab } },
@@ -1016,24 +1004,17 @@ void LoadSettings(bool earlyPass) {
 					}
 				}
 
-				if (0 == strcmp(codeStart, "f1"))  shortcut.code = UI_KEYCODE_F1;
-				if (0 == strcmp(codeStart, "f2"))  shortcut.code = UI_KEYCODE_F2;
-				if (0 == strcmp(codeStart, "f3"))  shortcut.code = UI_KEYCODE_F3;
-				if (0 == strcmp(codeStart, "f4"))  shortcut.code = UI_KEYCODE_F4;
-				if (0 == strcmp(codeStart, "f5"))  shortcut.code = UI_KEYCODE_F5;
-				if (0 == strcmp(codeStart, "f6"))  shortcut.code = UI_KEYCODE_F6;
-				if (0 == strcmp(codeStart, "f7"))  shortcut.code = UI_KEYCODE_F7;
-				if (0 == strcmp(codeStart, "f8"))  shortcut.code = UI_KEYCODE_F8;
-				if (0 == strcmp(codeStart, "f9"))  shortcut.code = UI_KEYCODE_F9;
-				if (0 == strcmp(codeStart, "f10")) shortcut.code = UI_KEYCODE_F10;
-				if (0 == strcmp(codeStart, "f11")) shortcut.code = UI_KEYCODE_F11;
-				if (0 == strcmp(codeStart, "f12")) shortcut.code = UI_KEYCODE_F12;
+				for (int i = 1; i <= 12; i++) {
+					if (codeStart[0] == 'f' && isdigit(codeStart[1]) && atoi(codeStart + 1) == i) {
+						shortcut.code = UI_KEYCODE_FKEY(i);
+					}
+				}
 
 				if (!shortcut.code) {
 					fprintf(stderr, "Warning: Could not register shortcut for '%s'.\n", state.key);
+				} else {
+					UIWindowRegisterShortcut(windowMain, shortcut);
 				}
-
-				UIWindowRegisterShortcut(windowMain, shortcut);
 			} else if (0 == strcmp(state.section, "ui") && earlyPass) {
 				if (0 == strcmp(state.key, "font_size")) {
 					fontSize = atoi(state.value);
@@ -1260,44 +1241,11 @@ void InterfaceLayoutCreate(UIElement *parent) {
 	}
 }
 
-extern "C" void InterfaceCreate(UIWindow *_window) {
-#ifdef LOG_COMMANDS
-	{
-		char path[4096];
-		StringFormat(path, sizeof(path), "%s/gf_log.txt", getenv("HOME"));
-		commandLog = fopen(path, "ab");
-	}
-#endif
-
-	windowMain = _window;
-	windowMain->scale = uiScale;
-	windowMain->e.messageUser = WindowMessage;
-
-	InterfaceLayoutCreate(&UIPanelCreate(&windowMain->e, UI_PANEL_EXPAND)->e);
-
-	for (uintptr_t i = 0; i < sizeof(interfaceCommands) / sizeof(interfaceCommands[0]); i++) {
-		if (!interfaceCommands[i].shortcut.code) continue;
-		UIWindowRegisterShortcut(windowMain, interfaceCommands[i].shortcut);
-	}
-
-	LoadSettings(false);
-
-	pthread_cond_init(&evaluateEvent, nullptr);
-	pthread_mutex_init(&evaluateMutex, nullptr);
-	DebuggerStartThread();
-}
-
-void SignalINT(int sig) {
-	DebuggerClose();
-	exit(0);
-}
-
 int main(int argc, char **argv) {
 	struct sigaction sigintHandler = {};
-	sigintHandler.sa_handler = SignalINT;
+	sigintHandler.sa_handler = [] (int) { DebuggerClose(); exit(0); };
 	sigaction(SIGINT, &sigintHandler, nullptr);
 
-	// Setup GDB arguments.
 	gdbArgv = (char **) malloc(sizeof(char *) * (argc + 1));
 	gdbArgv[0] = (char *) "gdb";
 	memcpy(gdbArgv + 1, argv + 1, sizeof(argv) * argc);
@@ -1305,7 +1253,21 @@ int main(int argc, char **argv) {
 
 	LoadSettings(true);
 	UIInitialise();
-	InterfaceCreate(UIWindowCreate(0, 0, "gf2", 0, 0));
+
+	windowMain = UIWindowCreate(0, 0, "gf2", 0, 0);
+	windowMain->scale = uiScale;
+	windowMain->e.messageUser = WindowMessage;
+
+	for (uintptr_t i = 0; i < sizeof(interfaceCommands) / sizeof(interfaceCommands[0]); i++) {
+		if (!interfaceCommands[i].shortcut.code) continue;
+		UIWindowRegisterShortcut(windowMain, interfaceCommands[i].shortcut);
+	}
+
+	InterfaceLayoutCreate(&UIPanelCreate(&windowMain->e, UI_PANEL_EXPAND)->e);
+	LoadSettings(false);
+	pthread_cond_init(&evaluateEvent, nullptr);
+	pthread_mutex_init(&evaluateMutex, nullptr);
+	DebuggerStartThread();
 	CommandSyncWithGvim(nullptr);
 	UIMessageLoop();
 	DebuggerClose();
