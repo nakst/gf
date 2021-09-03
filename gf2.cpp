@@ -23,9 +23,11 @@
 #include <poll.h>
 
 char *layoutString = (char *) "v(75,h(80,Source,v(50,t(Breakpoints,Commands,Struct),t(Stack,Files,Thread))),h(65,Console,t(Watch,Registers,Data)))";
+// char *layoutString = (char *) "h(70,v(80,Source,Console),v(33,t(Breakpoints,Commands,Struct),v(50,t(Stack,Files,Thread),t(Watch,Registers,Data))))";
 
 int fontSize = 13;
 float uiScale = 1;
+bool maximize = false;
 
 extern "C" {
 #define UI_FONT_SIZE (fontSize)
@@ -205,7 +207,7 @@ end
 
 bool DisplaySetPosition(const char *file, int line, bool useGDBToGetFullPath);
 void InterfaceShowMenu(void *self);
-void InterfaceWindowSwitchToAndFocus(const char *name);
+UIElement *InterfaceWindowSwitchToAndFocus(const char *name);
 
 //////////////////////////////////////////////////////
 // Utilities:
@@ -893,6 +895,7 @@ const InterfaceCommand interfaceCommands[] = {
 	{ .label = "Sync with gvim\tF2", { .code = UI_KEYCODE_FKEY(2), .invoke = CommandSyncWithGvim } },
 	{ .label = "Ask GDB for PWD\tCtrl+Shift+P", { .code = UI_KEYCODE_LETTER('P'), .ctrl = true, .shift = true, .invoke = CommandSendToGDB, .cp = (void *) "gf-get-pwd" } },
 	{ .label = "Toggle disassembly\tCtrl+D", { .code = UI_KEYCODE_LETTER('D'), .ctrl = true, .invoke = CommandToggleDisassembly } },
+	{ .label = "Add watch", { .invoke = CommandAddWatch } },
 	{ .label = nullptr, { .code = UI_KEYCODE_LETTER('B'), .ctrl = true, .invoke = CommandToggleFillDataTab } },
 	{ .label = "Donate", { .invoke = CommandDonate } },
 };
@@ -1022,6 +1025,8 @@ void LoadSettings(bool earlyPass) {
 					uiScale = atof(state.value);
 				} else if (0 == strcmp(state.key, "layout")) {
 					layoutString = state.value;
+				} else if (0 == strcmp(state.key, "maximize")) {
+					maximize = atoi(state.value);
 				}
 			} else if (0 == strcmp(state.section, "gdb") && !earlyPass) {
 				if (0 == strcmp(state.key, "argument")) {
@@ -1059,7 +1064,7 @@ void LoadSettings(bool earlyPass) {
 }
 
 void InterfaceShowMenu(void *self) {
-	UIMenu *menu = UIMenuCreate((UIElement *) self, UI_MENU_PLACE_ABOVE);
+	UIMenu *menu = UIMenuCreate((UIElement *) self, UI_MENU_PLACE_ABOVE | UI_MENU_NO_SCROLL);
 
 	for (uintptr_t i = 0; i < sizeof(interfaceCommands) / sizeof(interfaceCommands[0]); i++) {
 		if (!interfaceCommands[i].label) continue;
@@ -1069,7 +1074,7 @@ void InterfaceShowMenu(void *self) {
 	UIMenuShow(menu);
 }
 
-void InterfaceWindowSwitchToAndFocus(const char *name) {
+UIElement *InterfaceWindowSwitchToAndFocus(const char *name) {
 	for (uintptr_t i = 0; i < sizeof(interfaceWindows) / sizeof(interfaceWindows[0]); i++) {
 		InterfaceWindow *window = &interfaceWindows[i];
 		if (!window->element) continue;
@@ -1090,10 +1095,11 @@ void InterfaceWindowSwitchToAndFocus(const char *name) {
 			UIElementFocus(window->element);
 		}
 
-		return;
+		return window->element;
 	}
 
 	UIDialogShow(windowMain, 0, "Couldn't find the window '%s'.\n%f%b", name, "OK");
+	return nullptr;
 }
 
 bool ElementHidden(UIElement *element) {
@@ -1254,7 +1260,7 @@ int main(int argc, char **argv) {
 	LoadSettings(true);
 	UIInitialise();
 
-	windowMain = UIWindowCreate(0, 0, "gf2", 0, 0);
+	windowMain = UIWindowCreate(0, maximize ? UI_WINDOW_MAXIMIZE : 0, "gf2", 0, 0);
 	windowMain->scale = uiScale;
 	windowMain->e.messageUser = WindowMessage;
 

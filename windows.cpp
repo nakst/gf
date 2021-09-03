@@ -497,7 +497,7 @@ const char *BitmapViewerGetBits(const char *pointerString, const char *widthStri
 
 int BitmapViewerDisplayMessage(UIElement *element, UIMessage message, int di, void *dp) {
 	if (message == UI_MSG_RIGHT_UP) {
-		UIMenu *menu = UIMenuCreate(&element->window->e, 0);
+		UIMenu *menu = UIMenuCreate(&element->window->e, UI_MENU_NO_SCROLL);
 
 		UIMenuAddItem(menu, 0, "Save to file...", -1, [] (void *cp) { 
 			static char *path = NULL;
@@ -1203,7 +1203,7 @@ int WatchWindowMessage(UIElement *element, UIMessage message, int di, void *dp) 
 			bool focused = i == w->selectedRow && element->window->focused == element;
 
 			if (focused) UIDrawBlock(painter, row, ui.theme.selected);
-			UIDrawBorder(painter, row, ui.theme.border, UI_RECT_4(1, 1, 0, 1));
+			UIDrawBorder(painter, row, ui.theme.border, UI_RECT_4(0, 1, 0, 1));
 
 			row.l += UI_SIZE_TEXTBOX_MARGIN;
 			row.r -= UI_SIZE_TEXTBOX_MARGIN;
@@ -1268,7 +1268,7 @@ int WatchWindowMessage(UIElement *element, UIMessage message, int di, void *dp) 
 
 		if (index >= 0 && index < w->rows.Length()) {
 			WatchWindowMessage(element, UI_MSG_LEFT_DOWN, di, dp);
-			UIMenu *menu = UIMenuCreate(&element->window->e, 0);
+			UIMenu *menu = UIMenuCreate(&element->window->e, UI_MENU_NO_SCROLL);
 
 			if (!w->rows[index]->parent) {
 				UIMenuAddItem(menu, 0, "Edit expression", -1, [] (void *cp) { 
@@ -1329,8 +1329,8 @@ int WatchWindowMessage(UIElement *element, UIMessage message, int di, void *dp) 
 			w->rows[w->selectedRow]->format = (m->textBytes && isalpha(m->text[0])) ? m->text[0] : 0;
 			w->rows[w->selectedRow]->updateIndex--;
 			w->waitingForFormatCharacter = false;
-		} else if ((m->code == UI_KEYCODE_ENTER || m->code == UI_KEYCODE_BACKSPACE) 
-				&& w->selectedRow != w->rows.Length() && !w->textbox
+		} else if (w->selectedRow != w->rows.Length() && !w->textbox
+				&& (m->code == UI_KEYCODE_ENTER || m->code == UI_KEYCODE_BACKSPACE || (m->code == UI_KEYCODE_LEFT && !w->rows[w->selectedRow]->open))
 				&& !w->rows[w->selectedRow]->parent) {
 			WatchCreateTextboxForRow(w, true);
 		} else if (m->code == UI_KEYCODE_DELETE && !w->textbox
@@ -1462,6 +1462,14 @@ void WatchWindowFocus(UIElement *element) {
 	UIElementFocus(w->element);
 }
 
+void CommandAddWatch(void *) {
+	UIElement *element = InterfaceWindowSwitchToAndFocus("Watch");
+	WatchWindow *w = (WatchWindow *) element->cp;
+	if (w->textbox) return;
+	w->selectedRow = w->rows.Length();
+	WatchCreateTextboxForRow(w, false);
+}
+
 //////////////////////////////////////////////////////
 // Stack window:
 //////////////////////////////////////////////////////
@@ -1529,7 +1537,7 @@ int TableBreakpointsMessage(UIElement *element, UIMessage message, int di, void 
 		int index = UITableHitTest((UITable *) element, element->window->cursorX, element->window->cursorY);
 
 		if (index != -1) {
-			UIMenu *menu = UIMenuCreate(&element->window->e, 0);
+			UIMenu *menu = UIMenuCreate(&element->window->e, UI_MENU_NO_SCROLL);
 			UIMenuAddItem(menu, 0, "Delete", -1, CommandDeleteBreakpoint, (void *) (intptr_t) index);
 			UIMenuShow(menu);
 		}
@@ -1727,6 +1735,7 @@ bool FilesPanelPopulate(FilesWindow *window) {
 	for (int i = 0; i < names.Length(); i++) {
 		if (names[i][0] != '.' || names[i][1] != 0) {
 			UIButton *button = UIButtonCreate(&window->panel->e, 0, names[i], -1);
+			button->e.flags &= ~UI_ELEMENT_TAB_STOP;
 			button->e.cp = window;
 			button->e.messageUser = FilesButtonMessage;
 

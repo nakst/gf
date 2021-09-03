@@ -335,6 +335,7 @@ typedef struct UIWindow {
 #define UI_WINDOW_MENU (1 << 0)
 #define UI_WINDOW_INSPECTOR (1 << 1)
 #define UI_WINDOW_CENTER_IN_OWNER (1 << 2)
+#define UI_WINDOW_MAXIMIZE (1 << 3)
 
 	UIElement e;
 
@@ -487,6 +488,7 @@ typedef struct UITextbox {
 
 typedef struct UIMenu {
 #define UI_MENU_PLACE_ABOVE (1 << 0)
+#define UI_MENU_NO_SCROLL (1 << 1)
 	UIElement e;
 	int pointX, pointY;
 	UIScrollBar *vScroll;
@@ -3568,11 +3570,12 @@ int _UIMenuMessage(UIElement *element, UIMessage message, int di, void *dp) {
 		UIElement *child = element->children;
 		int position = element->bounds.t + 2 - menu->vScroll->position;
 		int totalHeight = 0;
+		int scrollBarSize = (menu->e.flags & UI_MENU_NO_SCROLL) ? 0 : UI_SIZE_SCROLL_BAR;
 
 		while (child) {
 			if (~child->flags & UI_ELEMENT_NON_CLIENT) {
 				int height = UIElementMessage(child, UI_MSG_GET_HEIGHT, 0, 0);
-				UIElementMove(child, UI_RECT_4(element->bounds.l + 2, element->bounds.r - UI_SIZE_SCROLL_BAR - 2, 
+				UIElementMove(child, UI_RECT_4(element->bounds.l + 2, element->bounds.r - scrollBarSize - 2, 
 							position, position + height), false);
 				position += height;
 				totalHeight += height;
@@ -3582,7 +3585,7 @@ int _UIMenuMessage(UIElement *element, UIMessage message, int di, void *dp) {
 		}
 
 		UIRectangle scrollBarBounds = element->bounds;
-		scrollBarBounds.l = scrollBarBounds.r - UI_SIZE_SCROLL_BAR * element->window->scale;
+		scrollBarBounds.l = scrollBarBounds.r - scrollBarSize * element->window->scale;
 		menu->vScroll->maximum = totalHeight;
 		menu->vScroll->page = UI_RECT_HEIGHT(element->bounds);
 		UIElementMove(&menu->vScroll->e, scrollBarBounds, true);
@@ -4271,6 +4274,11 @@ UIWindow *UIWindowCreate(UIWindow *owner, uint32_t flags, const char *cTitle, in
 		| ButtonPressMask | ButtonReleaseMask | KeyPressMask | KeyReleaseMask | StructureNotifyMask
 		| EnterWindowMask | LeaveWindowMask | ButtonMotionMask | KeymapStateMask | FocusChangeMask);
 
+	if (flags & UI_WINDOW_MAXIMIZE) {
+		Atom atoms[2] = { XInternAtom(ui.display, "_NET_WM_STATE_MAXIMIZED_HORZ", 0), XInternAtom(ui.display, "_NET_WM_STATE_MAXIMIZED_VERT", 0) };
+		XChangeProperty(ui.display, window->window, XInternAtom(ui.display, "_NET_WM_STATE", 0), XA_ATOM, 32, PropModeReplace, (unsigned char *) atoms, 2);
+	}
+
 	if (~flags & UI_WINDOW_MENU) {
 		XMapRaised(ui.display, window->window);
 	}
@@ -4529,6 +4537,22 @@ bool _UIProcessEvent(XEvent *event) {
 				window->alt = true;
 				window->altCode = event->xkey.keycode;
 				_UIWindowInputEvent(window, UI_MSG_MOUSE_MOVE, 0, 0);
+			} else if (symbol == XK_KP_Left) {
+				m.code = UI_KEYCODE_LEFT;
+			} else if (symbol == XK_KP_Right) {
+				m.code = UI_KEYCODE_RIGHT;
+			} else if (symbol == XK_KP_Up) {
+				m.code = UI_KEYCODE_UP;
+			} else if (symbol == XK_KP_Down) {
+				m.code = UI_KEYCODE_DOWN;
+			} else if (symbol == XK_KP_Home) {
+				m.code = UI_KEYCODE_HOME;
+			} else if (symbol == XK_KP_End) {
+				m.code = UI_KEYCODE_END;
+			} else if (symbol == XK_KP_Enter) {
+				m.code = UI_KEYCODE_ENTER;
+			} else if (symbol == XK_KP_Delete) {
+				m.code = UI_KEYCODE_DELETE;
 			}
 
 			_UIWindowInputEvent(window, UI_MSG_KEY_TYPED, 0, &m);

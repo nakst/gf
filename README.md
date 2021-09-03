@@ -80,10 +80,12 @@ You can enable subpixel font rendering by recompiling with `extra_flags=-DUI_FRE
 You can also configure the interface layout, with the `layout` parameter. Use `h(position,left,right)` to create a horizontal split, `v(position,left,right)` to create a vertical split, and `t(...)` to create a tab pane. This value should not contain any whitespace. Please note this value is not validated, so make sure it is formatted correctly!
 
 ```ini
-layout=h(75,v(75,Source,Console),v(50,t(Watch,Breakpoints,Commands,Struct),t(Stack,Files,Registers,Data))))
+layout=h(75,v(75,Source,Console),v(50,t(Watch,Breakpoints,Commands,Struct),t(Stack,Files,Registers,Data,Thread))))
 ```
 
 **NB: Horizontal and vertical splits must have exactly two children.** Instead, you can nest them to create more complex layouts.
+
+You can maximize the window at startup with `maximize=1`.
 
 ### Themes
 
