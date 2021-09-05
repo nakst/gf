@@ -1,14 +1,21 @@
-// TODO Disassembly window extensions.
-// 	- Split source and disassembly view.
+// TODO Disassembly window:
 // 	- Setting/clearing/showing breakpoints.
-// 	- Jump to line and run to line.
+// 	- Jump/run to line.
 // 	- Shift+F10: run to next instruction (for skipping past loops).
+// 	- Split source and disassembly view.
 
-// TODO Future extensions.
-// 	- Memory window.
-// 	- Hover to view value.
-// 	- Data breakpoint viewer.
+// TODO Inspect line mode:
+// 	- Jump/run to selected line.
+// 	- How to show overloaded variables correctly when moving lines?
+
+// TODO Other features:
 // 	- Automatically restoring breakpoints and symbols files after restarting gdb.
+// 	- Viewing data breakpoints in the breakpoint window.
+// 	- Using the correct variable size in the watch logger.
+
+// TODO Future extensions:
+// 	- Memory window.
+// 	- More data visualization tools in the data window.
 
 #include <pthread.h>
 #include <unistd.h>
@@ -103,6 +110,7 @@ UIWindow *windowMain;
 
 UICode *displayCode;
 UICode *displayOutput;
+UITextbox *textboxInput;
 UISpacer *trafficLight;
 
 UIMDIClient *dataWindow;
@@ -208,6 +216,7 @@ end
 bool DisplaySetPosition(const char *file, int line, bool useGDBToGetFullPath);
 void InterfaceShowMenu(void *self);
 UIElement *InterfaceWindowSwitchToAndFocus(const char *name);
+void WatchAddExpression2(char *string);
 
 //////////////////////////////////////////////////////
 // Utilities:
@@ -896,6 +905,7 @@ const InterfaceCommand interfaceCommands[] = {
 	{ .label = "Ask GDB for PWD\tCtrl+Shift+P", { .code = UI_KEYCODE_LETTER('P'), .ctrl = true, .shift = true, .invoke = CommandSendToGDB, .cp = (void *) "gf-get-pwd" } },
 	{ .label = "Toggle disassembly\tCtrl+D", { .code = UI_KEYCODE_LETTER('D'), .ctrl = true, .invoke = CommandToggleDisassembly } },
 	{ .label = "Add watch", { .invoke = CommandAddWatch } },
+	{ .label = "Inspect line", { .code = XK_grave, .invoke = CommandInspectLine } },
 	{ .label = nullptr, { .code = UI_KEYCODE_LETTER('B'), .ctrl = true, .invoke = CommandToggleFillDataTab } },
 	{ .label = "Donate", { .invoke = CommandDonate } },
 };

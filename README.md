@@ -30,6 +30,7 @@ To support development, you can donate to my Patreon: https://www.patreon.com/na
 - Press Shift+F10 to step out of a block, and press Shift+F11 to step out a function.
 - Press Tab while entering a watch expression to auto-complete it.
 - Press `/` with a watch expression highlighted to change the format specifier. For example, `/x` switches to hexadecimal view.
+- Press backtick to enter line inspect mode. This mode evaluates all expressions on the current line.
 
 ## Settings
 

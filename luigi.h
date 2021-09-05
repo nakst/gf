@@ -484,6 +484,7 @@ typedef struct UITextbox {
 	ptrdiff_t bytes;
 	int carets[2];
 	int scroll;
+	bool rejectNextKey;
 } UITextbox;
 
 typedef struct UIMenu {
@@ -2799,7 +2800,10 @@ int _UITextboxMessage(UIElement *element, UIMessage message, int di, void *dp) {
 		UIKeyTyped *m = (UIKeyTyped *) dp;
 		bool handled = true;
 
-		if (m->code == UI_KEYCODE_BACKSPACE || m->code == UI_KEYCODE_DELETE) {
+		if (textbox->rejectNextKey) {
+			textbox->rejectNextKey = false;
+			handled = false;
+		} else if (m->code == UI_KEYCODE_BACKSPACE || m->code == UI_KEYCODE_DELETE) {
 			if (textbox->carets[0] == textbox->carets[1]) {
 				UITextboxMoveCaret(textbox, m->code == UI_KEYCODE_BACKSPACE, element->window->ctrl);
 			}

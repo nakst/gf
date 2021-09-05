@@ -6,8 +6,15 @@ char autoPrintExpression[1024];
 char autoPrintResult[1024];
 int autoPrintExpressionLine;
 int autoPrintResultLine;
+
 int currentEndOfBlock;
 int lastCursorX, lastCursorY;
+
+Array<char *> inspectResults;
+bool noInspectResults;
+bool inInspectLineMode;
+int inspectModeRestoreLine;
+UIRectangle displayCurrentLineBounds;
 
 bool DisplaySetPosition(const char *file, int line, bool useGDBToGetFullPath) {
 	if (showingDisassembly) {
@@ -222,8 +229,67 @@ int DisplayCodeMessage(UIElement *element, UIMessage message, int di, void *dp) 
 				return 0xFF0000;
 			}
 		}
+	} else if (message == UI_MSG_PAINT) {
+		element->messageClass(element, message, di, dp);
+
+		if (inInspectLineMode) {
+			const char *instructions = "(Press Esc to exit inspect line mode.)";
+			int width = (strlen(instructions) + 8) * ui.glyphWidth;
+
+			for (int index = 0; index < inspectResults.Length() / 2; index++) {
+				int w = (strlen(inspectResults[index * 2]) + strlen(inspectResults[index * 2 + 1]) + 8) * ui.glyphWidth;
+				if (w > width) width = w;
+			}
+
+			int xOffset = 0;
+
+			{
+				UICodeLine *line = &displayCode->lines[currentLine - 1];
+
+				for (int i = 0; i < line->bytes; i++) {
+					if (displayCode->content[line->offset + i] == '\t') {
+						xOffset += 4 * ui.glyphWidth;
+					} else if (displayCode->content[line->offset + i] == ' ') {
+						xOffset += 1 * ui.glyphWidth;
+					} else {
+						break;
+					}
+				}
+			}
+
+			char buffer[256];
+			UIPainter *painter = (UIPainter *) dp;
+			int lineHeight = UIMeasureStringHeight();
+			UIRectangle bounds = UIRectangleAdd(displayCurrentLineBounds, UI_RECT_4(xOffset, 0, lineHeight, 8 + lineHeight * (inspectResults.Length() / 2 + 1)));
+			bounds.r = bounds.l + width;
+			UIDrawBlock(painter, UIRectangleAdd(bounds, UI_RECT_1(3)), ui.theme.border);
+			UIDrawRectangle(painter, bounds, ui.theme.codeBackground, ui.theme.border, UI_RECT_1(2));
+			UIRectangle line = UIRectangleAdd(bounds, UI_RECT_4(4, -4, 4, 0));
+			line.b = line.t + lineHeight;
+
+			for (int index = 0; index < inspectResults.Length() / 2; index++) {
+				if (noInspectResults) {
+					StringFormat(buffer, sizeof(buffer), "%s", inspectResults[index * 2]);
+				} else if (index < 9) {
+					StringFormat(buffer, sizeof(buffer), "[%d] %s %s", index + 1, inspectResults[index * 2], inspectResults[index * 2 + 1]);
+				} else {
+					StringFormat(buffer, sizeof(buffer), "    %s %s", inspectResults[index * 2], inspectResults[index * 2 + 1]);
+				}
+
+				UIDrawString(painter, line, buffer, -1, noInspectResults ? ui.theme.codeOperator : ui.theme.codeString, UI_ALIGN_LEFT, NULL);
+				line = UIRectangleAdd(line, UI_RECT_2(0, lineHeight));
+			}
+
+			UIDrawString(painter, line, instructions, -1, ui.theme.codeNumber, UI_ALIGN_RIGHT, NULL);
+		}
+
+		return 1;
 	} else if (message == UI_MSG_CODE_DECORATE_LINE) {
 		UICodeDecorateLine *m = (UICodeDecorateLine *) dp;
+
+		if (m->index == currentLine) {
+			displayCurrentLineBounds = m->bounds;
+		}
 
 		if (m->index == autoPrintResultLine) {
 			UIRectangle rectangle = UI_RECT_4(m->x + ui.glyphWidth, m->bounds.r, m->y, m->y + UIMeasureStringHeight());
@@ -377,6 +443,116 @@ void SourceWindowUpdate(const char *data, UIElement *element) {
 	}
 
 	UIElementRefresh(element);
+}
+
+void InspectCurrentLine() {
+	for (int i = 0; i < inspectResults.Length(); i++) free(inspectResults[i]);
+	inspectResults.Free();
+
+	UICodeLine *line = &displayCode->lines[currentLine - 1];
+	const char *string = displayCode->content + line->offset;
+
+	for (int i = 0; i < line->bytes; i++) {
+		if ((i != line->bytes - 1 && isalpha(string[i]) && !isalpha(string[i + 1])) || string[i] == ']') {
+			int b = 0, j = i;
+
+			for (; j >= 0; j--) {
+				if (j && string[j] == '>' && string[j - 1] == '-') {
+					j--;
+				} else if (string[j] == ']') {
+					b++;
+				} else if (string[j] == '[' && b) {
+					b--;
+				} else if (isalpha(string[j]) || b || string[j] == '.') {
+				} else {
+					j++;
+					break;
+				}
+			}
+
+			char buffer[256];
+			if (i - j + 1 > 255 || j < 1) continue;
+			StringFormat(buffer, sizeof(buffer), "%.*s", i - j + 1, string + j);
+
+			if (0 == strcmp(buffer, "true") || 0 == strcmp(buffer, "false") || 0 == strcmp(buffer, "if") || 0 == strcmp(buffer, "for")
+					|| 0 == strcmp(buffer, "else") || 0 == strcmp(buffer, "while") || 0 == strcmp(buffer, "int") 
+					|| 0 == strcmp(buffer, "char") || 0 == strcmp(buffer, "switch") || 0 == strcmp(buffer, "float")) {
+				continue;
+			}
+
+			bool match = false;
+
+			for (int k = 0; k < inspectResults.Length(); k += 2) {
+				if (0 == strcmp(inspectResults[k], buffer)) {
+					match = true;
+				}
+			}
+
+			if (match) continue;
+
+			const char *result = EvaluateExpression(buffer);
+			if (!result) continue;
+			if (0 == memcmp(result, "= {", 3) && !strchr(result + 3, '=')) continue;
+			inspectResults.Add(strdup(buffer));
+			inspectResults.Add(strdup(result));
+		}
+	}
+
+	if (!inspectResults.Length()) {
+		inspectResults.Add(strdup("No expressions to display."));
+		inspectResults.Add(strdup(" "));
+		noInspectResults = true;
+	} else {
+		noInspectResults = false;
+	}
+}
+
+void InspectLineModeExit(UIElement *element) {
+	UIElementDestroy(element);
+	UIElementFocus(&textboxInput->e);
+	inInspectLineMode = false;
+	currentLine = inspectModeRestoreLine;
+	UICodeFocusLine(displayCode, currentLine);
+	UIElementRefresh(&displayCode->e);
+}
+
+int InspectLineModeMessage(UIElement *element, UIMessage message, int di, void *dp) {
+	if (message == UI_MSG_UPDATE && element->window->focused != element) {
+		InspectLineModeExit(element);
+	} else if (message == UI_MSG_KEY_TYPED) {
+		UIKeyTyped *m = (UIKeyTyped *) dp;
+
+		if ((m->textBytes == 1 && m->text[0] == '`') || m->code == UI_KEYCODE_ESCAPE) {
+			InspectLineModeExit(element);
+		} else if (m->code >= UI_KEYCODE_DIGIT('1') && m->code <= UI_KEYCODE_DIGIT('9')) {
+			int index = (m->code - UI_KEYCODE_DIGIT('1')) * 2;
+
+			if (index < inspectResults.Length()) {
+				InspectLineModeExit(element);
+				WatchAddExpression2(inspectResults[index]);
+			}
+		} else if ((m->code == UI_KEYCODE_UP && currentLine != 1) || (m->code == UI_KEYCODE_DOWN && currentLine != displayCode->lineCount)) {
+			currentLine += m->code == UI_KEYCODE_UP ? -1 : 1;
+			UICodeFocusLine(displayCode, currentLine);
+			InspectCurrentLine();
+			UIElementRefresh(&displayCode->e);
+		}
+
+		return 1;
+	}
+
+	return 0;
+}
+
+void CommandInspectLine(void *) {
+	inspectModeRestoreLine = currentLine;
+	inInspectLineMode = true;
+	InspectCurrentLine();
+	UIElementRefresh(&displayCode->e);
+
+	// Create an element to receive key input messages.
+	UIElement *element = UIElementCreate(sizeof(UIElement), &windowMain->e, 0, InspectLineModeMessage, 0);
+	UIElementFocus(element);
 }
 
 //////////////////////////////////////////////////////
@@ -605,7 +781,9 @@ int TextboxInputMessage(UIElement *element, UIMessage message, int di, void *dp)
 		bool lastKeyWasTab = tabCompleter._lastKeyWasTab;
 		tabCompleter._lastKeyWasTab = false;
 
-		if (m->code == UI_KEYCODE_ENTER && !element->window->shift) {
+		if (m->textBytes && !element->window->ctrl && !element->window->alt && m->text[0] == '`' && !textbox->bytes) {
+			textbox->rejectNextKey = true;
+		} else if (m->code == UI_KEYCODE_ENTER && !element->window->shift) {
 			char buffer[1024];
 			StringFormat(buffer, 1024, "%.*s", (int) textbox->bytes, textbox->string);
 			if (commandLog) fprintf(commandLog, "%s\n", buffer);
@@ -662,7 +840,7 @@ UIElement *ConsoleWindowCreate(UIElement *parent) {
 	UIButton *buttonMenu = UIButtonCreate(&panel3->e, 0, "Menu", -1);
 	buttonMenu->invoke = InterfaceShowMenu;
 	buttonMenu->e.cp = buttonMenu;
-	UITextbox *textboxInput = UITextboxCreate(&panel3->e, UI_ELEMENT_H_FILL);
+	textboxInput = UITextboxCreate(&panel3->e, UI_ELEMENT_H_FILL);
 	textboxInput->e.messageUser = TextboxInputMessage;
 	UIElementFocus(&textboxInput->e);
 	return &panel2->e;
@@ -945,6 +1123,17 @@ void WatchAddExpression(WatchWindow *w, char *string = nullptr) {
 	}
 }
 
+void WatchAddExpression2(char *string) {
+	UIElement *element = InterfaceWindowSwitchToAndFocus("Watch");
+	WatchWindow *w = (WatchWindow *) element->cp;
+	w->selectedRow = w->rows.Length();
+	WatchAddExpression(w, strdup(string));
+	if (w->selectedRow) w->selectedRow--;
+	WatchEnsureRowVisible(w, w->selectedRow);
+	UIElementRefresh(w->element->parent);
+	UIElementRefresh(w->element);
+}
+
 int WatchLoggerWindowMessage(UIElement *element, UIMessage message, int di, void *dp) {
 	if (message == UI_MSG_DESTROY) {
 		if (element->cp) {
@@ -969,7 +1158,7 @@ int WatchLoggerWindowMessage(UIElement *element, UIMessage message, int di, void
 			free(logger);
 		}
 	} else if (message == UI_MSG_GET_WIDTH || message == UI_MSG_GET_HEIGHT) {
-		return element->window->scale * 200;
+		return element->window->scale * 400;
 	}
 
 	return 0;
@@ -1077,9 +1266,6 @@ bool WatchGetAddress(Watch *watch) {
 }
 
 void WatchChangeLoggerCreate(WatchWindow *w) {
-	// TODO Using the correct variable size.
-	// TODO Make the MDI child a reasonable width/height by default.
-
 	if (w->selectedRow == w->rows.Length()) {
 		return;
 	}
@@ -1338,6 +1524,8 @@ int WatchWindowMessage(UIElement *element, UIMessage message, int di, void *dp) 
 			WatchDeleteExpression(w);
 		} else if (m->textBytes && m->text[0] == '/' && w->selectedRow != w->rows.Length()) {
 			w->waitingForFormatCharacter = true;
+		} else if (m->textBytes && m->text[0] == '`') {
+			result = 0;
 		} else if (m->textBytes && m->code != UI_KEYCODE_TAB && !w->textbox && !element->window->ctrl && !element->window->alt
 				&& (w->selectedRow == w->rows.Length() || !w->rows[w->selectedRow]->parent)) {
 			WatchCreateTextboxForRow(w, false);
@@ -1435,7 +1623,7 @@ void WatchWindowUpdate(const char *, UIElement *element) {
 		if (end) *end = 0;
 		const char *oldType = watch->type ?: "??";
 
-		if (strcmp(result, oldType)) {
+		if (strcmp(result, oldType) && strcmp(result, "??")) {
 			free(watch->type);
 			watch->type = result;
 
