@@ -445,6 +445,10 @@ void SourceWindowUpdate(const char *data, UIElement *element) {
 	UIElementRefresh(element);
 }
 
+bool InspectIsTokenCharacter(char c) {
+	return isalpha(c) || c == '_';
+}
+
 void InspectCurrentLine() {
 	for (int i = 0; i < inspectResults.Length(); i++) free(inspectResults[i]);
 	inspectResults.Free();
@@ -453,7 +457,7 @@ void InspectCurrentLine() {
 	const char *string = displayCode->content + line->offset;
 
 	for (int i = 0; i < line->bytes; i++) {
-		if ((i != line->bytes - 1 && isalpha(string[i]) && !isalpha(string[i + 1])) || string[i] == ']') {
+		if ((i != line->bytes - 1 && InspectIsTokenCharacter(string[i]) && !InspectIsTokenCharacter(string[i + 1])) || string[i] == ']') {
 			int b = 0, j = i;
 
 			for (; j >= 0; j--) {
@@ -463,7 +467,7 @@ void InspectCurrentLine() {
 					b++;
 				} else if (string[j] == '[' && b) {
 					b--;
-				} else if (isalpha(string[j]) || b || string[j] == '.') {
+				} else if (InspectIsTokenCharacter(string[j]) || b || string[j] == '.') {
 				} else {
 					j++;
 					break;
