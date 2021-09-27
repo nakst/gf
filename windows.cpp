@@ -1375,17 +1375,35 @@ void WatchCreateTextboxForRow(WatchWindow *w, bool addExistingText) {
 	}
 }
 
+WatchWindow *WatchGetFocused() {
+	return windowMain->focused->messageClass == WatchWindowMessage ? (WatchWindow *) windowMain->focused->cp : NULL;
+}
+
+void CommandWatchAddEntryForAddress(void *cp) {
+	WatchWindow *w = (WatchWindow *) cp ?: WatchGetFocused();
+	if (!w) return;
+	if (w->selectedRow == w->rows.Length()) return;
+	Watch *watch = w->rows[w->selectedRow];
+	if (!WatchGetAddress(watch)) return;
+	char address[64];
+	StringFormat(address, sizeof(address), "%s", evaluateResult);
+	WatchEvaluate("gf_typeof", watch);
+	if (strstr(evaluateResult, "??")) return;
+	char *end = strchr(evaluateResult, '\n');
+	if (end) *end = 0;
+	size_t size = strlen(address) + strlen(evaluateResult) + 16;
+	char *buffer = (char *) malloc(size);
+	StringFormat(buffer, size, "(%s*)%s", evaluateResult, address);
+	w->selectedRow = w->rows.Length();
+	WatchAddExpression(w, buffer);
+	WatchEnsureRowVisible(w, w->selectedRow);
+	UIElementRefresh(w->element->parent);
+	UIElementRefresh(w->element);
+}
+
 void CommandWatchViewSourceAtAddress(void *cp) {
-	WatchWindow *w = (WatchWindow *) cp;
-
-	if (!w) {
-		if (windowMain->focused->messageClass != WatchWindowMessage) {
-			return;
-		}
-
-		w = (WatchWindow *) windowMain->focused->cp;
-	}
-
+	WatchWindow *w = (WatchWindow *) cp ?: WatchGetFocused();
+	if (!w) return;
 	if (w->selectedRow == w->rows.Length()) return;
 	char *position = w->rows[w->selectedRow]->value;
 	while (*position && !isdigit(*position)) position++;
@@ -1526,27 +1544,7 @@ int WatchWindowMessage(UIElement *element, UIMessage message, int di, void *dp) 
 				DebuggerSend(buffer, true, false);
 			}, w);
 
-			UIMenuAddItem(menu, 0, "Add entry for address", -1, [] (void *cp) { 
-				WatchWindow *w = (WatchWindow *) cp;
-				if (w->selectedRow == w->rows.Length()) return;
-				Watch *watch = w->rows[w->selectedRow];
-				if (!WatchGetAddress(watch)) return;
-				char address[64];
-				StringFormat(address, sizeof(address), "%s", evaluateResult);
-				WatchEvaluate("gf_typeof", watch);
-				if (strstr(evaluateResult, "??")) return;
-				char *end = strchr(evaluateResult, '\n');
-				if (end) *end = 0;
-				size_t size = strlen(address) + strlen(evaluateResult) + 16;
-				char *buffer = (char *) malloc(size);
-				StringFormat(buffer, size, "(%s*)%s", evaluateResult, address);
-				w->selectedRow = w->rows.Length();
-				WatchAddExpression(w, buffer);
-				WatchEnsureRowVisible(w, w->selectedRow);
-				UIElementRefresh(w->element->parent);
-				UIElementRefresh(w->element);
-			}, w);
-
+			UIMenuAddItem(menu, 0, "Add entry for address\tCtrl+E", -1, CommandWatchAddEntryForAddress, w);
 			UIMenuAddItem(menu, 0, "View source at address\tCtrl+G", -1, CommandWatchViewSourceAtAddress, w);
 
 			UIMenuShow(menu);

@@ -913,6 +913,7 @@ const InterfaceCommand interfaceCommands[] = {
 	{ .label = "Toggle disassembly\tCtrl+D", { .code = UI_KEYCODE_LETTER('D'), .ctrl = true, .invoke = CommandToggleDisassembly } },
 	{ .label = "Add watch", { .invoke = CommandAddWatch } },
 	{ .label = "Inspect line", { .code = XK_grave, .invoke = CommandInspectLine } },
+	{ .label = nullptr, { .code = UI_KEYCODE_LETTER('E'), .ctrl = true, .invoke = CommandWatchAddEntryForAddress } },
 	{ .label = nullptr, { .code = UI_KEYCODE_LETTER('G'), .ctrl = true, .invoke = CommandWatchViewSourceAtAddress } },
 	{ .label = nullptr, { .code = UI_KEYCODE_LETTER('B'), .ctrl = true, .invoke = CommandToggleFillDataTab } },
 	{ .label = "Donate", { .invoke = CommandDonate } },
