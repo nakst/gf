@@ -217,6 +217,7 @@ bool DisplaySetPosition(const char *file, int line, bool useGDBToGetFullPath);
 void InterfaceShowMenu(void *self);
 UIElement *InterfaceWindowSwitchToAndFocus(const char *name);
 void WatchAddExpression2(char *string);
+int WatchWindowMessage(UIElement *element, UIMessage message, int di, void *dp);
 
 //////////////////////////////////////////////////////
 // Utilities:
@@ -248,6 +249,12 @@ char *LoadFile(const char *path, size_t *_bytes) {
 	size_t bytes = ftell(f);
 	fseek(f, 0, SEEK_SET);
 	char *buffer = (char *) malloc(bytes + 1);
+
+	if (!buffer) {
+		fclose(f);
+		return nullptr;
+	}
+
 	buffer[bytes] = 0;
 	fread(buffer, 1, bytes, f);
 	fclose(f);
@@ -906,6 +913,7 @@ const InterfaceCommand interfaceCommands[] = {
 	{ .label = "Toggle disassembly\tCtrl+D", { .code = UI_KEYCODE_LETTER('D'), .ctrl = true, .invoke = CommandToggleDisassembly } },
 	{ .label = "Add watch", { .invoke = CommandAddWatch } },
 	{ .label = "Inspect line", { .code = XK_grave, .invoke = CommandInspectLine } },
+	{ .label = nullptr, { .code = UI_KEYCODE_LETTER('G'), .ctrl = true, .invoke = CommandWatchViewSourceAtAddress } },
 	{ .label = nullptr, { .code = UI_KEYCODE_LETTER('B'), .ctrl = true, .invoke = CommandToggleFillDataTab } },
 	{ .label = "Donate", { .invoke = CommandDonate } },
 };

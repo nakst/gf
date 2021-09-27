@@ -1375,6 +1375,46 @@ void WatchCreateTextboxForRow(WatchWindow *w, bool addExistingText) {
 	}
 }
 
+void CommandWatchViewSourceAtAddress(void *cp) {
+	WatchWindow *w = (WatchWindow *) cp;
+
+	if (!w) {
+		if (windowMain->focused->messageClass != WatchWindowMessage) {
+			return;
+		}
+
+		w = (WatchWindow *) windowMain->focused->cp;
+	}
+
+	if (w->selectedRow == w->rows.Length()) return;
+	char *position = w->rows[w->selectedRow]->value;
+	while (*position && !isdigit(*position)) position++;
+	if (!(*position)) return;
+	uint64_t value = strtoul(position, &position, 0);
+	char buffer[256];
+	StringFormat(buffer, sizeof(buffer), "info line * 0x%lx", value);
+	EvaluateCommand(buffer);
+	position = evaluateResult;
+
+	if (strstr(evaluateResult, "No line number")) {
+		char *end = strchr(evaluateResult, '\n');
+		if (end) *end = 0;
+		UIDialogShow(windowMain, 0, "%s\n%f%b", evaluateResult, "OK");
+		return;
+	}
+
+	while (*position && !isdigit(*position)) position++;
+	if (!(*position)) return;
+	int line = strtol(position, &position, 0);
+	while (*position && *position != '"') position++;
+	if (!(*position)) return;
+	char *file = position + 1;
+	char *end = strchr(file, '"');
+	if (!end) return;
+	*end = 0;
+	DisplaySetPosition(file, line, false);
+}
+
 int WatchWindowMessage(UIElement *element, UIMessage message, int di, void *dp) {
 	WatchWindow *w = (WatchWindow *) element->cp;
 	int rowHeight = (int) (UI_SIZE_TEXTBOX_HEIGHT * element->window->scale);
@@ -1506,6 +1546,8 @@ int WatchWindowMessage(UIElement *element, UIMessage message, int di, void *dp) 
 				UIElementRefresh(w->element->parent);
 				UIElementRefresh(w->element);
 			}, w);
+
+			UIMenuAddItem(menu, 0, "View source at address\tCtrl+G", -1, CommandWatchViewSourceAtAddress, w);
 
 			UIMenuShow(menu);
 		}
