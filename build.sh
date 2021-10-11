@@ -24,7 +24,7 @@ if command -v fc-match &> /dev/null
 then
 	if [ $# -eq 0 ]; then
 		font_name=`fc-match mono | awk '{ print($1) }'`
-		font_path=`fc-list | grep $font_name | awk 'BEGIN { FS = ":" } ; { print($1) }'`
+		font_path=`fc-list | grep $font_name | awk 'BEGIN { FS = ":" } ; { print($1) }' | head -n1`
 		echo "Automatically detected monospaced font: $font_path"
 		echo "If you want to change this, pass the path of the desired font to $0."
 		echo "(Only monospaced fonts are supported.)"
