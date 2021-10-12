@@ -788,6 +788,14 @@ int TextboxInputMessage(UIElement *element, UIMessage message, int di, void *dp)
 		if (m->textBytes && !element->window->ctrl && !element->window->alt && m->text[0] == '`' && !textbox->bytes) {
 			textbox->rejectNextKey = true;
 		} else if (m->code == UI_KEYCODE_ENTER && !element->window->shift) {
+			if (!textbox->bytes) {
+				if (commandHistory.Length()) {
+					CommandSendToGDB(commandHistory[0]);
+				}
+
+				return 1;
+			}
+
 			char buffer[1024];
 			StringFormat(buffer, 1024, "%.*s", (int) textbox->bytes, textbox->string);
 			if (commandLog) fprintf(commandLog, "%s\n", buffer);
