@@ -217,7 +217,7 @@ int DisplayCodeMessage(UIElement *element, UIMessage message, int di, void *dp) 
 				DebuggerSend(buffer, true, false);
 			} else if (element->window->alt || element->window->shift) {
 				char buffer[1024];
-				StringFormat(buffer, 1024, "tbreak %d", line);
+				StringFormat(buffer, 1024, "%s %d", TBREAK_COMMAND, line);
 				EvaluateCommand(buffer);
 				StringFormat(buffer, 1024, "jump %d", line);
 				DebuggerSend(buffer, true, false);

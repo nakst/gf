@@ -666,6 +666,10 @@ void TabCompleterRun(TabCompleter *completer, UITextbox *textbox, bool lastKeyWa
 // Commands:
 //////////////////////////////////////////////////////
 
+bool useHardwareBreakpoints;
+#define BREAK_COMMAND (useHardwareBreakpoints ? "hbreak" : "b")
+#define TBREAK_COMMAND (useHardwareBreakpoints ? "thbreak" : "tbreak")
+
 bool CommandParseInternal(const char *command, bool synchronous) {
 	if (0 == strcmp(command, "gf-step")) {
 		DebuggerSend(showingDisassembly ? "stepi" : "s", true, synchronous);
@@ -814,7 +818,7 @@ void CommandToggleBreakpoint(void *_line) {
 	}
 
 	char buffer[1024];
-	StringFormat(buffer, 1024, "b %s:%d", currentFile, line);
+	StringFormat(buffer, 1024, "%s %s:%d", BREAK_COMMAND, currentFile, line);
 	DebuggerSend(buffer, true, false);
 }
 
@@ -1055,6 +1059,15 @@ void LoadSettings(bool earlyPass) {
 					gdbArgv[gdbArgc] = nullptr;
 				} else if (0 == strcmp(state.key, "path")) {
 					gdbPath = state.value;
+				} else if (0 == strcmp(state.key, "breakpoint_type")) {
+					if (0 == strcmp(state.value, "software")) {
+						useHardwareBreakpoints = false;
+					} else if (0 == strcmp(state.value, "hardware")) {
+						useHardwareBreakpoints = true;
+					} else {
+						useHardwareBreakpoints = false;
+						fprintf(stderr, "Warning: Invalid breakpoint value '%s'; using software breakpoints.\n", state.value);
+					}
 				}
 			} else if (0 == strcmp(state.section, "commands") && earlyPass && state.keyBytes && state.valueBytes) {
 				presetCommands.Add(state);

@@ -53,6 +53,13 @@ You can also change the location of the GDB executable. For example,
 path=/home/a/opt/gdb
 ```
 
+You can make `gf2` use hardware breakpoints (`hbreak` instead of `b`). For example,
+
+```ini
+[gdb]
+breakpoint_type=hardware
+```
+
 ### Custom keyboard shortcuts
 
 Keyboard shortcuts are placed in the `[shortcuts]` section. For example,
