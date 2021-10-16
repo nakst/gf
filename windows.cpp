@@ -2123,6 +2123,10 @@ void *LogWindowThread(void *context) {
 
 	while (true) {
 		poll(&p, 1, 10000);
+		if (p.revents & POLLHUP) {
+            struct timespec t = {.tv_nsec = 10000000};
+		    nanosleep(&t, 0);
+        }
 
 		while (true) {
 			char input[16384];
