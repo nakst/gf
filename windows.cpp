@@ -883,14 +883,21 @@ struct WatchWindow {
 	bool waitingForFormatCharacter;
 };
 
+struct WatchLogEvaluated {
+	char result[64];
+};
+
 struct WatchLogEntry {
 	char value[64];
 	char where[128];
+	Array<WatchLogEvaluated> evaluated;
 	Array<StackEntry> trace;
 };
 
 struct WatchLogger {
 	int id, selectedEntry;
+	char columns[256];
+	char *expressionsToEvaluate;
 	Array<WatchLogEntry> entries;
 	UITable *table, *trace;
 };
@@ -1164,9 +1171,11 @@ int WatchLoggerWindowMessage(UIElement *element, UIMessage message, int di, void
 
 			for (int i = 0; i < logger->entries.Length(); i++) {
 				logger->entries[i].trace.Free();
+				logger->entries[i].evaluated.Free();
 			}
 
 			logger->entries.Free();
+			free(logger->expressionsToEvaluate);
 			free(logger);
 		}
 	} else if (message == UI_MSG_GET_WIDTH || message == UI_MSG_GET_HEIGHT) {
@@ -1205,7 +1214,14 @@ int WatchLoggerTableMessage(UIElement *element, UIMessage message, int di, void 
 			return StringFormat(m->buffer, m->bufferBytes, "%s", entry->value);
 		} else if (m->column == 1) {
 			return StringFormat(m->buffer, m->bufferBytes, "%s", entry->where);
+		} else {
+			if (m->column - 2 < entry->evaluated.Length()) {
+				return StringFormat(m->buffer, m->bufferBytes, "%s", entry->evaluated[m->column - 2].result);
+			} else {
+				return 0;
+			}
 		}
+#if 0
 	} else if (message == UI_MSG_LAYOUT) {
 		UITable *table = (UITable *) element;
 		UI_FREE(table->columnWidths);
@@ -1214,6 +1230,7 @@ int WatchLoggerTableMessage(UIElement *element, UIMessage message, int di, void 
 		int available = UI_RECT_WIDTH(table->e.bounds) - UI_SIZE_SCROLL_BAR * element->window->scale;
 		table->columnWidths[0] = available / 3;
 		table->columnWidths[1] = 2 * available / 3;
+#endif
 	} else if (message == UI_MSG_LEFT_DOWN || message == UI_MSG_MOUSE_DRAG) {
 		int index = UITableHitTest((UITable *) element, element->window->cursorX, element->window->cursorY);
 
@@ -1277,6 +1294,12 @@ bool WatchGetAddress(Watch *watch) {
 	return true;
 }
 
+void WatchLoggerResizeColumns(void *_logger) {
+	WatchLogger *logger = (WatchLogger *) _logger;
+	UITableResizeColumns(logger->table);
+	UIElementRefresh(&logger->table->e);
+}
+
 void WatchChangeLoggerCreate(WatchWindow *w) {
 	if (w->selectedRow == w->rows.Length()) {
 		return;
@@ -1291,12 +1314,18 @@ void WatchChangeLoggerCreate(WatchWindow *w) {
 		return;
 	}
 
+	char *expressionsToEvaluate = nullptr;
+	const char *result = UIDialogShow(windowMain, 0, "-- Watch logger settings --\nExpressions to evaluate (separate with semicolons):\n%t\n\n%l\n\n%f%b%b", 
+			&expressionsToEvaluate, "Start", "Cancel");
+
+	if (0 == strcmp(result, "Cancel")) {
+		free(expressionsToEvaluate);
+		return;
+	}
+
 	char buffer[256];
 	StringFormat(buffer, sizeof(buffer), "Log %s", evaluateResult);
 	UIMDIChild *child = UIMDIChildCreate(&dataWindow->e, UI_MDI_CHILD_CLOSE_BUTTON, UI_RECT_1(0), buffer, -1);
-	UISplitPane *panel = UISplitPaneCreate(&child->e, 0, 0.5f);
-	UITable *table = UITableCreate(&panel->e, UI_ELEMENT_H_FILL | UI_ELEMENT_V_FILL, "New value\tWhere");
-	UITable *trace = UITableCreate(&panel->e, UI_ELEMENT_H_FILL | UI_ELEMENT_V_FILL, "Index\tFunction\tLocation\tAddress");
 	StringFormat(buffer, sizeof(buffer), "watch * %s", evaluateResult);
 	EvaluateCommand(buffer);
 	char *number = strstr(evaluateResult, "point ");
@@ -1306,13 +1335,40 @@ void WatchChangeLoggerCreate(WatchWindow *w) {
 		return;
 	}
 
-	number += 6;
-
 	WatchLogger *logger = (WatchLogger *) calloc(1, sizeof(WatchLogger));
-	logger->id = atoi(number);
+
+	UIButton *button = UIButtonCreate(&child->e, UI_BUTTON_SMALL | UI_ELEMENT_NON_CLIENT, "Resize columns", -1);
+	button->e.cp = logger;
+	button->invoke = WatchLoggerResizeColumns;
+
+	uintptr_t position = 0;
+	position += StringFormat(logger->columns + position, sizeof(logger->columns) - position, "New value\tWhere");
+	
+	if (expressionsToEvaluate) {
+		uintptr_t start = 0;
+
+		for (uintptr_t i = 0; true; i++) {
+			if (expressionsToEvaluate[i] == ';' || !expressionsToEvaluate[i]) {
+				position += StringFormat(logger->columns + position, sizeof(logger->columns) - position, "\t%.*s",
+						i - start, expressionsToEvaluate + start);
+				start = i + 1;
+			}
+
+			if (!expressionsToEvaluate[i]) {
+				break;
+			}
+		}
+	}
+
+	UISplitPane *panel = UISplitPaneCreate(&child->e, 0, 0.5f);
+	UITable *table = UITableCreate(&panel->e, UI_ELEMENT_H_FILL | UI_ELEMENT_V_FILL, logger->columns);
+	UITable *trace = UITableCreate(&panel->e, UI_ELEMENT_H_FILL | UI_ELEMENT_V_FILL, "Index\tFunction\tLocation\tAddress");
+
+	logger->id = atoi(number + 6);
 	logger->table = table;
 	logger->trace = trace;
 	logger->selectedEntry = -1;
+	logger->expressionsToEvaluate = expressionsToEvaluate;
 	child->e.cp = logger;
 	table->e.cp = logger;
 	trace->e.cp = logger;
@@ -1321,6 +1377,7 @@ void WatchChangeLoggerCreate(WatchWindow *w) {
 	trace->e.messageUser = WatchLoggerTraceMessage;
 	watchLoggers.Add(logger);
 	UIElementRefresh(&dataWindow->e);
+	WatchLoggerResizeColumns(logger);
 
 	UIDialogShow(windowMain, 0, "The log has been setup in the data window.\n%f%b", "OK");
 	return;
@@ -1342,30 +1399,61 @@ bool WatchLoggerUpdate(char *data) {
 	where += 4;
 	char *afterWhere = strchr(where, '\n');
 	if (!afterWhere) return false;
+	WatchLogger *logger = nullptr;
 
 	for (int i = 0; i < watchLoggers.Length(); i++) {
 		if (watchLoggers[i]->id == id) {
-			*afterValue = 0;
-			*afterWhere = 0;
-			WatchLogEntry entry = {};
-			if (strlen(value) >= sizeof(entry.value)) value[sizeof(entry.value) - 1] = 0;
-			if (strlen(where) >= sizeof(entry.where)) where[sizeof(entry.where) - 1] = 0;
-			strcpy(entry.value, value);
-			strcpy(entry.where, where);
-			Array<StackEntry> previousStack = stack;
-			stack = {};
-			DebuggerGetStack();
-			entry.trace = stack;
-			stack = previousStack;
-			watchLoggers[i]->entries.Add(entry);
-			watchLoggers[i]->table->itemCount++;
-			UIElementRefresh(&watchLoggers[i]->table->e);
-			DebuggerSend("c", false, false);
-			return true;
+			logger = watchLoggers[i];
+			break;
 		}
 	}
 
-	return false;
+	if (!logger) return false;
+
+	*afterValue = 0;
+	*afterWhere = 0;
+	WatchLogEntry entry = {};
+
+	char *expressionsToEvaluate = logger->expressionsToEvaluate;
+
+	if (expressionsToEvaluate) {
+		uintptr_t start = 0;
+
+		for (uintptr_t i = 0; true; i++) {
+			if (expressionsToEvaluate[i] == ';' || !expressionsToEvaluate[i]) {
+				WatchLogEvaluated evaluated;
+				char buffer[256];
+				StringFormat(buffer, sizeof(buffer), "%.*s", i - start, expressionsToEvaluate + start);
+				EvaluateExpression(buffer);
+				start = i + 1;
+				size_t length = strlen(evaluateResult);
+				if (length >= sizeof(evaluated.result)) length = sizeof(evaluated.result) - 1;
+				char *start = strstr(evaluateResult, " = ");
+				memcpy(evaluated.result, start ? start + 3 : evaluateResult, length);
+				evaluated.result[length] = 0;
+				entry.evaluated.Add(evaluated);
+			}
+
+			if (!expressionsToEvaluate[i]) {
+				break;
+			}
+		}
+	}
+
+	if (strlen(value) >= sizeof(entry.value)) value[sizeof(entry.value) - 1] = 0;
+	if (strlen(where) >= sizeof(entry.where)) where[sizeof(entry.where) - 1] = 0;
+	strcpy(entry.value, value);
+	strcpy(entry.where, where);
+	Array<StackEntry> previousStack = stack;
+	stack = {};
+	DebuggerGetStack();
+	entry.trace = stack;
+	stack = previousStack;
+	logger->entries.Add(entry);
+	logger->table->itemCount++;
+	UIElementRefresh(&logger->table->e);
+	DebuggerSend("c", false, false);
+	return true;
 }
 
 void WatchCreateTextboxForRow(WatchWindow *w, bool addExistingText) {
