@@ -1529,6 +1529,57 @@ void CommandWatchViewSourceAtAddress(void *cp) {
 	DisplaySetPosition(file, line, false);
 }
 
+void CommandWatchSaveAsRecurse(FILE *file, Watch *watch, int indent, int indexInParentArray) {
+	fprintf(file, "%.*s", indent, "\t\t\t\t\t\t\t\t\t\t\t\t\t\t");
+
+	if (indexInParentArray == -1) {
+		fprintf(file, "%s = ", watch->key);
+	} else {
+		fprintf(file, "[%d] = ", indexInParentArray);
+	}
+
+	if (watch->open) {
+		fprintf(file, "\n");
+
+		for (int i = 0; i < watch->fields.Length(); i++) {
+			CommandWatchSaveAsRecurse(file, watch->fields[i], indent + 1, watch->isArray ? i : -1);
+		}
+	} else {
+		WatchEvaluate("gf_valueof", watch);
+		char *value = strdup(evaluateResult);
+		char *end = strchr(value, '\n');
+		if (end) *end = 0;
+		fprintf(file, "%s\n", value);
+		free(value);
+	}
+}
+
+void CommandWatchSaveAs(void *cp) {
+	WatchWindow *w = (WatchWindow *) cp ?: WatchGetFocused();
+	if (!w) return;
+	if (w->selectedRow == w->rows.Length()) return;
+
+	char *filePath = nullptr;
+	const char *result = UIDialogShow(windowMain, 0, "Path:            \n%t\n%f%b%b", &filePath, "Save", "Cancel");
+
+	if (0 == strcmp(result, "Cancel")) {
+		free(filePath);
+		return;
+	}
+
+	FILE *f = fopen(filePath, "wb");
+	free(filePath);
+
+	if (!f) {
+		UIDialogShow(windowMain, 0, "Could not open the file for writing!\n%f%b", "OK");
+		return;
+	}
+
+	Watch *watch = w->rows[w->selectedRow];
+	CommandWatchSaveAsRecurse(f, watch, 0, -1);
+	fclose(f);
+}
+
 int WatchWindowMessage(UIElement *element, UIMessage message, int di, void *dp) {
 	WatchWindow *w = (WatchWindow *) element->cp;
 	int rowHeight = (int) (UI_SIZE_TEXTBOX_HEIGHT * element->window->scale);
@@ -1627,7 +1678,7 @@ int WatchWindowMessage(UIElement *element, UIMessage message, int di, void *dp) 
 				}, w);
 			}
 
-			UIMenuAddItem(menu, 0, "Log writes to address", -1, [] (void *cp) { 
+			UIMenuAddItem(menu, 0, "Log writes to address...", -1, [] (void *cp) { 
 				WatchChangeLoggerCreate((WatchWindow *) cp); 
 			}, w);
 
@@ -1642,6 +1693,7 @@ int WatchWindowMessage(UIElement *element, UIMessage message, int di, void *dp) 
 
 			UIMenuAddItem(menu, 0, "Add entry for address\tCtrl+E", -1, CommandWatchAddEntryForAddress, w);
 			UIMenuAddItem(menu, 0, "View source at address\tCtrl+G", -1, CommandWatchViewSourceAtAddress, w);
+			UIMenuAddItem(menu, 0, "Save as...", -1, CommandWatchSaveAs, w);
 
 			UIMenuShow(menu);
 		}
