@@ -32,7 +32,14 @@ then
 		font_path=$1
 	fi
 
-	font_flags="-lfreetype -D UI_FREETYPE -I /usr/include/freetype2 -D UI_FONT_PATH=$font_path"
+	if [ -z "$font_path" ];
+	then
+		font_flags=
+		echo "No font found."
+		echo "Falling back to builtin font..."
+	else
+		font_flags="-lfreetype -D UI_FREETYPE -I /usr/include/freetype2 -D UI_FONT_PATH=$font_path"
+	fi
 else
 	font_flags=
 	echo "It looks like you don't have fontconfig installed."
