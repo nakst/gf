@@ -35,7 +35,8 @@ then
 	if [ -z "$font_path" ];
 	then
 		font_flags=
-		echo "No font found."
+		echo "No monospaced fonts were found."
+		echo "If you have a specific font you want to use, pass its path to $0."
 		echo "Falling back to builtin font..."
 	else
 		font_flags="-lfreetype -D UI_FREETYPE -I /usr/include/freetype2 -D UI_FONT_PATH=$font_path"
