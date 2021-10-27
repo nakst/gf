@@ -88,6 +88,9 @@ typedef struct UITheme {
 #define UI_SIZE_BUTTON_HEIGHT (27)
 #define UI_SIZE_BUTTON_CHECKED_AREA (4)
 
+#define UI_SIZE_CHECKBOX_BOX (14)
+#define UI_SIZE_CHECKBOX_GAP (8)
+
 #define UI_SIZE_MENU_ITEM_HEIGHT (24)
 #define UI_SIZE_MENU_ITEM_MINIMUM_WIDTH (160)
 #define UI_SIZE_MENU_ITEM_MARGIN (9)
@@ -420,6 +423,18 @@ typedef struct UIButton {
 	void (*invoke)(void *cp);
 } UIButton;
 
+typedef struct UICheckbox {
+#define UI_CHECKBOX_ALLOW_INDETERMINATE (1 << 0)
+	UIElement e;
+#define UI_CHECK_UNCHECKED (0)
+#define UI_CHECK_CHECKED (1)
+#define UI_CHECK_INDETERMINATE (2)
+	uint8_t check;
+	char *label;
+	ptrdiff_t labelBytes;
+	void (*invoke)(void *cp);
+} UICheckbox;
+
 typedef struct UILabel {
 	UIElement e;
 	char *label;
@@ -562,6 +577,7 @@ UIElement *UIElementCreate(size_t bytes, UIElement *parent, uint32_t flags,
 	int (*messageClass)(UIElement *, UIMessage, int, void *), const char *cClassName);
 
 UIButton *UIButtonCreate(UIElement *parent, uint32_t flags, const char *label, ptrdiff_t labelBytes);
+UICheckbox *UICheckboxCreate(UIElement *parent, uint32_t flags, const char *label, ptrdiff_t labelBytes);
 UIColorPicker *UIColorPickerCreate(UIElement *parent, uint32_t flags);
 UIExpandPane *UIExpandPaneCreate(UIElement *parent, uint32_t flags, const char *label, ptrdiff_t labelBytes, uint32_t panelFlags);
 UIGauge *UIGaugeCreate(UIElement *parent, uint32_t flags);
@@ -1117,9 +1133,10 @@ bool UIDrawLine(UIPainter *painter, int x0, int y0, int x1, int y1, uint32_t col
 	// Apply the clip.
 
 	UIRectangle c = painter->clip;
+	if (!UI_RECT_VALID(c)) return false;
 	int dx = x1 - x0, dy = y1 - y0;
 	const int p[4] = { -dx, dx, -dy, dy };
-	const int q[4] = { x0 - c.l, c.r - x0, y0 - c.t, c.b - y0 };
+	const int q[4] = { x0 - c.l, c.r - 1 - x0, y0 - c.t, c.b - 1 - y0 };
 	float t0 = 0.0f, t1 = 1.0f; // How far along the line the points end up.
 
 	for (int i = 0; i < 4; i++) {
@@ -1782,6 +1799,53 @@ UIButton *UIButtonCreate(UIElement *parent, uint32_t flags, const char *label, p
 	UIButton *button = (UIButton *) UIElementCreate(sizeof(UIButton), parent, flags | UI_ELEMENT_TAB_STOP, _UIButtonMessage, "Button");
 	button->label = UIStringCopy(label, (button->labelBytes = labelBytes));
 	return button;
+}
+
+int _UICheckboxMessage(UIElement *element, UIMessage message, int di, void *dp) {
+	UICheckbox *box = (UICheckbox *) element;
+	
+	if (message == UI_MSG_GET_HEIGHT) {
+		return UI_SIZE_BUTTON_HEIGHT * element->window->scale;
+	} else if (message == UI_MSG_GET_WIDTH) {
+		int labelSize = UIMeasureStringWidth(box->label, box->labelBytes);
+		return (labelSize + UI_SIZE_CHECKBOX_BOX + UI_SIZE_CHECKBOX_GAP) * element->window->scale;
+	} else if (message == UI_MSG_PAINT) {
+		UIPainter *painter = (UIPainter *) dp;
+		uint32_t color, textColor;
+		_UIButtonCalculateColors(element, &color, &textColor);
+		int midY = (element->bounds.t + element->bounds.b) / 2;
+		UIRectangle boxBounds = UI_RECT_4(element->bounds.l, element->bounds.l + UI_SIZE_CHECKBOX_BOX, 
+				midY - UI_SIZE_CHECKBOX_BOX / 2, midY + UI_SIZE_CHECKBOX_BOX / 2);
+		UIDrawRectangle(painter, boxBounds, color, ui.theme.border, UI_RECT_1(1));
+		UIDrawString(painter, UIRectangleAdd(boxBounds, UI_RECT_4(1, 0, 0, 0)), 
+				box->check == UI_CHECK_CHECKED ? "*" : box->check == UI_CHECK_INDETERMINATE ? "-" : " ", -1, 
+				textColor, UI_ALIGN_CENTER, NULL);
+		UIDrawString(painter, UIRectangleAdd(element->bounds, UI_RECT_4(UI_SIZE_CHECKBOX_BOX + UI_SIZE_CHECKBOX_GAP, 0, 0, 0)), 
+				box->label, box->labelBytes, textColor, UI_ALIGN_LEFT, NULL);
+	} else if (message == UI_MSG_UPDATE) {
+		UIElementRepaint(element, NULL);
+	} else if (message == UI_MSG_DESTROY) {
+		UI_FREE(box->label);
+	} else if (message == UI_MSG_KEY_TYPED) {
+		UIKeyTyped *m = (UIKeyTyped *) dp;
+		
+		if (m->textBytes == 1 && m->text[0] == ' ') {
+			UIElementMessage(element, UI_MSG_CLICKED, 0, 0);
+			UIElementRepaint(element, NULL);
+		}
+	} else if (message == UI_MSG_CLICKED) {
+		box->check = (box->check + 1) % ((element->flags & UI_CHECKBOX_ALLOW_INDETERMINATE) ? 3 : 2);
+		UIElementRepaint(element, NULL);
+		if (box->invoke) box->invoke(element->cp);
+	}
+
+	return 0;
+}
+
+UICheckbox *UICheckboxCreate(UIElement *parent, uint32_t flags, const char *label, ptrdiff_t labelBytes) {
+	UICheckbox *box = (UICheckbox *) UIElementCreate(sizeof(UICheckbox), parent, flags | UI_ELEMENT_TAB_STOP, _UICheckboxMessage, "Checkbox");
+	box->label = UIStringCopy(label, (box->labelBytes = labelBytes));
+	return box;
 }
 
 int _UILabelMessage(UIElement *element, UIMessage message, int di, void *dp) {
@@ -3011,9 +3075,9 @@ int _UIColorPickerMessage(UIElement *element, UIMessage message, int di, void *d
 	bool hasOpacity = element->flags & UI_COLOR_PICKER_HAS_OPACITY;
 
 	if (message == UI_MSG_GET_WIDTH) {
-		return (hasOpacity ? 240 : 200) * element->window->scale;
+		return (hasOpacity ? 280 : 240) * element->window->scale;
 	} else if (message == UI_MSG_GET_HEIGHT) {
-		return 160 * element->window->scale;
+		return 200 * element->window->scale;
 	} else if (message == UI_MSG_LAYOUT) {
 		UIRectangle bounds = element->bounds;
 
@@ -5219,11 +5283,17 @@ int _UIWindowCanvasMessage(EsElement *element, EsMessage *message) {
 		window->e.clip = UI_RECT_2S(window->width, window->height);
 		UIElementMessage(&window->e, UI_MSG_LAYOUT, 0, 0);
 		_UIUpdate();
+	} else if (message->type == ES_MSG_SCROLL_WHEEL) {
+		_UIWindowInputEvent(window, UI_MSG_MOUSE_WHEEL, -message->scrollWheel.dy, 0);
 	} else if (message->type == ES_MSG_MOUSE_MOVED || message->type == ES_MSG_HOVERED_END
 			|| message->type == ES_MSG_MOUSE_LEFT_DRAG || message->type == ES_MSG_MOUSE_RIGHT_DRAG || message->type == ES_MSG_MOUSE_MIDDLE_DRAG) {
 		EsPoint point = EsMouseGetPosition(element); 
 		window->cursorX = point.x, window->cursorY = point.y;
 		_UIWindowInputEvent(window, UI_MSG_MOUSE_MOVE, 0, 0);
+	} else if (message->type == ES_MSG_KEY_UP) {
+		window->ctrl = EsKeyboardIsCtrlHeld();
+		window->shift = EsKeyboardIsShiftHeld();
+		window->alt = EsKeyboardIsAltHeld();
 	} else if (message->type == ES_MSG_KEY_DOWN) {
 		window->ctrl = EsKeyboardIsCtrlHeld();
 		window->shift = EsKeyboardIsShiftHeld();

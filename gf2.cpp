@@ -30,8 +30,7 @@
 #include <poll.h>
 #include <time.h>
 
-char *layoutString = (char *) "v(75,h(80,Source,v(50,t(Breakpoints,Commands,Struct),t(Stack,Files,Thread))),h(65,Console,t(Watch,Registers,Data)))";
-// char *layoutString = (char *) "h(70,v(80,Source,Console),v(33,t(Breakpoints,Commands,Struct),v(50,t(Stack,Files,Thread),t(Watch,Registers,Data))))";
+char *layoutString = (char *) "v(75,h(80,Source,v(50,t(Exe,Breakpoints,Commands,Struct),t(Stack,Files,Thread))),h(65,Console,t(Watch,Registers,Data)))";
 
 int fontSize = 13;
 float uiScale = 1;
@@ -933,6 +932,7 @@ InterfaceWindow interfaceWindows[] = {
 	{ "Console", ConsoleWindowCreate, nullptr, },
 	{ "Log", LogWindowCreate, nullptr, },
 	{ "Thread", ThreadWindowCreate, ThreadWindowUpdate, },
+	{ "Exe", ExecutableWindowCreate, nullptr, },
 };
 
 void LoadSettings(bool earlyPass) {

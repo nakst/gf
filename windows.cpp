@@ -2376,3 +2376,57 @@ void ThreadWindowUpdate(const char *, UIElement *_table) {
 	UITableResizeColumns(table);
 	UIElementRefresh(&table->e);
 }
+
+//////////////////////////////////////////////////////
+// Executable window:
+//////////////////////////////////////////////////////
+
+struct ExecutableWindow {
+	UITextbox *path, *arguments;
+	UICheckbox *askDirectory;
+};
+
+void ExecutableWindowStartOrRun(ExecutableWindow *window, bool pause) {
+	char buffer[4096];
+	StringFormat(buffer, sizeof(buffer), "file \"%.*s\"", window->path->bytes, window->path->string);
+	EvaluateCommand(buffer);
+	if (strstr(evaluateResult, "No such file or directory.")) return;
+	StringFormat(buffer, sizeof(buffer), "start %.*s", window->arguments->bytes, window->arguments->string);
+	EvaluateCommand(buffer);
+	if (window->askDirectory->check == UI_CHECK_CHECKED) CommandParseInternal("gf-get-pwd", true);
+
+	if (!pause) {
+		CommandParseInternal("run", false);
+	} else {
+		DebuggerGetStack();
+		DisplaySetPositionFromStack();
+	}
+}
+
+void ExecutableWindowRunButton(void *_window) {
+	ExecutableWindowStartOrRun((ExecutableWindow *) _window, false);
+}
+
+void ExecutableWindowStartButton(void *_window) {
+	ExecutableWindowStartOrRun((ExecutableWindow *) _window, true);
+}
+
+UIElement *ExecutableWindowCreate(UIElement *parent) {
+	ExecutableWindow *window = (ExecutableWindow *) calloc(1, sizeof(ExecutableWindow));
+	UIPanel *panel = UIPanelCreate(parent, UI_PANEL_GRAY | UI_PANEL_EXPAND);
+	UILabelCreate(&panel->e, 0, "Path to executable:", -1);
+	window->path = UITextboxCreate(&panel->e, 0);
+	UILabelCreate(&panel->e, 0, "Command line arguments:", -1);
+	window->arguments = UITextboxCreate(&panel->e, 0);
+	window->askDirectory = UICheckboxCreate(&panel->e, 0, "Ask GDB for working directory", -1);
+	window->askDirectory->check = UI_CHECK_CHECKED;
+	UIPanel *row = UIPanelCreate(&panel->e, UI_PANEL_HORIZONTAL);
+	UIButton *button;
+	button = UIButtonCreate(&row->e, 0, "Run", -1);
+	button->e.cp = window;
+	button->invoke = ExecutableWindowRunButton;
+	button = UIButtonCreate(&row->e, 0, "Start", -1);
+	button->e.cp = window;
+	button->invoke = ExecutableWindowStartButton;
+	return &panel->e;
+}

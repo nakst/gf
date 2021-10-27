@@ -18,6 +18,8 @@ And compile the application.
 ./build.sh
 ```
 
+Please read the rest of this file to learn about using and configuring `gf`.
+
 ## Support
 
 To support development, you can donate to my Patreon: https://www.patreon.com/nakst.
@@ -25,8 +27,9 @@ To support development, you can donate to my Patreon: https://www.patreon.com/na
 ## Tips
 
 - You can run the application with `./gf2`. Any additional command line arguments passed to `gf` will be forwarded to GDB.
+- Press Ctrl+Shift+P to synchronize your working directory with GDB after you start your target executable. This is necessary if you open `gf` in a different directory to the one you compile in.
 - To view RGBA bitmaps, select the `Data` tab and then select `Add bitmap...`.
-- Ctrl+Click a line in the source view to run "until" that line. Alt+Click a line in the source view to skip to it without executing the code in between.
+- Ctrl+Click a line in the source view to run "until" that line. Shift+Click a line in the source view to skip to it without executing the code in between.
 - Press Shift+F10 to step out of a block, and press Shift+F11 to step out a function.
 - Press Tab while entering a watch expression to auto-complete it.
 - Press `/` with a watch expression highlighted to change the format specifier. For example, `/x` switches to hexadecimal view.
@@ -81,7 +84,7 @@ You can enable subpixel font rendering by recompiling with `extra_flags=-DUI_FRE
 You can also configure the interface layout, with the `layout` parameter. Use `h(position,left,right)` to create a horizontal split, `v(position,left,right)` to create a vertical split, and `t(...)` to create a tab pane. This value should not contain any whitespace. Please note this value is not validated, so make sure it is formatted correctly!
 
 ```ini
-layout=h(75,v(75,Source,Console),v(50,t(Watch,Breakpoints,Commands,Struct),t(Stack,Files,Registers,Data,Thread))))
+layout=h(75,v(75,Source,Console),v(50,t(Watch,Breakpoints,Commands,Struct,Exe),t(Stack,Files,Registers,Data,Thread))))
 ```
 
 **NB: Horizontal and vertical splits must have exactly two children.** Instead, you can nest them to create more complex layouts.
