@@ -220,6 +220,23 @@ def RectangleHook(item, field):
 gf_hooks = { 'Rectangle': RectangleHook } # create the hook dictionary
 ```
 
+If you want to create a custom dynamic array type, instead of printing field names, print `(d_arr)` followed by the number of array items. The fields will then be automatically populated in the form of `[%d]`, where `%d` is the index. For example, given the following structure:
+
+```cpp
+struct MyArray {
+	int length;
+	float *items;
+};
+```
+
+This is the hook definition:
+
+```py
+def MyArrayHook(item, field):
+	if field: return item['items'][int(field[1:-1])]
+	else: print('(d_arr)', int(item['length']))
+```
+
 ## Contributors
 
 Add your name here!
