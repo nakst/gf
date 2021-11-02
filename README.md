@@ -188,6 +188,10 @@ LOG("Hello, world!\n");
 
 `gf-command <name>` runs the command(s) corresponding to `name` in the `[commands]` section of your configuration file.
 
+### gf-inspect-line
+
+`gf-inspect-line` toggles inspect line mode. By default, this is bound to the backtick key.
+
 ## Watch window hooks
 
 You can customize the behaviour of the watch window when displaying specific types using Python. When the watch window wants to display the fields of a value, it will look a hook function at `gf_hooks[type_of_value]`. The hook function should take two arguments, `item` and `field`. If the hook function exists, it will be called in one of two ways:

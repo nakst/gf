@@ -218,6 +218,7 @@ void InterfaceShowMenu(void *self);
 UIElement *InterfaceWindowSwitchToAndFocus(const char *name);
 void WatchAddExpression2(char *string);
 int WatchWindowMessage(UIElement *element, UIMessage message, int di, void *dp);
+void CommandInspectLine(void *);
 
 //////////////////////////////////////////////////////
 // Utilities:
@@ -733,6 +734,8 @@ bool CommandParseInternal(const char *command, bool synchronous) {
 			free(copy);
 			break;
 		}
+	} else if (0 == strcmp(command, "gf-inspect-line")) {
+		CommandInspectLine(nullptr);
 	} else {
 		DebuggerSend(command, true, synchronous);
 		return true;
