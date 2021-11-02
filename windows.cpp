@@ -863,7 +863,7 @@ UIElement *ConsoleWindowCreate(UIElement *parent) {
 //////////////////////////////////////////////////////
 
 struct Watch {
-	bool open, hasFields, loadedFields, isArray;
+	bool open, hasFields, loadedFields, isArray, isDynamicArray;
 	uint8_t depth;
 	char format;
 	uintptr_t arrayIndex;
@@ -876,6 +876,7 @@ struct Watch {
 struct WatchWindow {
 	Array<Watch *> rows;
 	Array<Watch *> baseExpressions;
+	Array<Watch *> dynamicArrays;
 	UIElement *element;
 	UITextbox *textbox;
 	int selectedRow;
@@ -935,20 +936,36 @@ void WatchDestroyTextbox(WatchWindow *w) {
 	UIElementFocus(w->element);
 }
 
-void WatchFree(Watch *watch) {
+void WatchFree(WatchWindow *w, Watch *watch, bool fieldsOnly = false) {
 	for (int i = 0; i < watch->fields.Length(); i++) {
-		WatchFree(watch->fields[i]);
+		WatchFree(w, watch->fields[i]);
 		if (!watch->isArray) free(watch->fields[i]);
 	}
 
-	if (watch->isArray) free(watch->fields[0]);
-	free(watch->key);
-	free(watch->value);
-	free(watch->type);
+	if (watch->isDynamicArray) {
+		for (int i = 0; i < w->dynamicArrays.Length(); i++) {
+			if (w->dynamicArrays[i] == watch) {
+				w->dynamicArrays.DeleteSwap(i);
+				break;
+			}
+		}
+	}
+
+	if (watch->isArray && watch->fields.Length()) {
+		free(watch->fields[0]);
+	}
+
+	watch->loadedFields = false;
 	watch->fields.Free();
+
+	if (!fieldsOnly) {
+		free(watch->key);
+		free(watch->value);
+		free(watch->type);
+	}
 }
 
-void WatchDeleteExpression(WatchWindow *w) {
+void WatchDeleteExpression(WatchWindow *w, bool fieldsOnly = false) {
 	WatchDestroyTextbox(w);
 	if (w->selectedRow == w->rows.Length()) return;
 	int end = w->selectedRow + 1;
@@ -959,21 +976,26 @@ void WatchDeleteExpression(WatchWindow *w) {
 		}
 	}
 
-	bool found = false;
 	Watch *watch = w->rows[w->selectedRow];
 
-	for (int i = 0; i < w->baseExpressions.Length(); i++) {
-		if (watch == w->baseExpressions[i]) {
-			found = true;
-			w->baseExpressions.Delete(i);
-			break;
+	if (!fieldsOnly) {
+		bool found = false;
+
+		for (int i = 0; i < w->baseExpressions.Length(); i++) {
+			if (watch == w->baseExpressions[i]) {
+				found = true;
+				w->baseExpressions.Delete(i);
+				break;
+			}
 		}
+
+		assert(found);
 	}
 
-	assert(found);
+	if (fieldsOnly) w->selectedRow++;
 	w->rows.Delete(w->selectedRow, end - w->selectedRow);
-	WatchFree(watch);
-	free(watch);
+	WatchFree(w, watch, fieldsOnly);
+	if (!fieldsOnly) free(watch);
 }
 
 void WatchEvaluate(const char *function, Watch *watch) {
@@ -1005,6 +1027,8 @@ void WatchEvaluate(const char *function, Watch *watch) {
 
 		if (stack[stackCount]->key) {
 			position += StringFormat(buffer + position, sizeof(buffer) - position, "'%s'", stack[stackCount]->key);
+		} else if (stack[stackCount]->parent && stack[stackCount]->parent->isDynamicArray) {
+			position += StringFormat(buffer + position, sizeof(buffer) - position, "'[%lu]'", stack[stackCount]->arrayIndex);
 		} else {
 			position += StringFormat(buffer + position, sizeof(buffer) - position, "%lu", stack[stackCount]->arrayIndex);
 		}
@@ -1024,7 +1048,7 @@ void WatchEvaluate(const char *function, Watch *watch) {
 bool WatchHasFields(Watch *watch) {
 	WatchEvaluate("gf_fields", watch);
 
-	if (strstr(evaluateResult, "(array)")) {
+	if (strstr(evaluateResult, "(array)") || strstr(evaluateResult, "(d_arr)")) {
 		return true;
 	} else {
 		char *position = evaluateResult;
@@ -1036,7 +1060,7 @@ bool WatchHasFields(Watch *watch) {
 	}
 }
 
-void WatchAddFields(Watch *watch) {
+void WatchAddFields(WatchWindow *w, Watch *watch) {
 	if (watch->loadedFields) {
 		return;
 	}
@@ -1045,16 +1069,21 @@ void WatchAddFields(Watch *watch) {
 
 	WatchEvaluate("gf_fields", watch);
 
-	if (strstr(evaluateResult, "(array)")) {
-		int count = atoi(evaluateResult + 7) + 1;
+	if (strstr(evaluateResult, "(array)") || strstr(evaluateResult, "(d_arr)")) {
+		int count = atoi(evaluateResult + 7);
 
-		if (count > 10000000) {
-			count = 10000000;
-		}
+#define WATCH_ARRAY_MAX_FIELDS (10000000)
+		if (count > WATCH_ARRAY_MAX_FIELDS) count = WATCH_ARRAY_MAX_FIELDS;
+		if (count < 0) count = 0;
 
 		Watch *fields = (Watch *) calloc(count, sizeof(Watch));
 		watch->isArray = true;
 		bool hasSubFields = false;
+
+		if (strstr(evaluateResult, "(d_arr)")) {
+			watch->isDynamicArray = true;
+			w->dynamicArrays.Add(watch);
+		}
 
 		for (int i = 0; i < count; i++) {
 			fields[i].parent = watch;
@@ -1221,16 +1250,6 @@ int WatchLoggerTableMessage(UIElement *element, UIMessage message, int di, void 
 				return 0;
 			}
 		}
-#if 0
-	} else if (message == UI_MSG_LAYOUT) {
-		UITable *table = (UITable *) element;
-		UI_FREE(table->columnWidths);
-		table->columnCount = 2;
-		table->columnWidths = (int *) UI_MALLOC(table->columnCount * sizeof(int));
-		int available = UI_RECT_WIDTH(table->e.bounds) - UI_SIZE_SCROLL_BAR * element->window->scale;
-		table->columnWidths[0] = available / 3;
-		table->columnWidths[1] = 2 * available / 3;
-#endif
 	} else if (message == UI_MSG_LEFT_DOWN || message == UI_MSG_MOUSE_DRAG) {
 		int index = UITableHitTest((UITable *) element, element->window->cursorX, element->window->cursorY);
 
@@ -1741,7 +1760,7 @@ int WatchWindowMessage(UIElement *element, UIMessage message, int di, void *dp) 
 				&& !w->rows[w->selectedRow]->open) {
 			Watch *watch = w->rows[w->selectedRow];
 			watch->open = true;
-			WatchAddFields(watch);
+			WatchAddFields(w, watch);
 			int position = w->selectedRow + 1;
 			WatchInsertFieldRows(w, watch, &position);
 			WatchEnsureRowVisible(w, position - 1);
@@ -1829,6 +1848,35 @@ void WatchWindowUpdate(const char *, UIElement *element) {
 			}
 		} else {
 			free(result);
+		}
+	}
+
+	for (int i = 0; i < w->dynamicArrays.Length(); i++) {
+		Watch *watch = w->dynamicArrays[i];
+		WatchEvaluate("gf_fields", watch);
+		if (!strstr(evaluateResult, "(d_arr)")) continue;
+		int count = atoi(evaluateResult + 7);
+		if (count > WATCH_ARRAY_MAX_FIELDS) count = WATCH_ARRAY_MAX_FIELDS;
+		if (count < 0) count = 0;
+		int oldCount = watch->fields.Length();
+
+		if (oldCount != count) {
+			int index = -1;
+
+			for (int i = 0; i < w->rows.Length(); i++) {
+				if (w->rows[i] == watch) {
+					index = i;
+					break;
+				}
+			}
+
+			assert(index != -1);
+			w->selectedRow = index;
+			WatchDeleteExpression(w, true);
+			watch->open = true;
+			WatchAddFields(w, watch);
+			int position = index + 1;
+			WatchInsertFieldRows(w, watch, &position);
 		}
 	}
 

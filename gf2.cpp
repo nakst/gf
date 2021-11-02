@@ -144,17 +144,20 @@ bool stackChanged;
 
 const char *pythonCode = R"(py
 
+def _gf_basic_type(value):
+    basic_type = gdb.types.get_basic_type(value.type)
+    if basic_type.code == gdb.TYPE_CODE_PTR:
+        basic_type = gdb.types.get_basic_type(basic_type.target())
+    return basic_type
+
 def _gf_value(expression):
     try:
         value = gdb.parse_and_eval(expression[0])
         for index in expression[1:]:
             if isinstance(index, str) and index[0] == '[':
-                basic_type = gdb.types.get_basic_type(value.type)
-                if basic_type.code == gdb.TYPE_CODE_PTR:
-                    basic_type = gdb.types.get_basic_type(basic_type.target())
+                basic_type = _gf_basic_type(value)
                 value = gf_hooks[str(basic_type)](value, index)
-            else:
-                value = value[index]
+            else: value = value[index]
         return value
     except gdb.error:
         print('??')
@@ -175,8 +178,7 @@ def gf_valueof(expression, format):
         try:
             result = result + '(' + str(value) + ') '
             value = value.dereference()
-        except:
-            break
+        except: break
     try:
         if format[0] != ' ': result = result + value.format_string(max_elements=10,max_depth=3,format=format)[0:200]
         else: result = result + value.format_string(max_elements=10,max_depth=3)[0:200]
@@ -189,24 +191,24 @@ def gf_addressof(expression):
     if value == None: return
     print(value.address)
 
-def _gf_fields_recurse(type):
+def __gf_fields_recurse(type):
     if type.code == gdb.TYPE_CODE_STRUCT or type.code == gdb.TYPE_CODE_UNION:
         for field in gdb.types.deep_items(type):
-            if field[1].is_base_class:
-                _gf_fields_recurse(field[1].type)
-            else:
-                print(field[0])
+            if field[1].is_base_class: __gf_fields_recurse(field[1].type)
+            else: print(field[0])
     elif type.code == gdb.TYPE_CODE_ARRAY:
-        print('(array)',type.range()[1])
+        print('(array)',type.range()[1]+1)
+
+def _gf_fields_recurse(value):
+    basic_type = _gf_basic_type(value)
+    __gf_fields_recurse(basic_type)
 
 def gf_fields(expression):
     value = _gf_value(expression)
     if value == None: return
-    basic_type = gdb.types.get_basic_type(value.type)
-    if basic_type.code == gdb.TYPE_CODE_PTR:
-        basic_type = gdb.types.get_basic_type(basic_type.target())
-    try: gf_hooks[str(basic_type)](basic_type, None)
-    except: _gf_fields_recurse(basic_type)
+    basic_type = _gf_basic_type(value)
+    try: gf_hooks[str(basic_type)](value, None)
+    except: __gf_fields_recurse(basic_type)
 
 end
 )";
