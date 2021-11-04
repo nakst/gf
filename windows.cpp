@@ -15,6 +15,8 @@ bool noInspectResults;
 bool inInspectLineMode;
 int inspectModeRestoreLine;
 UIRectangle displayCurrentLineBounds;
+const char* disasCommandCycle[3] = {"disas", "disas /s", "disas /m"};
+int disasCommandIndex = 0;
 
 bool DisplaySetPosition(const char *file, int line, bool useGDBToGetFullPath) {
 	if (showingDisassembly) {
@@ -105,10 +107,12 @@ void DisplaySetPositionFromStack() {
 }
 
 void DisassemblyLoad() {
-	EvaluateCommand("disas");
+	EvaluateCommand(disasCommandCycle[disasCommandIndex]);
 
 	if (!strstr(evaluateResult, "Dump of assembler code for function")) {
-		EvaluateCommand("disas $pc,+1000");
+		char buffer[32];
+		StringFormat(buffer, sizeof(buffer), "%s $pc,+1000", disasCommandCycle[disasCommandIndex]);
+		EvaluateCommand(buffer);
 	}
 
 	char *end = strstr(evaluateResult, "End of assembler dump.");
@@ -199,6 +203,20 @@ void CommandToggleDisassembly(void *) {
 	}
 
 	UIElementRefresh(&displayCode->e);
+}
+
+void CommandCycleDisassemblySource(void *) {
+	disasCommandIndex = (disasCommandIndex + 1) % (sizeof(disasCommandCycle)/sizeof(disasCommandCycle[0]));
+
+	if (showingDisassembly) {
+		autoPrintResultLine = 0;
+		autoPrintExpression[0] = 0;
+		UICodeInsertContent(displayCode, "Disassembly could not be loaded.\nPress Ctrl+D to return to source view.", -1, true);
+		displayCode->tabSize = 8;
+		DisassemblyLoad();
+		DisassemblyUpdateLine();
+		UIElementRefresh(&displayCode->e);
+	}
 }
 
 int DisplayCodeMessage(UIElement *element, UIMessage message, int di, void *dp) {
