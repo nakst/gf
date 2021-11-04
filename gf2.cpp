@@ -94,6 +94,12 @@ const char *vimServerName = "GVIM";
 const char *logPipePath;
 const char *controlPipePath;
 Array<INIState> presetCommands;
+char globalConfigPath[PATH_MAX];
+char localConfigDirectory[PATH_MAX];
+char localConfigPath[PATH_MAX];
+const char *executablePath;
+const char *executableArguments;
+bool executableAskDirectory = true;
 
 // Current file and line:
 
@@ -867,7 +873,7 @@ void CommandDonate(void *) {
 }
 
 //////////////////////////////////////////////////////
-// Themes:
+// Settings:
 //////////////////////////////////////////////////////
 
 const char *themeItems[] = {
@@ -876,78 +882,45 @@ const char *themeItems[] = {
 	"codeFocused", "codeBackground", "codeDefault", "codeComment", "codeString", "codeNumber", "codeOperator", "codePreprocessor",
 };
 
-//////////////////////////////////////////////////////
-// Debug windows:
-//////////////////////////////////////////////////////
+void SettingsAddTrustedFolder() {
+	char *config = LoadFile(globalConfigPath, nullptr);
+	size_t length = config ? strlen(config) : 0;
+	size_t insert = 0;
+	const char *sectionString = "\n[trusted_folders]\n";
+	bool addSectionString = true;
 
-#include "windows.cpp"
+	if (config) {
+		char *section = strstr(config, sectionString);
 
-//////////////////////////////////////////////////////
-// Interface and main:
-//////////////////////////////////////////////////////
+		if (section) {
+			insert = section - config + strlen(sectionString);
+			addSectionString = false;
+		} else {
+			insert = length;
+		}
+	}
 
-struct InterfaceCommand {
-	const char *label;
-	UIShortcut shortcut;
-};
+	FILE *f = fopen(globalConfigPath, "wb");
 
-struct InterfaceWindow {
-	const char *name;
-	UIElement *(*create)(UIElement *parent);
-	void (*update)(const char *data, UIElement *element);
-	void (*focus)(UIElement *element);
-	UIElement *element;
-	bool queuedUpdate;
-};
+	if (!f) {
+		fprintf(stderr, "Error: Could not modify the global config file!\n");
+	} else {
+		if (insert) fwrite(config, 1, insert, f);
+		if (addSectionString) fwrite(sectionString, 1, strlen(sectionString), f);
+		fwrite(localConfigDirectory, 1, strlen(localConfigDirectory), f);
+		char newline = '\n';
+		fwrite(&newline, 1, 1, f);
+		if (length - insert) fwrite(config + insert, 1, length - insert, f);
+		fclose(f);
+	}
+}
 
-const InterfaceCommand interfaceCommands[] = {
-	{ .label = "Run\tShift+F5", { .code = UI_KEYCODE_FKEY(5), .shift = true, .invoke = CommandSendToGDB, .cp = (void *) "r" } },
-	{ .label = "Run paused\tCtrl+F5", { .code = UI_KEYCODE_FKEY(5), .ctrl = true, .invoke = CommandSendToGDB, .cp = (void *) "start" } },
-	{ .label = "Kill\tF3", { .code = UI_KEYCODE_FKEY(3), .invoke = CommandSendToGDB, .cp = (void *) "kill" } },
-	{ .label = "Restart GDB\tCtrl+R", { .code = UI_KEYCODE_LETTER('R'), .ctrl = true, .invoke = CommandSendToGDB, .cp = (void *) "gf-restart-gdb" } },
-	{ .label = "Connect\tF4", { .code = UI_KEYCODE_FKEY(4), .invoke = CommandSendToGDB, .cp = (void *) "target remote :1234" } },
-	{ .label = "Continue\tF5", { .code = UI_KEYCODE_FKEY(5), .invoke = CommandSendToGDB, .cp = (void *) "c" } },
-	{ .label = "Step over\tF10", { .code = UI_KEYCODE_FKEY(10), .invoke = CommandSendToGDB, .cp = (void *) "gf-next" } },
-	{ .label = "Step out of block\tShift+F10", { .code = UI_KEYCODE_FKEY(10), .shift = true, .invoke = CommandSendToGDB, .cp = (void *) "gf-step-out-of-block" } },
-	{ .label = "Step in\tF11", { .code = UI_KEYCODE_FKEY(11), .invoke = CommandSendToGDB, .cp = (void *) "gf-step" } },
-	{ .label = "Step out\tShift+F11", { .code = UI_KEYCODE_FKEY(11), .shift = true, .invoke = CommandSendToGDB, .cp = (void *) "finish" } },
-	{ .label = "Pause\tF8", { .code = UI_KEYCODE_FKEY(8), .invoke = CommandPause } },
-	{ .label = "Toggle breakpoint\tF9", { .code = UI_KEYCODE_FKEY(9), .invoke = CommandToggleBreakpoint } },
-	{ .label = "Sync with gvim\tF2", { .code = UI_KEYCODE_FKEY(2), .invoke = CommandSyncWithGvim } },
-	{ .label = "Ask GDB for PWD\tCtrl+Shift+P", { .code = UI_KEYCODE_LETTER('P'), .ctrl = true, .shift = true, .invoke = CommandSendToGDB, .cp = (void *) "gf-get-pwd" } },
-	{ .label = "Toggle disassembly\tCtrl+D", { .code = UI_KEYCODE_LETTER('D'), .ctrl = true, .invoke = CommandToggleDisassembly } },
-	{ .label = "Add watch", { .invoke = CommandAddWatch } },
-	{ .label = "Inspect line", { .code = XK_grave, .invoke = CommandInspectLine } },
-	{ .label = nullptr, { .code = UI_KEYCODE_LETTER('E'), .ctrl = true, .invoke = CommandWatchAddEntryForAddress } },
-	{ .label = nullptr, { .code = UI_KEYCODE_LETTER('G'), .ctrl = true, .invoke = CommandWatchViewSourceAtAddress } },
-	{ .label = nullptr, { .code = UI_KEYCODE_LETTER('B'), .ctrl = true, .invoke = CommandToggleFillDataTab } },
-	{ .label = "Donate", { .invoke = CommandDonate } },
-};
-
-InterfaceWindow interfaceWindows[] = {
-	{ "Stack", StackWindowCreate, StackWindowUpdate, },
-	{ "Source", SourceWindowCreate, SourceWindowUpdate, },
-	{ "Breakpoints", BreakpointsWindowCreate, BreakpointsWindowUpdate, },
-	{ "Registers", RegistersWindowCreate, RegistersWindowUpdate, },
-	{ "Watch", WatchWindowCreate, WatchWindowUpdate, WatchWindowFocus, },
-	{ "Commands", CommandsWindowCreate, nullptr, },
-	{ "Data", DataWindowCreate, nullptr, },
-	{ "Struct", StructWindowCreate, nullptr, },
-	{ "Files", FilesWindowCreate, nullptr, },
-	{ "Console", ConsoleWindowCreate, nullptr, },
-	{ "Log", LogWindowCreate, nullptr, },
-	{ "Thread", ThreadWindowCreate, ThreadWindowUpdate, },
-	{ "Exe", ExecutableWindowCreate, nullptr, },
-};
-
-void LoadSettings(bool earlyPass) {
-	char globalConfigPath[4096];
-	StringFormat(globalConfigPath, 4096, "%s/.config/gf2_config.ini", getenv("HOME"));
+void SettingsLoad(bool earlyPass) {
 	bool currentFolderIsTrusted = false;
 	static bool cwdConfigNotTrusted = false;
 
 	for (int i = 0; i < 2; i++) {
-		INIState state = { .buffer = LoadFile(i ? ".project.gf" : globalConfigPath, &state.bytes) };
+		INIState state = { .buffer = LoadFile(i ? localConfigPath : globalConfigPath, &state.bytes) };
 
 		if (earlyPass && i && !currentFolderIsTrusted && state.buffer) {
 			fprintf(stderr, "Would you like to load the config file .project.gf from your current directory?\n");
@@ -961,38 +934,7 @@ void LoadSettings(bool earlyPass) {
 				cwdConfigNotTrusted = true;
 				break;
 			} else {
-				char *config = LoadFile(globalConfigPath, nullptr);
-				size_t length = config ? strlen(config) : 0;
-				size_t insert = 0;
-				const char *sectionString = "\n[trusted_folders]\n";
-				bool addSectionString = true;
-
-				if (config) {
-					char *section = strstr(config, sectionString);
-
-					if (section) {
-						insert = section - config + strlen(sectionString);
-						addSectionString = false;
-					} else {
-						insert = length;
-					}
-				}
-
-				FILE *f = fopen(globalConfigPath, "wb");
-				
-				if (!f) {
-					fprintf(stderr, "Error: Could not modify the global config file!\n");
-				} else {
-					if (insert) fwrite(config, 1, insert, f);
-					if (addSectionString) fwrite(sectionString, 1, strlen(sectionString), f);
-					char path[PATH_MAX];
-					getcwd(path, sizeof(path));
-					fwrite(path, 1, strlen(path), f);
-					char newline = '\n';
-					fwrite(&newline, 1, 1, f);
-					if (length - insert) fwrite(config + insert, 1, length - insert, f);
-					fclose(f);
-				}
+				SettingsAddTrustedFolder();
 			}
 		} else if (!earlyPass && cwdConfigNotTrusted && i) {
 			break;
@@ -1065,9 +1007,7 @@ void LoadSettings(bool earlyPass) {
 			} else if (0 == strcmp(state.section, "commands") && earlyPass && state.keyBytes && state.valueBytes) {
 				presetCommands.Add(state);
 			} else if (0 == strcmp(state.section, "trusted_folders") && earlyPass && state.keyBytes) {
-				char path[PATH_MAX];
-				getcwd(path, sizeof(path));
-				if (0 == strcmp(path, state.key)) currentFolderIsTrusted = true;
+				if (0 == strcmp(localConfigDirectory, state.key)) currentFolderIsTrusted = true;
 			} else if (0 == strcmp(state.section, "theme") && !earlyPass && state.keyBytes && state.valueBytes) {
 				for (uintptr_t i = 0; i < sizeof(themeItems) / sizeof(themeItems[0]); i++) {
 					if (strcmp(state.key, themeItems[i])) continue;
@@ -1083,10 +1023,82 @@ void LoadSettings(bool earlyPass) {
 				mkfifo(controlPipePath, 6 + 6 * 8 + 6 * 64);
 				pthread_t thread;
 				pthread_create(&thread, nullptr, ControlPipeThread, nullptr);
+			} else if (0 == strcmp(state.section, "executable") && earlyPass) {
+				if (0 == strcmp(state.key, "path")) {
+					executablePath = state.value;
+				} else if (0 == strcmp(state.key, "arguments")) {
+					executableArguments = state.value;
+				} else if (0 == strcmp(state.key, "ask_directory")) {
+					executableAskDirectory = atoi(state.value);
+				}
 			}
 		}
 	}
 }
+
+//////////////////////////////////////////////////////
+// Debug windows:
+//////////////////////////////////////////////////////
+
+#include "windows.cpp"
+
+//////////////////////////////////////////////////////
+// Interface and main:
+//////////////////////////////////////////////////////
+
+struct InterfaceCommand {
+	const char *label;
+	UIShortcut shortcut;
+};
+
+struct InterfaceWindow {
+	const char *name;
+	UIElement *(*create)(UIElement *parent);
+	void (*update)(const char *data, UIElement *element);
+	void (*focus)(UIElement *element);
+	UIElement *element;
+	bool queuedUpdate;
+};
+
+const InterfaceCommand interfaceCommands[] = {
+	{ .label = "Run\tShift+F5", { .code = UI_KEYCODE_FKEY(5), .shift = true, .invoke = CommandSendToGDB, .cp = (void *) "r" } },
+	{ .label = "Run paused\tCtrl+F5", { .code = UI_KEYCODE_FKEY(5), .ctrl = true, .invoke = CommandSendToGDB, .cp = (void *) "start" } },
+	{ .label = "Kill\tF3", { .code = UI_KEYCODE_FKEY(3), .invoke = CommandSendToGDB, .cp = (void *) "kill" } },
+	{ .label = "Restart GDB\tCtrl+R", { .code = UI_KEYCODE_LETTER('R'), .ctrl = true, .invoke = CommandSendToGDB, .cp = (void *) "gf-restart-gdb" } },
+	{ .label = "Connect\tF4", { .code = UI_KEYCODE_FKEY(4), .invoke = CommandSendToGDB, .cp = (void *) "target remote :1234" } },
+	{ .label = "Continue\tF5", { .code = UI_KEYCODE_FKEY(5), .invoke = CommandSendToGDB, .cp = (void *) "c" } },
+	{ .label = "Step over\tF10", { .code = UI_KEYCODE_FKEY(10), .invoke = CommandSendToGDB, .cp = (void *) "gf-next" } },
+	{ .label = "Step out of block\tShift+F10", { .code = UI_KEYCODE_FKEY(10), .shift = true, .invoke = CommandSendToGDB, .cp = (void *) "gf-step-out-of-block" } },
+	{ .label = "Step in\tF11", { .code = UI_KEYCODE_FKEY(11), .invoke = CommandSendToGDB, .cp = (void *) "gf-step" } },
+	{ .label = "Step out\tShift+F11", { .code = UI_KEYCODE_FKEY(11), .shift = true, .invoke = CommandSendToGDB, .cp = (void *) "finish" } },
+	{ .label = "Pause\tF8", { .code = UI_KEYCODE_FKEY(8), .invoke = CommandPause } },
+	{ .label = "Toggle breakpoint\tF9", { .code = UI_KEYCODE_FKEY(9), .invoke = CommandToggleBreakpoint } },
+	{ .label = "Sync with gvim\tF2", { .code = UI_KEYCODE_FKEY(2), .invoke = CommandSyncWithGvim } },
+	{ .label = "Ask GDB for PWD\tCtrl+Shift+P", { .code = UI_KEYCODE_LETTER('P'), .ctrl = true, .shift = true, .invoke = CommandSendToGDB, .cp = (void *) "gf-get-pwd" } },
+	{ .label = "Toggle disassembly\tCtrl+D", { .code = UI_KEYCODE_LETTER('D'), .ctrl = true, .invoke = CommandToggleDisassembly } },
+	{ .label = "Add watch", { .invoke = CommandAddWatch } },
+	{ .label = "Inspect line", { .code = XK_grave, .invoke = CommandInspectLine } },
+	{ .label = nullptr, { .code = UI_KEYCODE_LETTER('E'), .ctrl = true, .invoke = CommandWatchAddEntryForAddress } },
+	{ .label = nullptr, { .code = UI_KEYCODE_LETTER('G'), .ctrl = true, .invoke = CommandWatchViewSourceAtAddress } },
+	{ .label = nullptr, { .code = UI_KEYCODE_LETTER('B'), .ctrl = true, .invoke = CommandToggleFillDataTab } },
+	{ .label = "Donate", { .invoke = CommandDonate } },
+};
+
+InterfaceWindow interfaceWindows[] = {
+	{ "Stack", StackWindowCreate, StackWindowUpdate, },
+	{ "Source", SourceWindowCreate, SourceWindowUpdate, },
+	{ "Breakpoints", BreakpointsWindowCreate, BreakpointsWindowUpdate, },
+	{ "Registers", RegistersWindowCreate, RegistersWindowUpdate, },
+	{ "Watch", WatchWindowCreate, WatchWindowUpdate, WatchWindowFocus, },
+	{ "Commands", CommandsWindowCreate, nullptr, },
+	{ "Data", DataWindowCreate, nullptr, },
+	{ "Struct", StructWindowCreate, nullptr, },
+	{ "Files", FilesWindowCreate, nullptr, },
+	{ "Console", ConsoleWindowCreate, nullptr, },
+	{ "Log", LogWindowCreate, nullptr, },
+	{ "Thread", ThreadWindowCreate, ThreadWindowUpdate, },
+	{ "Exe", ExecutableWindowCreate, nullptr, },
+};
 
 void InterfaceShowMenu(void *self) {
 	UIMenu *menu = UIMenuCreate((UIElement *) self, UI_MENU_PLACE_ABOVE | UI_MENU_NO_SCROLL);
@@ -1282,7 +1294,11 @@ int main(int argc, char **argv) {
 	memcpy(gdbArgv + 1, argv + 1, sizeof(argv) * argc);
 	gdbArgc = argc;
 
-	LoadSettings(true);
+	getcwd(localConfigDirectory, sizeof(localConfigDirectory));
+	StringFormat(globalConfigPath, sizeof(globalConfigPath), "%s/.config/gf2_config.ini", getenv("HOME"));
+	StringFormat(localConfigPath, sizeof(localConfigPath), "%s/.project.gf", localConfigDirectory);
+
+	SettingsLoad(true);
 	UIInitialise();
 
 	windowMain = UIWindowCreate(0, maximize ? UI_WINDOW_MAXIMIZE : 0, "gf2", 0, 0);
@@ -1295,7 +1311,7 @@ int main(int argc, char **argv) {
 	}
 
 	InterfaceLayoutCreate(&UIPanelCreate(&windowMain->e, UI_PANEL_EXPAND)->e);
-	LoadSettings(false);
+	SettingsLoad(false);
 	pthread_cond_init(&evaluateEvent, nullptr);
 	pthread_mutex_init(&evaluateMutex, nullptr);
 	DebuggerStartThread();

@@ -2459,15 +2459,37 @@ void ExecutableWindowStartButton(void *_window) {
 	ExecutableWindowStartOrRun((ExecutableWindow *) _window, true);
 }
 
+void ExecutableWindowSaveButton(void *_window) {
+	ExecutableWindow *window = (ExecutableWindow *) _window;
+	FILE *f = fopen(localConfigPath, "rb");
+
+	if (f) {
+		const char *result = UIDialogShow(windowMain, 0, ".project.gf already exists in the current directory.\n%f%b%b", "Overwrite", "Cancel");
+		if (strcmp(result, "Overwrite")) return;
+		fclose(f);
+	}
+
+	f = fopen(localConfigPath, "wb");
+	fprintf(f, "[executable]\npath=%.*s\narguments=%.*s\nask_directory=%c\n", 
+			(int) window->path->bytes, window->path->string,
+			(int) window->arguments->bytes, window->arguments->string,
+			window->askDirectory->check == UI_CHECK_CHECKED ? '1' : '0');
+	fclose(f);
+	SettingsAddTrustedFolder();
+	UIDialogShow(windowMain, 0, "Saved executable settings!\n%f%b", "OK");
+}
+
 UIElement *ExecutableWindowCreate(UIElement *parent) {
 	ExecutableWindow *window = (ExecutableWindow *) calloc(1, sizeof(ExecutableWindow));
 	UIPanel *panel = UIPanelCreate(parent, UI_PANEL_GRAY | UI_PANEL_EXPAND);
 	UILabelCreate(&panel->e, 0, "Path to executable:", -1);
 	window->path = UITextboxCreate(&panel->e, 0);
+	UITextboxReplace(window->path, executablePath, -1, false);
 	UILabelCreate(&panel->e, 0, "Command line arguments:", -1);
 	window->arguments = UITextboxCreate(&panel->e, 0);
+	UITextboxReplace(window->arguments, executableArguments, -1, false);
 	window->askDirectory = UICheckboxCreate(&panel->e, 0, "Ask GDB for working directory", -1);
-	window->askDirectory->check = UI_CHECK_CHECKED;
+	window->askDirectory->check = executableAskDirectory ? UI_CHECK_CHECKED : UI_CHECK_UNCHECKED;
 	UIPanel *row = UIPanelCreate(&panel->e, UI_PANEL_HORIZONTAL);
 	UIButton *button;
 	button = UIButtonCreate(&row->e, 0, "Run", -1);
@@ -2476,5 +2498,9 @@ UIElement *ExecutableWindowCreate(UIElement *parent) {
 	button = UIButtonCreate(&row->e, 0, "Start", -1);
 	button->e.cp = window;
 	button->invoke = ExecutableWindowStartButton;
+	UISpacerCreate(&row->e, 0, 10, 0);
+	button = UIButtonCreate(&row->e, 0, "Save to .project.gf", -1);
+	button->e.cp = window;
+	button->invoke = ExecutableWindowSaveButton;
 	return &panel->e;
 }
