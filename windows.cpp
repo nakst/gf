@@ -15,8 +15,7 @@ bool noInspectResults;
 bool inInspectLineMode;
 int inspectModeRestoreLine;
 UIRectangle displayCurrentLineBounds;
-const char* disasCommandCycle[3] = {"disas", "disas /s", "disas /m"};
-int disasCommandIndex = 0;
+const char *disassemblyCommand = "disas";
 
 bool DisplaySetPosition(const char *file, int line, bool useGDBToGetFullPath) {
 	if (showingDisassembly) {
@@ -107,11 +106,11 @@ void DisplaySetPositionFromStack() {
 }
 
 void DisassemblyLoad() {
-	EvaluateCommand(disasCommandCycle[disasCommandIndex]);
+	EvaluateCommand(disassemblyCommand);
 
 	if (!strstr(evaluateResult, "Dump of assembler code for function")) {
 		char buffer[32];
-		StringFormat(buffer, sizeof(buffer), "%s $pc,+1000", disasCommandCycle[disasCommandIndex]);
+		StringFormat(buffer, sizeof(buffer), "%s $pc,+1000", disassemblyCommand);
 		EvaluateCommand(buffer);
 	}
 
@@ -205,17 +204,16 @@ void CommandToggleDisassembly(void *) {
 	UIElementRefresh(&displayCode->e);
 }
 
-void CommandCycleDisassemblySource(void *) {
-	disasCommandIndex = (disasCommandIndex + 1) % (sizeof(disasCommandCycle)/sizeof(disasCommandCycle[0]));
+void CommandSetDisassemblyMode(void *) {
+	const char *newMode = UIDialogShow(windowMain, 0, "Select the disassembly mode:\n%b\n%b\n%b", "Disassembly only", "With source", "Source centric");
+
+	if (0 == strcmp(newMode, "Disassembly only")) disassemblyCommand = "disas";
+	if (0 == strcmp(newMode, "With source"))      disassemblyCommand = "disas /s";
+	if (0 == strcmp(newMode, "Source centric"))   disassemblyCommand = "disas /m";
 
 	if (showingDisassembly) {
-		autoPrintResultLine = 0;
-		autoPrintExpression[0] = 0;
-		UICodeInsertContent(displayCode, "Disassembly could not be loaded.\nPress Ctrl+D to return to source view.", -1, true);
-		displayCode->tabSize = 8;
-		DisassemblyLoad();
-		DisassemblyUpdateLine();
-		UIElementRefresh(&displayCode->e);
+		CommandToggleDisassembly(nullptr);
+		CommandToggleDisassembly(nullptr);
 	}
 }
 

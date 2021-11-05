@@ -1076,7 +1076,7 @@ const InterfaceCommand interfaceCommands[] = {
 	{ .label = "Sync with gvim\tF2", { .code = UI_KEYCODE_FKEY(2), .invoke = CommandSyncWithGvim } },
 	{ .label = "Ask GDB for PWD\tCtrl+Shift+P", { .code = UI_KEYCODE_LETTER('P'), .ctrl = true, .shift = true, .invoke = CommandSendToGDB, .cp = (void *) "gf-get-pwd" } },
 	{ .label = "Toggle disassembly\tCtrl+D", { .code = UI_KEYCODE_LETTER('D'), .ctrl = true, .invoke = CommandToggleDisassembly } },
-	{ .label = "Cycle disassembly w/o source, w/ PC order, w/ source order)\tCtrl+M", { .code = UI_KEYCODE_LETTER('M'), .ctrl = true, .invoke = CommandCycleDisassemblySource } },
+	{ .label = "Set disassembly mode\tCtrl+M", { .code = UI_KEYCODE_LETTER('M'), .ctrl = true, .invoke = CommandSetDisassemblyMode } },
 	{ .label = "Add watch", { .invoke = CommandAddWatch } },
 	{ .label = "Inspect line", { .code = XK_grave, .invoke = CommandInspectLine } },
 	{ .label = nullptr, { .code = UI_KEYCODE_LETTER('E'), .ctrl = true, .invoke = CommandWatchAddEntryForAddress } },
