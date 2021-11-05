@@ -3514,6 +3514,55 @@ int _UIDialogWrapperMessage(UIElement *element, UIMessage message, int di, void 
 		UIRectangle bounds = UIRectangleAdd(element->children->bounds, UI_RECT_1I(-1));
 		UIDrawBorder((UIPainter *) dp, bounds, ui.theme.border, UI_RECT_1(1));
 		UIDrawBorder((UIPainter *) dp, UIRectangleAdd(bounds, UI_RECT_1(1)), ui.theme.border, UI_RECT_1(1));
+	} else if (message == UI_MSG_KEY_TYPED) {
+		UIKeyTyped *typed = (UIKeyTyped *) dp;
+
+		if (element->window->ctrl) return 0;
+		if (element->window->shift) return 0;
+
+		char c0 = 0, c1 = 0;
+
+		if (typed->textBytes == 1 && typed->text[0] >= 'a' && typed->text[0] <= 'z') {
+			c0 = typed->text[0], c1 = typed->text[0] - 'a' + 'A';
+		} else {
+			return 0;
+		}
+
+		UIElement *row = element->children->children;
+		UIElement *target = nullptr;
+		bool duplicate = false;
+
+		while (row) {
+			UIElement *item = row->children;
+
+			while (item) {
+				if (item->messageClass == _UIButtonMessage) {
+					UIButton *button = (UIButton *) item;
+
+					if (button->label && button->labelBytes && (button->label[0] == c0 || button->label[0] == c1)) {
+						if (!target) {
+							target = &button->e;
+						} else {
+							duplicate = true;
+						}
+					}
+				}
+
+				item = item->next;
+			}
+
+			row = row->next;
+		}
+
+		if (target) {
+			if (duplicate) {
+				UIElementFocus(target);
+			} else {
+				UIElementMessage(target, UI_MSG_CLICKED, 0, 0);
+			}
+
+			return 1;
+		}
 	}
 
 	return 0;
@@ -3539,7 +3588,7 @@ int _UIDialogTextboxMessage(UIElement *element, UIMessage message, int di, void 
 }
 
 const char *UIDialogShow(UIWindow *window, uint32_t flags, const char *format, ...) {
-	// TODO Enter, escape, access keys.
+	// TODO Enter and escape.
 
 	// Create the dialog wrapper and panel.
 
@@ -3620,7 +3669,7 @@ const char *UIDialogShow(UIWindow *window, uint32_t flags, const char *format, .
 	window->dialog = NULL;
 	UIElementRefresh(&window->e);
 	if (window->dialogOldFocus) UIElementFocus(window->dialogOldFocus);
-	return ui.dialogResult;
+	return ui.dialogResult ? ui.dialogResult : "";
 }
 
 bool _UIMenusClose() {
