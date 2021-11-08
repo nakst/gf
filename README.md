@@ -237,6 +237,8 @@ def MyArrayHook(item, field):
 	else: print('(d_arr)', int(item['length']))
 ```
 
+Templates are removed from the name of the type. For example, `Array<int>`, `Array<char *>` and `Array<float>` would all use the `Array` hook.
+
 ## Contributors
 
 Add your name here!

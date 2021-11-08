@@ -150,6 +150,12 @@ bool stackChanged;
 
 const char *pythonCode = R"(py
 
+def _gf_hook_string(basic_type):
+    hook_string = str(basic_type)
+    template_start = hook_string.find('<')
+    if template_start != -1: hook_string = hook_string[0:template_start]
+    return hook_string
+
 def _gf_basic_type(value):
     basic_type = gdb.types.get_basic_type(value.type)
     if basic_type.code == gdb.TYPE_CODE_PTR:
@@ -161,8 +167,7 @@ def _gf_value(expression):
         value = gdb.parse_and_eval(expression[0])
         for index in expression[1:]:
             if isinstance(index, str) and index[0] == '[':
-                basic_type = _gf_basic_type(value)
-                value = gf_hooks[str(basic_type)](value, index)
+                value = gf_hooks[_gf_hook_string(_gf_basic_type(value))](value, index)
             else: value = value[index]
         return value
     except gdb.error:
@@ -213,7 +218,8 @@ def gf_fields(expression):
     value = _gf_value(expression)
     if value == None: return
     basic_type = _gf_basic_type(value)
-    try: gf_hooks[str(basic_type)](value, None)
+    hook_string = _gf_hook_string(basic_type)
+    try: gf_hooks[hook_string](value, None)
     except: __gf_fields_recurse(basic_type)
 
 end

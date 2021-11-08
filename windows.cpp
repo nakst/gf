@@ -15,7 +15,7 @@ bool noInspectResults;
 bool inInspectLineMode;
 int inspectModeRestoreLine;
 UIRectangle displayCurrentLineBounds;
-const char *disassemblyCommand = "disas";
+const char *disassemblyCommand = "disas /s";
 
 bool DisplaySetPosition(const char *file, int line, bool useGDBToGetFullPath) {
 	if (showingDisassembly) {
@@ -110,7 +110,7 @@ void DisassemblyLoad() {
 
 	if (!strstr(evaluateResult, "Dump of assembler code for function")) {
 		char buffer[32];
-		StringFormat(buffer, sizeof(buffer), "%s $pc,+1000", disassemblyCommand);
+		StringFormat(buffer, sizeof(buffer), "disas $pc,+1000");
 		EvaluateCommand(buffer);
 	}
 
