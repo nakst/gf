@@ -354,6 +354,66 @@ int SourceFindEndOfBlock() {
 	return -1;
 }
 
+bool SourceFindOuterFunctionCall(char **start, char **end) {
+	if (!currentLine || currentLine - 1 >= displayCode->lineCount) return false;
+	uintptr_t offset = displayCode->lines[currentLine - 1].offset;
+	bool found = false;
+
+	// Look forwards for the end of the call ");".
+
+	while (offset < displayCode->contentBytes - 1) {
+		if (displayCode->content[offset] == ')' && displayCode->content[offset + 1] == ';') {
+			found = true;
+			break;
+		} else if (displayCode->content[offset] == ';' || displayCode->content[offset] == '{') {
+			break;
+		}
+
+		offset++;
+	}
+
+	if (!found) return false;
+
+	// Look backwards for the matching bracket.
+
+	int level = 0;
+
+	while (offset > 0) {
+		if (displayCode->content[offset] == ')') {
+			level++;
+		} else if (displayCode->content[offset] == '(') {
+			level--;
+			if (level == 0) break;
+		}
+
+		offset--;
+	}
+
+	if (level) return false;
+
+	*start = *end = displayCode->content + offset;
+	found = false;
+	offset--;
+
+	// Look backwards for the start of the function name.
+	// TODO Support function pointers.
+	
+	while (offset > 0) {
+		char c = displayCode->content[offset];
+
+		if ((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c == '_' || c == ' ' || (c >= '0' && c <= '9')) {
+			// Part of the function name.
+			offset--;
+		} else {
+			*start = displayCode->content + offset + 1;
+			found = true;
+			break;
+		}
+	}
+
+	return found;
+}
+
 //////////////////////////////////////////////////////
 // Debugger interaction:
 //////////////////////////////////////////////////////
@@ -696,6 +756,18 @@ bool CommandParseInternal(const char *command, bool synchronous) {
 			StringFormat(buffer, sizeof(buffer), "until %d", line);
 			DebuggerSend(buffer, true, synchronous);
 			return false;
+		}
+	} else if (0 == strcmp(command, "gf-step-into-outer")) {
+		char *start, *end;
+		bool found = SourceFindOuterFunctionCall(&start, &end);
+
+		if (found) {
+			char buffer[256];
+			StringFormat(buffer, sizeof(buffer), "advance %.*s", (int) (end - start), start);
+			DebuggerSend(buffer, true, synchronous);
+			return true;
+		} else {
+			return CommandParseInternal("gf-step", synchronous);
 		}
 	} else if (0 == strcmp(command, "gf-restart-gdb")) {
 		firstUpdate = true;
@@ -1076,6 +1148,7 @@ const InterfaceCommand interfaceCommands[] = {
 	{ .label = "Step over\tF10", { .code = UI_KEYCODE_FKEY(10), .invoke = CommandSendToGDB, .cp = (void *) "gf-next" } },
 	{ .label = "Step out of block\tShift+F10", { .code = UI_KEYCODE_FKEY(10), .shift = true, .invoke = CommandSendToGDB, .cp = (void *) "gf-step-out-of-block" } },
 	{ .label = "Step in\tF11", { .code = UI_KEYCODE_FKEY(11), .invoke = CommandSendToGDB, .cp = (void *) "gf-step" } },
+	{ .label = "Step into outer\tShift+F8", { .code = UI_KEYCODE_FKEY(8), .shift = true, .invoke = CommandSendToGDB, .cp = (void *) "gf-step-into-outer" } },
 	{ .label = "Step out\tShift+F11", { .code = UI_KEYCODE_FKEY(11), .shift = true, .invoke = CommandSendToGDB, .cp = (void *) "finish" } },
 	{ .label = "Pause\tF8", { .code = UI_KEYCODE_FKEY(8), .invoke = CommandPause } },
 	{ .label = "Toggle breakpoint\tF9", { .code = UI_KEYCODE_FKEY(9), .invoke = CommandToggleBreakpoint } },
