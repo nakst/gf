@@ -565,6 +565,8 @@ int InspectLineModeMessage(UIElement *element, UIMessage message, int di, void *
 }
 
 void CommandInspectLine(void *) {
+	if (!currentLine || currentLine - 1 >= displayCode->lineCount) return;
+
 	inspectModeRestoreLine = currentLine;
 	inInspectLineMode = true;
 	InspectCurrentLine();
