@@ -32,12 +32,12 @@
 
 char *layoutString = (char *) "v(75,h(80,Source,v(50,t(Exe,Breakpoints,Commands,Struct),t(Stack,Files,Thread))),h(65,Console,t(Watch,Registers,Data)))";
 
-int fontSize = 13;
+int fontSizeCode = 13;
+int fontSizeInterface = 11;
 float uiScale = 1;
 bool maximize = false;
 
 extern "C" {
-#define UI_FONT_SIZE (fontSize)
 #define UI_LINUX
 #define UI_IMPLEMENTATION
 #include "luigi.h"
@@ -121,6 +121,8 @@ UISpacer *trafficLight;
 
 UIMDIClient *dataWindow;
 UIPanel *dataTab;
+
+UIFont *fontCode;
 
 // Breakpoints:
 
@@ -1065,7 +1067,11 @@ void SettingsLoad(bool earlyPass) {
 				}
 			} else if (0 == strcmp(state.section, "ui") && earlyPass) {
 				if (0 == strcmp(state.key, "font_size")) {
-					fontSize = atoi(state.value);
+					fontSizeInterface = fontSizeCode = atoi(state.value);
+				} else if (0 == strcmp(state.key, "font_size_code")) {
+					fontSizeCode = atoi(state.value);
+				} else if (0 == strcmp(state.key, "font_size_interface")) {
+					fontSizeInterface = atoi(state.value);
 				} else if (0 == strcmp(state.key, "scale")) {
 					uiScale = atof(state.value);
 				} else if (0 == strcmp(state.key, "layout")) {
@@ -1380,6 +1386,9 @@ int main(int argc, char **argv) {
 
 	SettingsLoad(true);
 	UIInitialise();
+
+	fontCode = UIFontCreate(_UI_TO_STRING_2(UI_FONT_PATH), fontSizeCode);
+	UIFontActivate(UIFontCreate(_UI_TO_STRING_2(UI_FONT_PATH), fontSizeInterface));
 
 	windowMain = UIWindowCreate(0, maximize ? UI_WINDOW_MAXIMIZE : 0, "gf2", 0, 0);
 	windowMain->scale = uiScale;

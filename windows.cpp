@@ -217,6 +217,56 @@ void CommandSetDisassemblyMode(void *) {
 	}
 }
 
+void DisplayCodeDrawInspectLineModeOverlay(UIPainter *painter) {
+	const char *instructions = "(Press Esc to exit inspect line mode.)";
+	int width = (strlen(instructions) + 8) * ui.activeFont->glyphWidth;
+
+	for (int index = 0; index < inspectResults.Length() / 2; index++) {
+		int w = (strlen(inspectResults[index * 2]) + strlen(inspectResults[index * 2 + 1]) + 8) * ui.activeFont->glyphWidth;
+		if (w > width) width = w;
+	}
+
+	int xOffset = 0;
+
+	{
+		UICodeLine *line = &displayCode->lines[currentLine - 1];
+
+		for (int i = 0; i < line->bytes; i++) {
+			if (displayCode->content[line->offset + i] == '\t') {
+				xOffset += 4 * ui.activeFont->glyphWidth;
+			} else if (displayCode->content[line->offset + i] == ' ') {
+				xOffset += 1 * ui.activeFont->glyphWidth;
+			} else {
+				break;
+			}
+		}
+	}
+
+	char buffer[256];
+	int lineHeight = UIMeasureStringHeight();
+	UIRectangle bounds = UIRectangleAdd(displayCurrentLineBounds, UI_RECT_4(xOffset, 0, lineHeight, 8 + lineHeight * (inspectResults.Length() / 2 + 1)));
+	bounds.r = bounds.l + width;
+	UIDrawBlock(painter, UIRectangleAdd(bounds, UI_RECT_1(3)), ui.theme.border);
+	UIDrawRectangle(painter, bounds, ui.theme.codeBackground, ui.theme.border, UI_RECT_1(2));
+	UIRectangle line = UIRectangleAdd(bounds, UI_RECT_4(4, -4, 4, 0));
+	line.b = line.t + lineHeight;
+
+	for (int index = 0; index < inspectResults.Length() / 2; index++) {
+		if (noInspectResults) {
+			StringFormat(buffer, sizeof(buffer), "%s", inspectResults[index * 2]);
+		} else if (index < 9) {
+			StringFormat(buffer, sizeof(buffer), "[%d] %s %s", index + 1, inspectResults[index * 2], inspectResults[index * 2 + 1]);
+		} else {
+			StringFormat(buffer, sizeof(buffer), "    %s %s", inspectResults[index * 2], inspectResults[index * 2 + 1]);
+		}
+
+		UIDrawString(painter, line, buffer, -1, noInspectResults ? ui.theme.codeOperator : ui.theme.codeString, UI_ALIGN_LEFT, NULL);
+		line = UIRectangleAdd(line, UI_RECT_2(0, lineHeight));
+	}
+
+	UIDrawString(painter, line, instructions, -1, ui.theme.codeNumber, UI_ALIGN_RIGHT, NULL);
+}
+
 int DisplayCodeMessage(UIElement *element, UIMessage message, int di, void *dp) {
 	if (message == UI_MSG_CLICKED && !showingDisassembly) {
 		int result = UICodeHitTest((UICode *) element, element->window->cursorX, element->window->cursorY);
@@ -249,54 +299,9 @@ int DisplayCodeMessage(UIElement *element, UIMessage message, int di, void *dp) 
 		element->messageClass(element, message, di, dp);
 
 		if (inInspectLineMode) {
-			const char *instructions = "(Press Esc to exit inspect line mode.)";
-			int width = (strlen(instructions) + 8) * ui.glyphWidth;
-
-			for (int index = 0; index < inspectResults.Length() / 2; index++) {
-				int w = (strlen(inspectResults[index * 2]) + strlen(inspectResults[index * 2 + 1]) + 8) * ui.glyphWidth;
-				if (w > width) width = w;
-			}
-
-			int xOffset = 0;
-
-			{
-				UICodeLine *line = &displayCode->lines[currentLine - 1];
-
-				for (int i = 0; i < line->bytes; i++) {
-					if (displayCode->content[line->offset + i] == '\t') {
-						xOffset += 4 * ui.glyphWidth;
-					} else if (displayCode->content[line->offset + i] == ' ') {
-						xOffset += 1 * ui.glyphWidth;
-					} else {
-						break;
-					}
-				}
-			}
-
-			char buffer[256];
-			UIPainter *painter = (UIPainter *) dp;
-			int lineHeight = UIMeasureStringHeight();
-			UIRectangle bounds = UIRectangleAdd(displayCurrentLineBounds, UI_RECT_4(xOffset, 0, lineHeight, 8 + lineHeight * (inspectResults.Length() / 2 + 1)));
-			bounds.r = bounds.l + width;
-			UIDrawBlock(painter, UIRectangleAdd(bounds, UI_RECT_1(3)), ui.theme.border);
-			UIDrawRectangle(painter, bounds, ui.theme.codeBackground, ui.theme.border, UI_RECT_1(2));
-			UIRectangle line = UIRectangleAdd(bounds, UI_RECT_4(4, -4, 4, 0));
-			line.b = line.t + lineHeight;
-
-			for (int index = 0; index < inspectResults.Length() / 2; index++) {
-				if (noInspectResults) {
-					StringFormat(buffer, sizeof(buffer), "%s", inspectResults[index * 2]);
-				} else if (index < 9) {
-					StringFormat(buffer, sizeof(buffer), "[%d] %s %s", index + 1, inspectResults[index * 2], inspectResults[index * 2 + 1]);
-				} else {
-					StringFormat(buffer, sizeof(buffer), "    %s %s", inspectResults[index * 2], inspectResults[index * 2 + 1]);
-				}
-
-				UIDrawString(painter, line, buffer, -1, noInspectResults ? ui.theme.codeOperator : ui.theme.codeString, UI_ALIGN_LEFT, NULL);
-				line = UIRectangleAdd(line, UI_RECT_2(0, lineHeight));
-			}
-
-			UIDrawString(painter, line, instructions, -1, ui.theme.codeNumber, UI_ALIGN_RIGHT, NULL);
+			UIFont *previousFont = UIFontActivate(((UICode *) element)->font);
+			DisplayCodeDrawInspectLineModeOverlay((UIPainter *) dp);
+			UIFontActivate(previousFont);
 		}
 
 		return 1;
@@ -308,7 +313,7 @@ int DisplayCodeMessage(UIElement *element, UIMessage message, int di, void *dp) 
 		}
 
 		if (m->index == autoPrintResultLine) {
-			UIRectangle rectangle = UI_RECT_4(m->x + ui.glyphWidth, m->bounds.r, m->y, m->y + UIMeasureStringHeight());
+			UIRectangle rectangle = UI_RECT_4(m->x + ui.activeFont->glyphWidth, m->bounds.r, m->y, m->y + UIMeasureStringHeight());
 			UIDrawString(m->painter, rectangle, autoPrintResult, -1, ui.theme.codeComment, UI_ALIGN_LEFT, NULL);
 		}
 
@@ -335,6 +340,7 @@ int DisplayCodeMessage(UIElement *element, UIMessage message, int di, void *dp) 
 
 UIElement *SourceWindowCreate(UIElement *parent) {
 	displayCode = UICodeCreate(parent, 0);
+	displayCode->font = fontCode;
 	displayCode->e.messageUser = DisplayCodeMessage;
 	return &displayCode->e;
 }
@@ -1684,7 +1690,7 @@ int WatchWindowMessage(UIElement *element, UIMessage message, int di, void *dp) 
 
 		if (w->selectedRow >= 0 && w->selectedRow < w->rows.Length()) {
 			Watch *watch = w->rows[w->selectedRow];
-			int x = (element->window->cursorX - element->bounds.l) / ui.glyphWidth;
+			int x = (element->window->cursorX - element->bounds.l) / ui.activeFont->glyphWidth;
 
 			if (x >= watch->depth * 3 - 1 && x <= watch->depth * 3 + 1 && watch->hasFields) {
 				UIKeyTyped m = { 0 };

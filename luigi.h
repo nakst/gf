@@ -75,13 +75,11 @@ void _UIMessageProcess(EsMessage *message);
 #include <stdio.h>
 #endif
 
-typedef struct UITheme {
-	uint32_t panel1, panel2, selected, border;
-	uint32_t text, textDisabled, textSelected;
-	uint32_t buttonNormal, buttonHovered, buttonPressed, buttonDisabled;
-	uint32_t textboxNormal, textboxFocused;
-	uint32_t codeFocused, codeBackground, codeDefault, codeComment, codeString, codeNumber, codeOperator, codePreprocessor;
-} UITheme;
+#ifdef UI_FREETYPE
+#include <ft2build.h>
+#include FT_FREETYPE_H
+#include <freetype/ftbitmap.h>
+#endif
 
 #define UI_SIZE_BUTTON_MINIMUM_WIDTH (100)
 #define UI_SIZE_BUTTON_PADDING (16)
@@ -115,8 +113,8 @@ typedef struct UITheme {
 #define UI_SIZE_SCROLL_BAR (16)
 #define UI_SIZE_SCROLL_MINIMUM_THUMB (20)
 
-#define UI_SIZE_CODE_MARGIN (ui.glyphWidth * 5)
-#define UI_SIZE_CODE_MARGIN_GAP (ui.glyphWidth * 1)
+#define UI_SIZE_CODE_MARGIN (ui.activeFont->glyphWidth * 5)
+#define UI_SIZE_CODE_MARGIN_GAP (ui.activeFont->glyphWidth * 1)
 
 #define UI_SIZE_TABLE_HEADER (26)
 #define UI_SIZE_TABLE_COLUMN_GAP (20)
@@ -186,6 +184,14 @@ typedef struct UIRectangle {
 } UIRectangle;
 #endif
 
+typedef struct UITheme {
+	uint32_t panel1, panel2, selected, border;
+	uint32_t text, textDisabled, textSelected;
+	uint32_t buttonNormal, buttonHovered, buttonPressed, buttonDisabled;
+	uint32_t textboxNormal, textboxFocused;
+	uint32_t codeFocused, codeBackground, codeDefault, codeComment, codeString, codeNumber, codeOperator, codePreprocessor;
+} UITheme;
+
 typedef struct UIPainter {
 	UIRectangle clip;
 	uint32_t *bits;
@@ -194,6 +200,18 @@ typedef struct UIPainter {
 	int fillCount;
 #endif
 } UIPainter;
+
+typedef struct UIFont {
+	int glyphWidth, glyphHeight;
+
+#ifdef UI_FREETYPE
+	bool isFreeType;
+	FT_Face font;
+	FT_Bitmap glyphs[128];
+	bool glyphsRendered[128];
+	int glyphOffsetsX[128], glyphOffsetsY[128];
+#endif
+} UIFont;
 
 typedef struct UIShortcut {
 	intptr_t code;
@@ -478,6 +496,7 @@ typedef struct UICode {
 	UIElement e;
 	UIScrollBar *vScroll;
 	UICodeLine *lines;
+	UIFont *font;
 	int lineCount, focused;
 	bool moveScrollToFocusNextLayout;
 	char *content;
@@ -663,17 +682,14 @@ void UIColorToRGB(float hue, float saturation, float value, uint32_t *rgb);
 
 char *UIStringCopy(const char *in, ptrdiff_t inBytes);
 
+UIFont *UIFontCreate(const char *cPath, uint32_t size);
+UIFont *UIFontActivate(UIFont *font); // Returns the previously active font.
+
 #ifdef UI_DEBUG
 void UIInspectorLog(const char *cFormat, ...);
 #endif
 
 #ifdef UI_IMPLEMENTATION
-
-#ifdef UI_FREETYPE
-#include <ft2build.h>
-#include FT_FREETYPE_H
-#include <freetype/ftbitmap.h>
-#endif
 
 struct {
 	UIWindow *windows;
@@ -683,11 +699,11 @@ struct {
 	UIElement *parentStack[16];
 	int parentStackCount;
 
-	int glyphWidth, glyphHeight;
-
 	bool quit;
 	const char *dialogResult;
 	UIElement *dialogOldFocus;
+
+	UIFont *activeFont;
 
 #ifdef UI_DEBUG
 	UIWindow *inspector;
@@ -719,11 +735,7 @@ struct {
 #endif
 
 #ifdef UI_FREETYPE
-	FT_Face font;
 	FT_Library ft;
-	FT_Bitmap glyphs[128];
-	bool glyphsRendered[128];
-	int glyphOffsetsX[128], glyphOffsetsY[128];
 #endif
 } ui;
 
@@ -783,8 +795,6 @@ UITheme _uiThemeDark = {
 	.codePreprocessor = 0xFFF5F3D1,
 };
 
-#ifndef UI_FREETYPE
-
 // Taken from https://commons.wikimedia.org/wiki/File:Codepage-437.png
 // Public domain.
 
@@ -822,8 +832,6 @@ const uint64_t _uiFont[] = {
 	0x3C66C30000000000UL, 0x00000000C3663C18UL, 0x6363630000000000UL, 0x001F30607E636363UL, 0x18337F0000000000UL, 0x000000007F63060CUL, 0x180E181818700000UL, 0x0000000070181818UL, 
 	0x1800181818180000UL, 0x0000000018181818UL, 0x18701818180E0000UL, 0x000000000E181818UL, 0x000000003B6E0000UL, 0x0000000000000000UL, 0x63361C0800000000UL, 0x00000000007F6363UL, 
 };
-
-#endif
 
 void _UIWindowEndPaint(UIWindow *window, UIPainter *painter);
 void _UIWindowSetCursor(UIWindow *window, int cursor);
@@ -1207,83 +1215,85 @@ void UIDrawInvert(UIPainter *painter, UIRectangle rectangle) {
 	}
 }
 
-#ifdef UI_FREETYPE
-
 void UIDrawGlyph(UIPainter *painter, int x0, int y0, int c, uint32_t color) {
-	if (c < 0 || c > 127) c = '?';
-	if (c == '\r') c = ' ';
+#ifdef UI_FREETYPE
+	UIFont *font = ui.activeFont;
 
-	if (!ui.glyphsRendered[c]) {
-		FT_Load_Char(ui.font, c == 24 ? 0x2191 : c == 25 ? 0x2193 : c == 26 ? 0x2192 : c == 27 ? 0x2190 : c, FT_LOAD_DEFAULT);
+	if (font->isFreeType) {
+		if (c < 0 || c > 127) c = '?';
+		if (c == '\r') c = ' ';
+
+		if (!font->glyphsRendered[c]) {
+			FT_Load_Char(font->font, c == 24 ? 0x2191 : c == 25 ? 0x2193 : c == 26 ? 0x2192 : c == 27 ? 0x2190 : c, FT_LOAD_DEFAULT);
 #ifdef UI_FREETYPE_SUBPIXEL
-		FT_Render_Glyph(ui.font->glyph, FT_RENDER_MODE_LCD);
+			FT_Render_Glyph(font->font->glyph, FT_RENDER_MODE_LCD);
 #else
-		FT_Render_Glyph(ui.font->glyph, FT_RENDER_MODE_NORMAL);
+			FT_Render_Glyph(font->font->glyph, FT_RENDER_MODE_NORMAL);
 #endif
-		FT_Bitmap_Copy(ui.ft, &ui.font->glyph->bitmap, &ui.glyphs[c]);
-		ui.glyphOffsetsX[c] = ui.font->glyph->bitmap_left;
-		ui.glyphOffsetsY[c] = ui.font->size->metrics.ascender / 64 - ui.font->glyph->bitmap_top;
-		ui.glyphsRendered[c] = true;
-	}
-
-	FT_Bitmap *bitmap = &ui.glyphs[c];
-	x0 += ui.glyphOffsetsX[c], y0 += ui.glyphOffsetsY[c];
-
-	for (int y = 0; y < (int) bitmap->rows; y++) {
-		if (y0 + y < painter->clip.t) continue;
-		if (y0 + y >= painter->clip.b) break;
-
-		int width = bitmap->width;
-#ifdef UI_FREETYPE_SUBPIXEL
-		width /= 3;
-#endif
-
-		for (int x = 0; x < width; x++) {
-			if (x0 + x < painter->clip.l) continue;
-			if (x0 + x >= painter->clip.r) break;
-
-			uint32_t *destination = painter->bits + (x0 + x) + (y0 + y) * painter->width;
-			uint32_t original = *destination;
-
-#ifdef UI_FREETYPE_SUBPIXEL
-			uint32_t ra = ((uint8_t *) bitmap->buffer)[x * 3 + y * bitmap->pitch + 0];
-			uint32_t ga = ((uint8_t *) bitmap->buffer)[x * 3 + y * bitmap->pitch + 1];
-			uint32_t ba = ((uint8_t *) bitmap->buffer)[x * 3 + y * bitmap->pitch + 2];
-			ra += (ga - ra) / 2, ba += (ga - ba) / 2;
-#else
-			uint32_t ra = ((uint8_t *) bitmap->buffer)[x + y * bitmap->pitch];
-			uint32_t ga = ra, ba = ra;
-#endif
-			uint32_t r2 = (255 - ra) * ((original & 0x000000FF) >> 0);
-			uint32_t g2 = (255 - ga) * ((original & 0x0000FF00) >> 8);
-			uint32_t b2 = (255 - ba) * ((original & 0x00FF0000) >> 16);
-			uint32_t r1 = ra * ((color & 0x000000FF) >> 0);
-			uint32_t g1 = ga * ((color & 0x0000FF00) >> 8);
-			uint32_t b1 = ba * ((color & 0x00FF0000) >> 16);
-
-			uint32_t result = 0xFF000000 | (0x00FF0000 & ((b1 + b2) << 8)) 
-				| (0x0000FF00 & ((g1 + g2) << 0)) 
-				| (0x000000FF & ((r1 + r2) >> 8));
-			*destination = result;
+			FT_Bitmap_Copy(ui.ft, &font->font->glyph->bitmap, &font->glyphs[c]);
+			font->glyphOffsetsX[c] = font->font->glyph->bitmap_left;
+			font->glyphOffsetsY[c] = font->font->size->metrics.ascender / 64 - font->font->glyph->bitmap_top;
+			font->glyphsRendered[c] = true;
 		}
-	}
-}
 
+		FT_Bitmap *bitmap = &font->glyphs[c];
+		x0 += font->glyphOffsetsX[c], y0 += font->glyphOffsetsY[c];
+
+		for (int y = 0; y < (int) bitmap->rows; y++) {
+			if (y0 + y < painter->clip.t) continue;
+			if (y0 + y >= painter->clip.b) break;
+
+			int width = bitmap->width;
+#ifdef UI_FREETYPE_SUBPIXEL
+			width /= 3;
+#endif
+
+			for (int x = 0; x < width; x++) {
+				if (x0 + x < painter->clip.l) continue;
+				if (x0 + x >= painter->clip.r) break;
+
+				uint32_t *destination = painter->bits + (x0 + x) + (y0 + y) * painter->width;
+				uint32_t original = *destination;
+
+#ifdef UI_FREETYPE_SUBPIXEL
+				uint32_t ra = ((uint8_t *) bitmap->buffer)[x * 3 + y * bitmap->pitch + 0];
+				uint32_t ga = ((uint8_t *) bitmap->buffer)[x * 3 + y * bitmap->pitch + 1];
+				uint32_t ba = ((uint8_t *) bitmap->buffer)[x * 3 + y * bitmap->pitch + 2];
+				ra += (ga - ra) / 2, ba += (ga - ba) / 2;
 #else
+				uint32_t ra = ((uint8_t *) bitmap->buffer)[x + y * bitmap->pitch];
+				uint32_t ga = ra, ba = ra;
+#endif
+				uint32_t r2 = (255 - ra) * ((original & 0x000000FF) >> 0);
+				uint32_t g2 = (255 - ga) * ((original & 0x0000FF00) >> 8);
+				uint32_t b2 = (255 - ba) * ((original & 0x00FF0000) >> 16);
+				uint32_t r1 = ra * ((color & 0x000000FF) >> 0);
+				uint32_t g1 = ga * ((color & 0x0000FF00) >> 8);
+				uint32_t b1 = ba * ((color & 0x00FF0000) >> 16);
 
-void UIDrawGlyph(UIPainter *painter, int x, int y, int c, uint32_t color) {
+				uint32_t result = 0xFF000000 | (0x00FF0000 & ((b1 + b2) << 8)) 
+					| (0x0000FF00 & ((g1 + g2) << 0)) 
+					| (0x000000FF & ((r1 + r2) >> 8));
+				*destination = result;
+			}
+		}
+
+		return;
+	}
+#endif
+
 	if (c < 0 || c > 127) c = '?';
 
-	UIRectangle rectangle = UIRectangleIntersection(painter->clip, UI_RECT_4(x, x + 8, y, y + 16));
+	UIRectangle rectangle = UIRectangleIntersection(painter->clip, UI_RECT_4(x0, x0 + 8, y0, y0 + 16));
 
 	const uint8_t *data = (const uint8_t *) _uiFont + c * 16;
 
 	for (int i = rectangle.t; i < rectangle.b; i++) {
 		uint32_t *bits = painter->bits + i * painter->width + rectangle.l;
-		uint8_t byte = data[i - y];
+		uint8_t byte = data[i - y0];
 
 		for (int j = rectangle.l; j < rectangle.r; j++) {
-			if (byte & (1 << (j - x))) {
+			if (byte & (1 << (j - x0))) {
 				*bits = color;
 			}
 
@@ -1291,8 +1301,6 @@ void UIDrawGlyph(UIPainter *painter, int x, int y, int c, uint32_t color) {
 		}
 	}
 }
-
-#endif
 
 ptrdiff_t _UIStringLength(const char *cString) {
 	if (!cString) return 0;
@@ -1321,11 +1329,11 @@ int UIMeasureStringWidth(const char *string, ptrdiff_t bytes) {
 		bytes = _UIStringLength(string);
 	}
 	
-	return bytes * ui.glyphWidth;
+	return bytes * ui.activeFont->glyphWidth;
 }
 
 int UIMeasureStringHeight() {
-	return ui.glyphHeight;
+	return ui.activeFont->glyphHeight;
 }
 
 void UIDrawString(UIPainter *painter, UIRectangle r, const char *string, ptrdiff_t bytes, uint32_t color, int align, UIStringSelection *selection) {
@@ -1364,7 +1372,7 @@ void UIDrawString(UIPainter *painter, UIRectangle r, const char *string, ptrdiff
 		uint32_t colorText = color;
 
 		if (j >= selectFrom && j < selectTo) {
-			UIDrawBlock(painter, UI_RECT_4(x, x + ui.glyphWidth, y, y + height), selection->colorBackground);
+			UIDrawBlock(painter, UI_RECT_4(x, x + ui.activeFont->glyphWidth, y, y + height), selection->colorBackground);
 			colorText = selection->colorText;
 		}
 
@@ -1376,10 +1384,10 @@ void UIDrawString(UIPainter *painter, UIRectangle r, const char *string, ptrdiff
 			UIDrawInvert(painter, UI_RECT_4(x, x + 1, y, y + height));
 		}
 
-		x += ui.glyphWidth, i++;
+		x += ui.activeFont->glyphWidth, i++;
 
 		if (c == '\t') {
-			while (i & 3) x += ui.glyphWidth, i++;
+			while (i & 3) x += ui.activeFont->glyphWidth, i++;
 		}
 	}
 
@@ -1731,7 +1739,7 @@ int _UIButtonMessage(UIElement *element, UIMessage message, int di, void *dp) {
 	} else if (message == UI_MSG_GET_WIDTH) {
 		int labelSize = UIMeasureStringWidth(button->label, button->labelBytes);
 		int paddedSize = labelSize + UI_SIZE_BUTTON_PADDING * element->window->scale;
-		if (isDropDown) paddedSize += ui.glyphWidth * 2;
+		if (isDropDown) paddedSize += ui.activeFont->glyphWidth * 2;
 		int minimumSize = ((element->flags & UI_BUTTON_SMALL) ? 0 
 				: isMenuItem ? UI_SIZE_MENU_ITEM_MINIMUM_WIDTH 
 				: UI_SIZE_BUTTON_MINIMUM_WIDTH) 
@@ -2175,13 +2183,13 @@ int _UIScrollUpDownMessage(UIElement *element, UIMessage message, int di, void *
 		UIDrawRectangle(painter, element->bounds, color, ui.theme.border, UI_RECT_1(0));
 		
 		if (scrollBar->horizontal) {
-			UIDrawGlyph(painter, isDown ? (element->bounds.r - ui.glyphWidth - 2 * element->window->scale) 
+			UIDrawGlyph(painter, isDown ? (element->bounds.r - ui.activeFont->glyphWidth - 2 * element->window->scale) 
 					: (element->bounds.l + 2 * element->window->scale), 
-				(element->bounds.t + element->bounds.b - ui.glyphHeight) / 2,
+				(element->bounds.t + element->bounds.b - ui.activeFont->glyphHeight) / 2,
 				isDown ? 26 : 27, ui.theme.text);
 		} else {
-			UIDrawGlyph(painter, (element->bounds.l + element->bounds.r - ui.glyphWidth) / 2 + 1, 
-				isDown ? (element->bounds.b - ui.glyphHeight - 2 * element->window->scale) 
+			UIDrawGlyph(painter, (element->bounds.l + element->bounds.r - ui.activeFont->glyphWidth) / 2 + 1, 
+				isDown ? (element->bounds.b - ui.activeFont->glyphHeight - 2 * element->window->scale) 
 					: (element->bounds.t + 2 * element->window->scale), 
 				isDown ? 25 : 24, ui.theme.text);
 		}
@@ -2273,7 +2281,9 @@ int UICodeHitTest(UICode *code, int x, int y) {
 
 	y -= code->e.bounds.t - code->vScroll->position;
 
+	UIFont *previousFont = UIFontActivate(code->font);
 	int lineHeight = UIMeasureStringHeight();
+	UIFontActivate(previousFont);
 
 	if (y < 0 || y >= lineHeight * code->lineCount) {
 		return 0;
@@ -2362,11 +2372,11 @@ int UIDrawStringHighlighted(UIPainter *painter, UIRectangle lineBounds, const ch
 		}
 
 		if (c == '\t') {
-			x += ui.glyphWidth, ti++;
-			while (ti % tabSize) x += ui.glyphWidth, ti++;
+			x += ui.activeFont->glyphWidth, ti++;
+			while (ti % tabSize) x += ui.activeFont->glyphWidth, ti++;
 		} else {
 			UIDrawGlyph(painter, x, y, c, colors[lexState]);
-			x += ui.glyphWidth, ti++;
+			x += ui.activeFont->glyphWidth, ti++;
 		}
 	}
 
@@ -2377,6 +2387,8 @@ int _UICodeMessage(UIElement *element, UIMessage message, int di, void *dp) {
 	UICode *code = (UICode *) element;
 	
 	if (message == UI_MSG_LAYOUT) {
+		UIFont *previousFont = UIFontActivate(code->font);
+
 		if (code->moveScrollToFocusNextLayout) {
 			code->vScroll->position = (code->focused + 0.5) * UIMeasureStringHeight() - UI_RECT_HEIGHT(code->e.bounds) / 2;
 		}
@@ -2385,8 +2397,11 @@ int _UICodeMessage(UIElement *element, UIMessage message, int di, void *dp) {
 		scrollBarBounds.l = scrollBarBounds.r - UI_SIZE_SCROLL_BAR * code->e.window->scale;
 		code->vScroll->maximum = code->lineCount * UIMeasureStringHeight();
 		code->vScroll->page = UI_RECT_HEIGHT(element->bounds);
+		UIFontActivate(previousFont);
 		UIElementMove(&code->vScroll->e, scrollBarBounds, true);
 	} else if (message == UI_MSG_PAINT) {
+		UIFont *previousFont = UIFontActivate(code->font);
+
 		UIPainter *painter = (UIPainter *) dp;
 		UIRectangle lineBounds = element->bounds;
 		lineBounds.r -= UI_SIZE_SCROLL_BAR * code->e.window->scale;
@@ -2443,6 +2458,8 @@ int _UICodeMessage(UIElement *element, UIMessage message, int di, void *dp) {
 
 			lineBounds.t += lineHeight;
 		}
+
+		UIFontActivate(previousFont);
 	} else if (message == UI_MSG_SCROLLED) {
 		code->moveScrollToFocusNextLayout = false;
 		UIElementRefresh(element);
@@ -2466,6 +2483,8 @@ void UICodeFocusLine(UICode *code, int index) {
 }
 
 void UICodeInsertContent(UICode *code, const char *content, ptrdiff_t byteCount, bool replace) {
+	UIFont *previousFont = UIFontActivate(code->font);
+
 	if (byteCount == -1) {
 		byteCount = _UIStringLength(content);
 	}
@@ -2519,10 +2538,13 @@ void UICodeInsertContent(UICode *code, const char *content, ptrdiff_t byteCount,
 	if (!replace) {
 		code->vScroll->position = code->lineCount * UIMeasureStringHeight();
 	}
+
+	UIFontActivate(previousFont);
 }
 
 UICode *UICodeCreate(UIElement *parent, uint32_t flags) {
 	UICode *code = (UICode *) UIElementCreate(sizeof(UICode), parent, flags, _UICodeMessage, "Code");
+	code->font = ui.activeFont;
 	code->vScroll = UIScrollBarCreate(&code->e, 0);
 	code->focused = -1;
 	code->tabSize = 4;
@@ -4205,19 +4227,40 @@ bool _UIWindowInputEvent(UIWindow *window, UIMessage message, int di, void *dp) 
 	return handled;
 }
 
+UIFont *UIFontCreate(const char *cPath, uint32_t size) {
+	UIFont *font = (UIFont *) UI_CALLOC(sizeof(UIFont));
+
+#ifdef UI_FREETYPE
+	if (cPath) {
+		FT_New_Face(ui.ft, cPath, 0, &font->font); 
+		FT_Set_Char_Size(font->font, 0, size * 64, 100, 100);
+		FT_Load_Char(font->font, 'a', FT_LOAD_DEFAULT);
+		font->glyphWidth = font->font->glyph->advance.x / 64;
+		font->glyphHeight = (font->font->size->metrics.ascender - font->font->size->metrics.descender) / 64;
+		font->isFreeType = true;
+		return font;
+	}
+#endif
+	
+	font->glyphWidth = 9;
+	font->glyphHeight = 16;
+	return font;
+}
+
+UIFont *UIFontActivate(UIFont *font) {
+	UIFont *previous = ui.activeFont;
+	ui.activeFont = font;
+	return previous;
+}
+
 void _UIInitialiseCommon() {
 	ui.theme = _uiThemeDark;
 
 #ifdef UI_FREETYPE
 	FT_Init_FreeType(&ui.ft);
-	FT_New_Face(ui.ft, _UI_TO_STRING_2(UI_FONT_PATH), 0, &ui.font); 
-	FT_Set_Char_Size(ui.font, 0, UI_FONT_SIZE * 64, 100, 100);
-	FT_Load_Char(ui.font, 'a', FT_LOAD_DEFAULT);
-	ui.glyphWidth = ui.font->glyph->advance.x / 64;
-	ui.glyphHeight = (ui.font->size->metrics.ascender - ui.font->size->metrics.descender) / 64;
+	UIFontActivate(UIFontCreate(_UI_TO_STRING_2(UI_FONT_PATH), 11));
 #else
-	ui.glyphWidth = 9;
-	ui.glyphHeight = 16;
+	UIFontActivate(UIFontCreate(0, 0));
 #endif
 }
 

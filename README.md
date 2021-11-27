@@ -76,7 +76,8 @@ You can change the font size and user interface scaling in the `[ui]` section. F
 ```ini
 [ui]
 scale=1.5
-font_size=20
+font_size_interface=17
+font_size_code=20
 ```
 
 You can enable subpixel font rendering by recompiling with `extra_flags=-DUI_FREETYPE_SUBPIXEL ./build.sh`.
