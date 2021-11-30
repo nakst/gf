@@ -3551,7 +3551,7 @@ int _UIDialogWrapperMessage(UIElement *element, UIMessage message, int di, void 
 		}
 
 		UIElement *row = element->children->children;
-		UIElement *target = nullptr;
+		UIElement *target = NULL;
 		bool duplicate = false;
 
 		while (row) {

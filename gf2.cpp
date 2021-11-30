@@ -47,7 +47,7 @@ extern "C" {
 #define MSG_RECEIVED_CONTROL ((UIMessage) (UI_MSG_USER + 2))
 #define MSG_RECEIVED_LOG ((UIMessage) (UI_MSG_USER + 3))
 
-// Dynamic arrays:
+// Data structures:
 
 template <class T>
 struct Array {
@@ -78,6 +78,43 @@ struct Array {
 	inline T &operator[](uintptr_t index) { return array[index]; }
 	inline void Pop() { length--; }
 	inline void DeleteSwap(uintptr_t index) { if (index != length - 1) array[index] = Last(); Pop(); }
+};
+
+template <class K, class V>
+struct MapShort {
+	struct { K key; V value; } *array;
+	size_t used, capacity;
+
+	uint64_t Hash(const void *key, size_t keyBytes) {
+		uint64_t hash = 0xCBF29CE484222325;
+		for (uintptr_t i = 0; i < keyBytes; i++) hash = (hash ^ ((uint8_t *) key)[i]) * 0x100000001B3;
+		return hash;
+	}
+
+	inline void Put(K key, V value) {
+		if (used + 1 > capacity / 2) {
+			MapShort grow = {};
+			grow.capacity = capacity ? (capacity + 1) * 2 - 1 : 15;
+			*(void **) &grow.array = calloc(sizeof(array[0]), grow.capacity);
+			for (uintptr_t i = 0; i < capacity; i++) if (array[i].key) grow.Put(array[i].key, array[i].value);
+			free(array); *this = grow;
+		}
+
+		uintptr_t slot = Hash(&key, sizeof(key)) % capacity;
+		while (array[slot].key && array[slot].key != key) slot = (slot + 1) % capacity;
+		array[slot].key = key;
+		array[slot].value = value;
+		used++;
+	}
+
+	inline V Get(K key) {
+		if (!capacity) return 0;
+		uintptr_t slot = Hash(&key, sizeof(key)) % capacity;
+		while (array[slot].key && array[slot].key != key) slot = (slot + 1) % capacity;
+		return array[slot].value;
+	}
+
+	inline void Free() { free(array); array = nullptr; used = capacity = 0; }
 };
 
 // General:
@@ -1126,6 +1163,10 @@ void SettingsLoad(bool earlyPass) {
 
 #include "windows.cpp"
 
+#ifdef PROF_EXTENSION
+#include "prof_window.cpp"
+#endif
+
 //////////////////////////////////////////////////////
 // Interface and main:
 //////////////////////////////////////////////////////
@@ -1141,7 +1182,7 @@ struct InterfaceWindow {
 	void (*update)(const char *data, UIElement *element);
 	void (*focus)(UIElement *element);
 	UIElement *element;
-	bool queuedUpdate;
+	bool queuedUpdate, alwaysUpdate;
 };
 
 const InterfaceCommand interfaceCommands[] = {
@@ -1184,6 +1225,9 @@ InterfaceWindow interfaceWindows[] = {
 	{ "Log", LogWindowCreate, nullptr, },
 	{ "Thread", ThreadWindowCreate, ThreadWindowUpdate, },
 	{ "Exe", ExecutableWindowCreate, nullptr, },
+#ifdef PROF_EXTENSION
+	{ "Prof", ProfWindowCreate, ProfWindowUpdate, .alwaysUpdate = true },
+#endif
 };
 
 void InterfaceShowMenu(void *self) {
@@ -1254,7 +1298,7 @@ int WindowMessage(UIElement *, UIMessage message, int di, void *dp) {
 		for (uintptr_t i = 0; i < sizeof(interfaceWindows) / sizeof(interfaceWindows[0]); i++) {
 			InterfaceWindow *window = &interfaceWindows[i];
 			if (!window->update || !window->element) continue;
-			if (ElementHidden(window->element)) window->queuedUpdate = true;
+			if (!window->alwaysUpdate && ElementHidden(window->element)) window->queuedUpdate = true;
 			else window->update(input, window->element);
 		}
 
@@ -1371,6 +1415,11 @@ void InterfaceLayoutCreate(UIElement *parent) {
 }
 
 int main(int argc, char **argv) {
+	if (argc == 2 && (0 == strcmp(argv[1], "-?") || 0 == strcmp(argv[1], "-h") || 0 == strcmp(argv[1], "--help"))) {
+		fprintf(stderr, "Read the README.md for help.\n");
+		return 0;
+	}
+
 	struct sigaction sigintHandler = {};
 	sigintHandler.sa_handler = [] (int) { DebuggerClose(); exit(0); };
 	sigaction(SIGINT, &sigintHandler, nullptr);
