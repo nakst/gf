@@ -85,13 +85,13 @@ struct MapShort {
 	struct { K key; V value; } *array;
 	size_t used, capacity;
 
-	uint64_t Hash(const void *key, size_t keyBytes) {
+	uint64_t Hash(uint8_t *key, size_t keyBytes) {
 		uint64_t hash = 0xCBF29CE484222325;
-		for (uintptr_t i = 0; i < keyBytes; i++) hash = (hash ^ ((uint8_t *) key)[i]) * 0x100000001B3;
+		for (uintptr_t i = 0; i < keyBytes; i++) hash = (hash ^ key[i]) * 0x100000001B3;
 		return hash;
 	}
 
-	inline void Put(K key, V value) {
+	inline V *At(K key, bool createIfNeeded) {
 		if (used + 1 > capacity / 2) {
 			MapShort grow = {};
 			grow.capacity = capacity ? (capacity + 1) * 2 - 1 : 15;
@@ -100,20 +100,19 @@ struct MapShort {
 			free(array); *this = grow;
 		}
 
-		uintptr_t slot = Hash(&key, sizeof(key)) % capacity;
+		uintptr_t slot = Hash((uint8_t *) &key, sizeof(key)) % capacity;
 		while (array[slot].key && array[slot].key != key) slot = (slot + 1) % capacity;
-		array[slot].key = key;
-		array[slot].value = value;
-		used++;
+
+		if (!array[slot].key && createIfNeeded) {
+			used++;
+			array[slot].key = key;
+		}
+
+		return &array[slot].value;
 	}
 
-	inline V Get(K key) {
-		if (!capacity) return 0;
-		uintptr_t slot = Hash(&key, sizeof(key)) % capacity;
-		while (array[slot].key && array[slot].key != key) slot = (slot + 1) % capacity;
-		return array[slot].value;
-	}
-
+	inline V Get(K key) { return *At(key, false); }
+	inline void Put(K key, V value) { *At(key, true) = value; }
 	inline void Free() { free(array); array = nullptr; used = capacity = 0; }
 };
 

@@ -514,7 +514,7 @@ typedef struct UITable {
 	UIScrollBar *vScroll;
 	int itemCount;
 	char *columns;
-	int *columnWidths, columnCount;
+	int *columnWidths, columnCount, columnHighlight;
 } UITable;
 
 typedef struct UITextbox {
@@ -633,6 +633,7 @@ void UITextboxMoveCaret(UITextbox *textbox, bool backward, bool word);
 
 UITable *UITableCreate(UIElement *parent, uint32_t flags, const char *columns /* separate with \t, terminate with \0 */);
 int UITableHitTest(UITable *table, int x, int y); // Returns item index. Returns -1 if not on an item.
+int UITableHeaderHitTest(UITable *table, int x, int y); // Returns column index or -1.
 bool UITableEnsureVisible(UITable *table, int index); // Returns false if the item was already visible.
 void UITableResizeColumns(UITable *table);
 
@@ -2633,6 +2634,26 @@ int UITableHitTest(UITable *table, int x, int y) {
 	return y / rowHeight;
 }
 
+int UITableHeaderHitTest(UITable *table, int x, int y) {
+	if (!table->columnCount) return -1;
+	UIRectangle header = table->e.bounds;
+	header.b = header.t + UI_SIZE_TABLE_HEADER * table->e.window->scale;
+	header.l += UI_SIZE_TABLE_COLUMN_GAP * table->e.window->scale;
+	int position = 0, index = 0;
+
+	while (true) {
+		int end = position;
+		for (; table->columns[end] != '\t' && table->columns[end]; end++);
+		header.r = header.l + table->columnWidths[index];
+		if (UIRectangleContains(header, x, y)) return index;
+		header.l += table->columnWidths[index] + UI_SIZE_TABLE_COLUMN_GAP * table->e.window->scale;
+		if (table->columns[end] != '\t') break;
+		position = end + 1, index++;
+	}
+
+	return -1;
+}
+
 bool UITableEnsureVisible(UITable *table, int index) {
 	int rowHeight = UI_SIZE_TABLE_ROW * table->e.window->scale;
 	int y = index * rowHeight;
@@ -2768,6 +2789,7 @@ int _UITableMessage(UIElement *element, UIMessage message, int di, void *dp) {
 
 				header.r = header.l + table->columnWidths[index];
 				UIDrawString(painter, header, table->columns + position, end - position, ui.theme.text, UI_ALIGN_LEFT, NULL);
+				if (index == table->columnHighlight) UIDrawInvert(painter, header);
 				header.l += table->columnWidths[index] + UI_SIZE_TABLE_COLUMN_GAP * table->e.window->scale;
 
 				if (table->columns[end] == '\t') {
@@ -2802,6 +2824,7 @@ UITable *UITableCreate(UIElement *parent, uint32_t flags, const char *columns) {
 	UITable *table = (UITable *) UIElementCreate(sizeof(UITable), parent, flags, _UITableMessage, "Table");
 	table->vScroll = UIScrollBarCreate(&table->e, 0);
 	table->columns = UIStringCopy(columns, -1);
+	table->columnHighlight = -1;
 	return table;
 }
 
