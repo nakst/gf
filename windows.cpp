@@ -2042,11 +2042,11 @@ void CommandToggleFillDataTab(void *) {
 	// HACK.
 
 	if (!dataTab) return;
-	static UIElement *oldParent;
+	static UIElement *oldParent, *oldBefore;
 	UIWindow *window = dataTab->e.window;
 	
 	if (window->e.children == &dataTab->e) {
-		UIElementChangeParent(&dataTab->e, oldParent, false);
+		UIElementChangeParent(&dataTab->e, oldParent, oldBefore);
 		buttonFillWindow->e.flags &= ~UI_BUTTON_CHECKED;
 		UIElementRefresh(&window->e);
 		UIElementRefresh(window->e.children);
@@ -2055,8 +2055,9 @@ void CommandToggleFillDataTab(void *) {
 		dataTab->e.flags &= ~UI_ELEMENT_HIDE;
 		UIElementMessage(&dataTab->e, UI_MSG_TAB_SELECTED, 0, 0);
 		oldParent = dataTab->e.parent;
+		oldBefore = dataTab->e.next;
 		window->e.children->clip = UI_RECT_1(0);
-		UIElementChangeParent(&dataTab->e, &window->e, true);
+		UIElementChangeParent(&dataTab->e, &window->e, window->e.children);
 		buttonFillWindow->e.flags |= UI_BUTTON_CHECKED;
 		UIElementRefresh(&window->e);
 		UIElementRefresh(&dataTab->e);
