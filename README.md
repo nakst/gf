@@ -20,9 +20,17 @@ And compile the application.
 
 Please read the rest of this file to learn about using and configuring `gf`.
 
-## Support
+## Extension pack
 
-To support development, you can donate to my Patreon: https://www.patreon.com/nakst.
+![A screenshot showing the embedded profiler, which is displaying a multi-colored flame graph.](https://raw.githubusercontent.com/nakst/cdn/main/unknown2.png)
+
+All tiers on my Patreon, https://www.patreon.com/nakst, get access to the extension pack. 
+
+This currently includes:
+- Embedded tracing profiler
+- Memory window
+
+Make sure you use the latest version of the extension pack with the latest commit of `gf`, otherwise you'll likely run into compile or runtime errors!
 
 ## Tips
 
