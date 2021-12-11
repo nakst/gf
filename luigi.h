@@ -1367,7 +1367,6 @@ void UIDrawString(UIPainter *painter, UIRectangle r, const char *string, ptrdiff
 		}
 	}
 
-
 	for (; j < bytes; j++) {
 		char c = *string++;
 		uint32_t colorText = color;

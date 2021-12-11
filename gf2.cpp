@@ -30,13 +30,6 @@
 #include <poll.h>
 #include <time.h>
 
-char *layoutString = (char *) "v(75,h(80,Source,v(50,t(Exe,Breakpoints,Commands,Struct),t(Stack,Files,Thread))),h(65,Console,t(Watch,Registers,Data)))";
-
-int fontSizeCode = 13;
-int fontSizeInterface = 11;
-float uiScale = 1;
-bool maximize = false;
-
 extern "C" {
 #define UI_LINUX
 #define UI_IMPLEMENTATION
@@ -111,12 +104,33 @@ struct MapShort {
 		return &array[slot].value;
 	}
 
+	inline bool Has(K key) {
+		if (!capacity) return false;
+		uintptr_t slot = Hash((uint8_t *) &key, sizeof(key)) % capacity;
+		while (array[slot].key && array[slot].key != key) slot = (slot + 1) % capacity;
+		return array[slot].key;
+	}
+
 	inline V Get(K key) { return *At(key, false); }
 	inline void Put(K key, V value) { *At(key, true) = value; }
 	inline void Free() { free(array); array = nullptr; used = capacity = 0; }
 };
 
 // General:
+
+struct InterfaceCommand {
+	const char *label;
+	UIShortcut shortcut;
+};
+
+struct InterfaceWindow {
+	const char *name;
+	UIElement *(*create)(UIElement *parent);
+	void (*update)(const char *data, UIElement *element);
+	void (*focus)(UIElement *element);
+	UIElement *element;
+	bool queuedUpdate, alwaysUpdate;
+};
 
 struct INIState {
 	char *buffer, *section, *key, *value;
@@ -136,6 +150,12 @@ char localConfigPath[PATH_MAX];
 const char *executablePath;
 const char *executableArguments;
 bool executableAskDirectory = true;
+Array<InterfaceWindow> interfaceWindows;
+char *layoutString = (char *) "v(75,h(80,Source,v(50,t(Exe,Breakpoints,Commands,Struct),t(Stack,Files,Thread))),h(65,Console,t(Watch,Registers,Data)))";
+int fontSizeCode = 13;
+int fontSizeInterface = 11;
+float uiScale = 1;
+bool maximize;
 
 // Current file and line:
 
@@ -1162,27 +1182,13 @@ void SettingsLoad(bool earlyPass) {
 
 #include "windows.cpp"
 
-#ifdef PROF_EXTENSION
-#include "prof_window.cpp"
+#if __has_include("extensions.cpp")
+#include "extensions.cpp"
 #endif
 
 //////////////////////////////////////////////////////
 // Interface and main:
 //////////////////////////////////////////////////////
-
-struct InterfaceCommand {
-	const char *label;
-	UIShortcut shortcut;
-};
-
-struct InterfaceWindow {
-	const char *name;
-	UIElement *(*create)(UIElement *parent);
-	void (*update)(const char *data, UIElement *element);
-	void (*focus)(UIElement *element);
-	UIElement *element;
-	bool queuedUpdate, alwaysUpdate;
-};
 
 const InterfaceCommand interfaceCommands[] = {
 	{ .label = "Run\tShift+F5", { .code = UI_KEYCODE_FKEY(5), .shift = true, .invoke = CommandSendToGDB, .cp = (void *) "r" } },
@@ -1210,24 +1216,22 @@ const InterfaceCommand interfaceCommands[] = {
 	{ .label = "Donate", { .invoke = CommandDonate } },
 };
 
-InterfaceWindow interfaceWindows[] = {
-	{ "Stack", StackWindowCreate, StackWindowUpdate, },
-	{ "Source", SourceWindowCreate, SourceWindowUpdate, },
-	{ "Breakpoints", BreakpointsWindowCreate, BreakpointsWindowUpdate, },
-	{ "Registers", RegistersWindowCreate, RegistersWindowUpdate, },
-	{ "Watch", WatchWindowCreate, WatchWindowUpdate, WatchWindowFocus, },
-	{ "Commands", CommandsWindowCreate, nullptr, },
-	{ "Data", DataWindowCreate, nullptr, },
-	{ "Struct", StructWindowCreate, nullptr, },
-	{ "Files", FilesWindowCreate, nullptr, },
-	{ "Console", ConsoleWindowCreate, nullptr, },
-	{ "Log", LogWindowCreate, nullptr, },
-	{ "Thread", ThreadWindowCreate, ThreadWindowUpdate, },
-	{ "Exe", ExecutableWindowCreate, nullptr, },
-#ifdef PROF_EXTENSION
-	{ "Prof", ProfWindowCreate, ProfWindowUpdate, .alwaysUpdate = true },
-#endif
-};
+__attribute__((constructor)) 
+void InterfaceAddBuiltinWindows() {
+	interfaceWindows.Add({ "Stack", StackWindowCreate, StackWindowUpdate });
+	interfaceWindows.Add({ "Source", SourceWindowCreate, SourceWindowUpdate });
+	interfaceWindows.Add({ "Breakpoints", BreakpointsWindowCreate, BreakpointsWindowUpdate });
+	interfaceWindows.Add({ "Registers", RegistersWindowCreate, RegistersWindowUpdate });
+	interfaceWindows.Add({ "Watch", WatchWindowCreate, WatchWindowUpdate, WatchWindowFocus });
+	interfaceWindows.Add({ "Commands", CommandsWindowCreate, nullptr });
+	interfaceWindows.Add({ "Data", DataWindowCreate, nullptr });
+	interfaceWindows.Add({ "Struct", StructWindowCreate, nullptr });
+	interfaceWindows.Add({ "Files", FilesWindowCreate, nullptr });
+	interfaceWindows.Add({ "Console", ConsoleWindowCreate, nullptr });
+	interfaceWindows.Add({ "Log", LogWindowCreate, nullptr });
+	interfaceWindows.Add({ "Thread", ThreadWindowCreate, ThreadWindowUpdate });
+	interfaceWindows.Add({ "Exe", ExecutableWindowCreate, nullptr });
+}
 
 void InterfaceShowMenu(void *self) {
 	UIMenu *menu = UIMenuCreate((UIElement *) self, UI_MENU_PLACE_ABOVE | UI_MENU_NO_SCROLL);
@@ -1241,7 +1245,7 @@ void InterfaceShowMenu(void *self) {
 }
 
 UIElement *InterfaceWindowSwitchToAndFocus(const char *name) {
-	for (uintptr_t i = 0; i < sizeof(interfaceWindows) / sizeof(interfaceWindows[0]); i++) {
+	for (int i = 0; i < interfaceWindows.Length(); i++) {
 		InterfaceWindow *window = &interfaceWindows[i];
 		if (!window->element) continue;
 		if (strcmp(window->name, name)) continue;
@@ -1294,7 +1298,7 @@ int WindowMessage(UIElement *, UIMessage message, int di, void *dp) {
 		DebuggerGetStack();
 		DebuggerGetBreakpoints();
 
-		for (uintptr_t i = 0; i < sizeof(interfaceWindows) / sizeof(interfaceWindows[0]); i++) {
+		for (int i = 0; i < interfaceWindows.Length(); i++) {
 			InterfaceWindow *window = &interfaceWindows[i];
 			if (!window->update || !window->element) continue;
 			if (!window->alwaysUpdate && ElementHidden(window->element)) window->queuedUpdate = true;
@@ -1339,7 +1343,7 @@ int InterfaceTabPaneMessage(UIElement *element, UIMessage message, int di, void 
 	if (message == UI_MSG_LAYOUT) {
 		element->messageClass(element, message, di, dp);
 
-		for (uintptr_t i = 0; i < sizeof(interfaceWindows) / sizeof(interfaceWindows[0]); i++) {
+		for (int i = 0; i < interfaceWindows.Length(); i++) {
 			InterfaceWindow *window = &interfaceWindows[i];
 
 			if (window->element && (~window->element->flags & UI_ELEMENT_HIDE) && window->queuedUpdate) {
@@ -1354,35 +1358,99 @@ int InterfaceTabPaneMessage(UIElement *element, UIMessage message, int di, void 
 	return 0;
 }
 
-void InterfaceLayoutCreate(UIElement *parent) {
-	UIElement *container = nullptr;
-	uintptr_t exactChildCount = 0, currentChildCount = 0;
+const char *InterfaceLayoutNextToken(const char *expected = nullptr) {
+	static char buffer[32];
+	char *out = buffer;
 
-	if (layoutString[0] == 'h' && layoutString[1] == '(') {
-		layoutString += 2;
-		container = &UISplitPaneCreate(parent, UI_ELEMENT_V_FILL | UI_ELEMENT_H_FILL, strtol(layoutString, &layoutString, 10) * 0.01f)->e;
+	while (isspace(*layoutString)) {
 		layoutString++;
-		exactChildCount = 2;
-	} else if (layoutString[0] == 'v' && layoutString[1] == '(') {
-		layoutString += 2;
-		container = &UISplitPaneCreate(parent, UI_SPLIT_PANE_VERTICAL | UI_ELEMENT_V_FILL | UI_ELEMENT_H_FILL, strtol(layoutString, &layoutString, 10) * 0.01f)->e;
+	}
+
+	char first = *layoutString;
+
+	if (first == 0) {
+		*out = 0;
+	} else if (first == ',' || first == '(' || first == ')') {
+		out[0] = first;
+		out[1] = 0;
 		layoutString++;
-		exactChildCount = 2;
-	} else if (layoutString[0] == 't' && layoutString[1] == '(') {
-		layoutString += 2;
+	} else if (isalnum(first)) {
+		for (uintptr_t i = 0; i < sizeof(buffer) - 1; i++) {
+			if (isalnum(*layoutString)) {
+				*out++ = *layoutString++;
+			} else {
+				break;
+			}
+		}
+
+		*out = 0;
+	} else {
+		fprintf(stderr, "Error: Invalid character in layout string '%c'.\n", first);
+		exit(1);
+	}
+
+	if (expected) {
+		if (*expected == '#') {
+			bool valid = true;
+
+			for (int i = 0; buffer[i]; i++) {
+				if (!isdigit(buffer[i])) valid = false;
+			}
+
+			if (!valid) {
+				fprintf(stderr, "Error: Expected a number in layout string; got '%s'.\n", buffer);
+				exit(1);
+			}
+		} else if (strcmp(expected, buffer)) {
+			fprintf(stderr, "Error: Expected '%s' in layout string; got '%s'.\n", expected, buffer);
+			exit(1);
+		}
+	}
+
+	return buffer;
+}
+
+void InterfaceLayoutCreate(UIElement *parent) {
+	const char *token = InterfaceLayoutNextToken();
+
+	if (0 == strcmp("h", token) || 0 == strcmp("v", token)) {
+		uint32_t flags = UI_ELEMENT_V_FILL | UI_ELEMENT_H_FILL;
+		if (*token == 'v') flags |= UI_SPLIT_PANE_VERTICAL;
+		InterfaceLayoutNextToken("(");
+		UIElement *container = &UISplitPaneCreate(parent, flags, atoi(InterfaceLayoutNextToken("#")) * 0.01f)->e;
+		InterfaceLayoutNextToken(",");
+		InterfaceLayoutCreate(container);
+		InterfaceLayoutNextToken(",");
+		InterfaceLayoutCreate(container);
+		InterfaceLayoutNextToken(")");
+	} else if (0 == strcmp("t", token)) {
+		InterfaceLayoutNextToken("(");
 		char *copy = strdup(layoutString);
 		for (uintptr_t i = 0; copy[i]; i++) if (copy[i] == ',') copy[i] = '\t'; else if (copy[i] == ')') copy[i] = 0;
-		container = &UITabPaneCreate(parent, UI_ELEMENT_V_FILL | UI_ELEMENT_H_FILL, copy)->e;
+		UIElement *container = &UITabPaneCreate(parent, UI_ELEMENT_V_FILL | UI_ELEMENT_H_FILL, copy)->e;
 		container->messageUser = InterfaceTabPaneMessage;
+		free(copy);
+		InterfaceLayoutCreate(container);
+
+		while (true) {
+			token = InterfaceLayoutNextToken();
+
+			if (0 == strcmp(token, ",")) {
+				InterfaceLayoutCreate(container);
+			} else if (0 == strcmp(token, ")")) {
+				break;
+			} else {
+				fprintf(stderr, "Error: Invalid layout string! Expected ',' or ')' in tab container list; got '%s'.\n", token);
+				exit(1);
+			}
+		}
 	} else {
 		bool found = false;
 
-		for (uintptr_t i = 0; i < sizeof(interfaceWindows) / sizeof(interfaceWindows[0]); i++) {
-			InterfaceWindow *w = interfaceWindows + i;
+		for (int i = 0; i < interfaceWindows.Length(); i++) {
+			InterfaceWindow *w = &interfaceWindows[i];
 
-			if (strlen(layoutString) > strlen(w->name) && 0 == memcmp(layoutString, w->name, strlen(w->name)) && 
-					(layoutString[strlen(w->name)] == ',' || layoutString[strlen(w->name)] == ')')) { 
-				layoutString += strlen(w->name);
+			if (0 == strcmp(token, w->name)) { 
 				w->element = w->create(parent);
 				found = true;
 				break;
@@ -1390,26 +1458,9 @@ void InterfaceLayoutCreate(UIElement *parent) {
 		}
 
 		if (!found) {
-			fprintf(stderr, "Error: Invalid layout string! The specified window was not found.\n");
+			fprintf(stderr, "Error: Invalid layout string! The window '%s' was not found.\n", token);
 			exit(1);
 		}
-	}
-
-	while (container) {
-		if (layoutString[0] == ',') {
-			layoutString++;
-		} else if (layoutString[0] == ')') {
-			layoutString++;
-			break;
-		} else {
-			InterfaceLayoutCreate(container);
-			currentChildCount++;
-		}
-	}
-
-	if (currentChildCount != exactChildCount && exactChildCount) {
-		fprintf(stderr, "Error: Invalid layout string! Split panes, h(...) and v(...), must have exactly 2 children.\n");
-		exit(1);
 	}
 }
 
@@ -1448,6 +1499,11 @@ int main(int argc, char **argv) {
 	}
 
 	InterfaceLayoutCreate(&UIPanelCreate(&windowMain->e, UI_PANEL_EXPAND)->e);
+
+	if (*InterfaceLayoutNextToken()) {
+		fprintf(stderr, "Warning: Layout string has additional text after the end of the top-level entry.\n");
+	}
+
 	SettingsLoad(false);
 	pthread_cond_init(&evaluateEvent, nullptr);
 	pthread_mutex_init(&evaluateMutex, nullptr);
