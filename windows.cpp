@@ -1916,6 +1916,7 @@ void WatchWindowFocus(UIElement *element) {
 
 void CommandAddWatch(void *) {
 	UIElement *element = InterfaceWindowSwitchToAndFocus("Watch");
+	if (!element) return;
 	WatchWindow *w = (WatchWindow *) element->cp;
 	if (w->textbox) return;
 	w->selectedRow = w->rows.Length();
@@ -2114,7 +2115,7 @@ UIElement *StructWindowCreate(UIElement *parent) {
 	window->textbox->e.messageUser = TextboxStructNameMessage;
 	window->textbox->e.cp = window;
 	window->display = UICodeCreate(&panel->e, UI_ELEMENT_V_FILL | UI_CODE_NO_MARGIN);
-	UICodeInsertContent(window->display, "Type the name of a struct\nto view its layout.", -1, false);
+	UICodeInsertContent(window->display, "Type the name of a struct to view its layout.", -1, false);
 	return &panel->e;
 }
 
@@ -2125,6 +2126,7 @@ UIElement *StructWindowCreate(UIElement *parent) {
 struct FilesWindow {
 	char directory[PATH_MAX];
 	UIPanel *panel;
+	UILabel *path;
 };
 
 bool FilesPanelPopulate(FilesWindow *window);
@@ -2204,17 +2206,46 @@ bool FilesPanelPopulate(FilesWindow *window) {
 
 	names.Free();
 	UIElementRefresh(&window->panel->e);
+
+	{
+		char path[PATH_MAX];
+		realpath(window->directory, path);
+		UILabelSetContent(window->path, path, -1);
+		UIElementRefresh(&window->path->e);
+	}
+
 	return true;
+}
+
+void FilesNavigateToCWD(void *cp) {
+	FilesWindow *window = (FilesWindow *) cp;
+	getcwd(window->directory, sizeof(window->directory));
+	FilesPanelPopulate(window);
+}
+
+void FilesNavigateToActiveFile(void *cp) {
+	FilesWindow *window = (FilesWindow *) cp;
+	StringFormat(window->directory, sizeof(window->directory), "%s", currentFileFull);
+	int p = strlen(window->directory);
+	while (p--) if (window->directory[p] == '/') { window->directory[p] = 0; break; }
+	FilesPanelPopulate(window);
 }
 
 UIElement *FilesWindowCreate(UIElement *parent) {
 	FilesWindow *window = (FilesWindow *) calloc(1, sizeof(FilesWindow));
-	window->panel = UIPanelCreate(parent, UI_PANEL_GRAY | UI_PANEL_EXPAND | UI_PANEL_SCROLL);
+	UIPanel *container = UIPanelCreate(parent, UI_PANEL_EXPAND);
+	window->panel = UIPanelCreate(&container->e, UI_PANEL_GRAY | UI_PANEL_EXPAND | UI_PANEL_SCROLL | UI_ELEMENT_V_FILL);
 	window->panel->gap = -1, window->panel->border = UI_RECT_1(1);
 	window->panel->e.cp = window;
-	getcwd(window->directory, sizeof(window->directory));
-	FilesPanelPopulate(window);
-	return &window->panel->e;
+	UIPanel *row = UIPanelCreate(&container->e, UI_PANEL_WHITE | UI_PANEL_HORIZONTAL | UI_PANEL_SMALL_SPACING);
+	UIButton *button;
+	button = UIButtonCreate(&row->e, UI_BUTTON_SMALL, "-> cwd", -1);
+	button->e.cp = window, button->invoke = FilesNavigateToCWD;
+	button = UIButtonCreate(&row->e, UI_BUTTON_SMALL, "-> active file", -1);
+	button->e.cp = window, button->invoke = FilesNavigateToActiveFile;
+	window->path = UILabelCreate(&row->e, UI_ELEMENT_H_FILL, "", 0);
+	FilesNavigateToCWD(window);
+	return &container->e;
 }
 
 //////////////////////////////////////////////////////

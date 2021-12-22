@@ -47,7 +47,7 @@ struct Array {
 	T *array;
 	size_t length, allocated;
 
-	inline void Insert(T item, uintptr_t index) {
+	void Insert(T item, uintptr_t index) {
 		if (length == allocated) {
 			allocated = length * 2 + 1;
 			array = (T *) realloc(array, allocated * sizeof(T));
@@ -58,19 +58,19 @@ struct Array {
 		array[index] = item;
 	}
 
-	inline void Delete(uintptr_t index, size_t count = 1) { 
+	void Delete(uintptr_t index, size_t count = 1) { 
 		memmove(array + index, array + index + count, (length - index - count) * sizeof(T)); 
 		length -= count;
 	}
 
-	inline void Add(T item) { Insert(item, length); }
-	inline void Free() { free(array); array = nullptr; length = allocated = 0; }
-	inline int Length() { return length; }
-	inline T &First() { return array[0]; }
-	inline T &Last() { return array[length - 1]; }
-	inline T &operator[](uintptr_t index) { return array[index]; }
-	inline void Pop() { length--; }
-	inline void DeleteSwap(uintptr_t index) { if (index != length - 1) array[index] = Last(); Pop(); }
+	void Add(T item) { Insert(item, length); }
+	void Free() { free(array); array = nullptr; length = allocated = 0; }
+	int Length() { return length; }
+	T &First() { return array[0]; }
+	T &Last() { return array[length - 1]; }
+	T &operator[](uintptr_t index) { assert(index < length); return array[index]; }
+	void Pop() { length--; }
+	void DeleteSwap(uintptr_t index) { if (index != length - 1) array[index] = Last(); Pop(); }
 };
 
 template <class K, class V>
@@ -84,7 +84,7 @@ struct MapShort {
 		return hash;
 	}
 
-	inline V *At(K key, bool createIfNeeded) {
+	V *At(K key, bool createIfNeeded) {
 		if (used + 1 > capacity / 2) {
 			MapShort grow = {};
 			grow.capacity = capacity ? (capacity + 1) * 2 - 1 : 15;
@@ -104,16 +104,16 @@ struct MapShort {
 		return &array[slot].value;
 	}
 
-	inline bool Has(K key) {
+	bool Has(K key) {
 		if (!capacity) return false;
 		uintptr_t slot = Hash((uint8_t *) &key, sizeof(key)) % capacity;
 		while (array[slot].key && array[slot].key != key) slot = (slot + 1) % capacity;
 		return array[slot].key;
 	}
 
-	inline V Get(K key) { return *At(key, false); }
-	inline void Put(K key, V value) { *At(key, true) = value; }
-	inline void Free() { free(array); array = nullptr; used = capacity = 0; }
+	V Get(K key) { return *At(key, false); }
+	void Put(K key, V value) { *At(key, true) = value; }
+	void Free() { free(array); array = nullptr; used = capacity = 0; }
 };
 
 // General:
@@ -151,6 +151,7 @@ const char *executablePath;
 const char *executableArguments;
 bool executableAskDirectory = true;
 Array<InterfaceWindow> interfaceWindows;
+Array<InterfaceCommand> interfaceCommands;
 char *layoutString = (char *) "v(75,h(80,Source,v(50,t(Exe,Breakpoints,Commands,Struct),t(Stack,Files,Thread))),h(65,Console,t(Watch,Registers,Data)))";
 int fontSizeCode = 13;
 int fontSizeInterface = 11;
@@ -1190,34 +1191,8 @@ void SettingsLoad(bool earlyPass) {
 // Interface and main:
 //////////////////////////////////////////////////////
 
-const InterfaceCommand interfaceCommands[] = {
-	{ .label = "Run\tShift+F5", { .code = UI_KEYCODE_FKEY(5), .shift = true, .invoke = CommandSendToGDB, .cp = (void *) "r" } },
-	{ .label = "Run paused\tCtrl+F5", { .code = UI_KEYCODE_FKEY(5), .ctrl = true, .invoke = CommandSendToGDB, .cp = (void *) "start" } },
-	{ .label = "Kill\tF3", { .code = UI_KEYCODE_FKEY(3), .invoke = CommandSendToGDB, .cp = (void *) "kill" } },
-	{ .label = "Restart GDB\tCtrl+R", { .code = UI_KEYCODE_LETTER('R'), .ctrl = true, .invoke = CommandSendToGDB, .cp = (void *) "gf-restart-gdb" } },
-	{ .label = "Connect\tF4", { .code = UI_KEYCODE_FKEY(4), .invoke = CommandSendToGDB, .cp = (void *) "target remote :1234" } },
-	{ .label = "Continue\tF5", { .code = UI_KEYCODE_FKEY(5), .invoke = CommandSendToGDB, .cp = (void *) "c" } },
-	{ .label = "Step over\tF10", { .code = UI_KEYCODE_FKEY(10), .invoke = CommandSendToGDB, .cp = (void *) "gf-next" } },
-	{ .label = "Step out of block\tShift+F10", { .code = UI_KEYCODE_FKEY(10), .shift = true, .invoke = CommandSendToGDB, .cp = (void *) "gf-step-out-of-block" } },
-	{ .label = "Step in\tF11", { .code = UI_KEYCODE_FKEY(11), .invoke = CommandSendToGDB, .cp = (void *) "gf-step" } },
-	{ .label = "Step into outer\tShift+F8", { .code = UI_KEYCODE_FKEY(8), .shift = true, .invoke = CommandSendToGDB, .cp = (void *) "gf-step-into-outer" } },
-	{ .label = "Step out\tShift+F11", { .code = UI_KEYCODE_FKEY(11), .shift = true, .invoke = CommandSendToGDB, .cp = (void *) "finish" } },
-	{ .label = "Pause\tF8", { .code = UI_KEYCODE_FKEY(8), .invoke = CommandPause } },
-	{ .label = "Toggle breakpoint\tF9", { .code = UI_KEYCODE_FKEY(9), .invoke = CommandToggleBreakpoint } },
-	{ .label = "Sync with gvim\tF2", { .code = UI_KEYCODE_FKEY(2), .invoke = CommandSyncWithGvim } },
-	{ .label = "Ask GDB for PWD\tCtrl+Shift+P", { .code = UI_KEYCODE_LETTER('P'), .ctrl = true, .shift = true, .invoke = CommandSendToGDB, .cp = (void *) "gf-get-pwd" } },
-	{ .label = "Toggle disassembly\tCtrl+D", { .code = UI_KEYCODE_LETTER('D'), .ctrl = true, .invoke = CommandToggleDisassembly } },
-	{ .label = "Set disassembly mode\tCtrl+M", { .code = UI_KEYCODE_LETTER('M'), .ctrl = true, .invoke = CommandSetDisassemblyMode } },
-	{ .label = "Add watch", { .invoke = CommandAddWatch } },
-	{ .label = "Inspect line", { .code = XK_grave, .invoke = CommandInspectLine } },
-	{ .label = nullptr, { .code = UI_KEYCODE_LETTER('E'), .ctrl = true, .invoke = CommandWatchAddEntryForAddress } },
-	{ .label = nullptr, { .code = UI_KEYCODE_LETTER('G'), .ctrl = true, .invoke = CommandWatchViewSourceAtAddress } },
-	{ .label = nullptr, { .code = UI_KEYCODE_LETTER('B'), .ctrl = true, .invoke = CommandToggleFillDataTab } },
-	{ .label = "Donate", { .invoke = CommandDonate } },
-};
-
 __attribute__((constructor)) 
-void InterfaceAddBuiltinWindows() {
+void InterfaceAddBuiltinWindowsAndCommands() {
 	interfaceWindows.Add({ "Stack", StackWindowCreate, StackWindowUpdate });
 	interfaceWindows.Add({ "Source", SourceWindowCreate, SourceWindowUpdate });
 	interfaceWindows.Add({ "Breakpoints", BreakpointsWindowCreate, BreakpointsWindowUpdate });
@@ -1231,12 +1206,59 @@ void InterfaceAddBuiltinWindows() {
 	interfaceWindows.Add({ "Log", LogWindowCreate, nullptr });
 	interfaceWindows.Add({ "Thread", ThreadWindowCreate, ThreadWindowUpdate });
 	interfaceWindows.Add({ "Exe", ExecutableWindowCreate, nullptr });
+
+	interfaceCommands.Add({ .label = "Run\tShift+F5", 
+			{ .code = UI_KEYCODE_FKEY(5), .shift = true, .invoke = CommandSendToGDB, .cp = (void *) "r" } });
+	interfaceCommands.Add({ .label = "Run paused\tCtrl+F5", 
+			{ .code = UI_KEYCODE_FKEY(5), .ctrl = true, .invoke = CommandSendToGDB, .cp = (void *) "start" } });
+	interfaceCommands.Add({ .label = "Kill\tF3", 
+			{ .code = UI_KEYCODE_FKEY(3), .invoke = CommandSendToGDB, .cp = (void *) "kill" } });
+	interfaceCommands.Add({ .label = "Restart GDB\tCtrl+R", 
+			{ .code = UI_KEYCODE_LETTER('R'), .ctrl = true, .invoke = CommandSendToGDB, .cp = (void *) "gf-restart-gdb" } });
+	interfaceCommands.Add({ .label = "Connect\tF4", 
+			{ .code = UI_KEYCODE_FKEY(4), .invoke = CommandSendToGDB, .cp = (void *) "target remote :1234" } });
+	interfaceCommands.Add({ .label = "Continue\tF5", 
+			{ .code = UI_KEYCODE_FKEY(5), .invoke = CommandSendToGDB, .cp = (void *) "c" } });
+	interfaceCommands.Add({ .label = "Step over\tF10", 
+			{ .code = UI_KEYCODE_FKEY(10), .invoke = CommandSendToGDB, .cp = (void *) "gf-next" } });
+	interfaceCommands.Add({ .label = "Step out of block\tShift+F10", 
+			{ .code = UI_KEYCODE_FKEY(10), .shift = true, .invoke = CommandSendToGDB, .cp = (void *) "gf-step-out-of-block" } });
+	interfaceCommands.Add({ .label = "Step in\tF11", 
+			{ .code = UI_KEYCODE_FKEY(11), .invoke = CommandSendToGDB, .cp = (void *) "gf-step" } });
+	interfaceCommands.Add({ .label = "Step into outer\tShift+F8", 
+			{ .code = UI_KEYCODE_FKEY(8), .shift = true, .invoke = CommandSendToGDB, .cp = (void *) "gf-step-into-outer" } });
+	interfaceCommands.Add({ .label = "Step out\tShift+F11", 
+			{ .code = UI_KEYCODE_FKEY(11), .shift = true, .invoke = CommandSendToGDB, .cp = (void *) "finish" } });
+	interfaceCommands.Add({ .label = "Pause\tF8", 
+			{ .code = UI_KEYCODE_FKEY(8), .invoke = CommandPause } });
+	interfaceCommands.Add({ .label = "Toggle breakpoint\tF9", 
+			{ .code = UI_KEYCODE_FKEY(9), .invoke = CommandToggleBreakpoint } });
+	interfaceCommands.Add({ .label = "Sync with gvim\tF2", 
+			{ .code = UI_KEYCODE_FKEY(2), .invoke = CommandSyncWithGvim } });
+	interfaceCommands.Add({ .label = "Ask GDB for PWD\tCtrl+Shift+P", 
+			{ .code = UI_KEYCODE_LETTER('P'), .ctrl = true, .shift = true, .invoke = CommandSendToGDB, .cp = (void *) "gf-get-pwd" } });
+	interfaceCommands.Add({ .label = "Toggle disassembly\tCtrl+D", 
+			{ .code = UI_KEYCODE_LETTER('D'), .ctrl = true, .invoke = CommandToggleDisassembly } });
+	interfaceCommands.Add({ .label = "Set disassembly mode\tCtrl+M", 
+			{ .code = UI_KEYCODE_LETTER('M'), .ctrl = true, .invoke = CommandSetDisassemblyMode } });
+	interfaceCommands.Add({ .label = "Add watch", 
+			{ .invoke = CommandAddWatch } });
+	interfaceCommands.Add({ .label = "Inspect line", 
+			{ .code = XK_grave, .invoke = CommandInspectLine } });
+	interfaceCommands.Add({ .label = nullptr, 
+			{ .code = UI_KEYCODE_LETTER('E'), .ctrl = true, .invoke = CommandWatchAddEntryForAddress } });
+	interfaceCommands.Add({ .label = nullptr, 
+			{ .code = UI_KEYCODE_LETTER('G'), .ctrl = true, .invoke = CommandWatchViewSourceAtAddress } });
+	interfaceCommands.Add({ .label = nullptr, 
+			{ .code = UI_KEYCODE_LETTER('B'), .ctrl = true, .invoke = CommandToggleFillDataTab } });
+	interfaceCommands.Add({ .label = "Donate", 
+			{ .invoke = CommandDonate } });
 }
 
 void InterfaceShowMenu(void *self) {
 	UIMenu *menu = UIMenuCreate((UIElement *) self, UI_MENU_PLACE_ABOVE | UI_MENU_NO_SCROLL);
 
-	for (uintptr_t i = 0; i < sizeof(interfaceCommands) / sizeof(interfaceCommands[0]); i++) {
+	for (int i = 0; i < interfaceCommands.Length(); i++) {
 		if (!interfaceCommands[i].label) continue;
 		UIMenuAddItem(menu, 0, interfaceCommands[i].label, -1, interfaceCommands[i].shortcut.invoke, interfaceCommands[i].shortcut.cp);
 	}
@@ -1493,7 +1515,7 @@ int main(int argc, char **argv) {
 	windowMain->scale = uiScale;
 	windowMain->e.messageUser = WindowMessage;
 
-	for (uintptr_t i = 0; i < sizeof(interfaceCommands) / sizeof(interfaceCommands[0]); i++) {
+	for (int i = 0; i < interfaceCommands.Length(); i++) {
 		if (!interfaceCommands[i].shortcut.code) continue;
 		UIWindowRegisterShortcut(windowMain, interfaceCommands[i].shortcut);
 	}
