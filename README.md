@@ -23,12 +23,14 @@ Please read the rest of this file to learn about using and configuring `gf`.
 ## Extension pack
 
 ![A screenshot showing the embedded profiler, which is displaying a multi-colored flame graph.](https://raw.githubusercontent.com/nakst/cdn/main/unknown2.png)
+![A screenshot showing the memory window and extended watch expression view.](https://raw.githubusercontent.com/nakst/cdn/main/%20memory%20window%20and%20extended%20view%20window.png)
 
 All tiers on my Patreon, https://www.patreon.com/nakst, get access to the extension pack. 
 
 This currently includes:
 - Embedded tracing profiler
 - Memory window
+- Extended watch expression view (for strings, matrices and base conversion)
 
 Make sure you use the latest version of the extension pack with the latest commit of `gf`, otherwise you'll likely run into compile or runtime errors!
 
