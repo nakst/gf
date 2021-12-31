@@ -31,6 +31,7 @@ This currently includes:
 - Embedded tracing profiler
 - Memory window
 - Extended watch expression view (for strings, matrices and base conversion)
+- Full source code for the pack
 
 Make sure you use the latest version of the extension pack with the latest commit of `gf`, otherwise you'll likely run into compile or runtime errors!
 
