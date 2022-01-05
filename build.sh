@@ -6,7 +6,7 @@ then
 	do_nothing=""
 else
 	echo "GDB not detected. Please install GDB first!"
-	exit
+	exit 1
 fi
 
 if echo q | gdb | grep "(gdb)" > /dev/null
@@ -49,4 +49,9 @@ fi
 
 warning_flags="-Wall -Wextra -Wno-unused-parameter -Wno-unused-result -Wno-missing-field-initializers -Wno-format-truncation"
 
-g++ gf2.cpp -o gf2 -g -O2 -lX11 -pthread -DUI_SSE2 $warning_flags $font_flags $extra_flags
+if g++ gf2.cpp -o gf2 -g -O2 -lX11 -pthread -DUI_SSE2 $warning_flags $font_flags $extra_flags
+then
+	do_nothing=""
+else
+	exit 1
+fi
