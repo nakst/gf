@@ -18,7 +18,7 @@ And compile the application.
 ./build.sh
 ```
 
-Please read the rest of this file to learn about using and configuring `gf`.
+Please read the rest of this file to learn about using and configuring `gf`. If you're new to GDB, see [this article](https://handmade.network/forums/articles/t/2883-gdb).
 
 ## Extension pack
 
