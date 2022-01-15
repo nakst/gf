@@ -31,6 +31,7 @@
 #include <time.h>
 
 extern "C" {
+#define UI_FONT_PATH
 #define UI_LINUX
 #define UI_IMPLEMENTATION
 #include "luigi.h"
@@ -153,6 +154,7 @@ bool executableAskDirectory = true;
 Array<InterfaceWindow> interfaceWindows;
 Array<InterfaceCommand> interfaceCommands;
 char *layoutString = (char *) "v(75,h(80,Source,v(50,t(Exe,Breakpoints,Commands,Struct),t(Stack,Files,Thread))),h(65,Console,t(Watch,Registers,Data)))";
+const char *fontPath;
 int fontSizeCode = 13;
 int fontSizeInterface = 11;
 float uiScale = 1;
@@ -1123,7 +1125,9 @@ void SettingsLoad(bool earlyPass) {
 					UIWindowRegisterShortcut(windowMain, shortcut);
 				}
 			} else if (0 == strcmp(state.section, "ui") && earlyPass) {
-				if (0 == strcmp(state.key, "font_size")) {
+				if (0 == strcmp(state.key, "font_path")) {
+					fontPath = state.value;
+				} else if (0 == strcmp(state.key, "font_size")) {
 					fontSizeInterface = fontSizeCode = atoi(state.value);
 				} else if (0 == strcmp(state.key, "font_size_code")) {
 					fontSizeCode = atoi(state.value);
@@ -1508,8 +1512,25 @@ int main(int argc, char **argv) {
 	SettingsLoad(true);
 	UIInitialise();
 
-	fontCode = UIFontCreate(_UI_TO_STRING_2(UI_FONT_PATH), fontSizeCode);
-	UIFontActivate(UIFontCreate(_UI_TO_STRING_2(UI_FONT_PATH), fontSizeInterface));
+#ifdef UI_FREETYPE
+	if (!fontPath) {
+		// Ask fontconfig for a monospaced font. If this fails, the fallback font will be used.
+		FILE *f = popen("fc-list | grep `fc-match mono | awk '{ print($1) }'` "
+				"| awk 'BEGIN { FS = \":\" } ; { print($1) }'", "r");
+
+		if (f) {
+			char *buffer = (char *) malloc(PATH_MAX + 1);
+			buffer[fread(buffer, 1, PATH_MAX, f)] = 0;
+			pclose(f);
+			char *newline = strchr(buffer, '\n');
+			if (newline) *newline = 0;
+			fontPath = buffer;
+		}
+	}
+#endif
+
+	fontCode = UIFontCreate(fontPath, fontSizeCode);
+	UIFontActivate(UIFontCreate(fontPath, fontSizeInterface));
 
 	windowMain = UIWindowCreate(0, maximize ? UI_WINDOW_MAXIMIZE : 0, "gf2", 0, 0);
 	windowMain->scale = uiScale;

@@ -82,16 +82,17 @@ You can use any standard GDB command, or any of the commands listed in "Special 
 
 ### User interface
 
-You can change the font size and user interface scaling in the `[ui]` section. For example,
+You can change the font and user interface scaling in the `[ui]` section. For example,
 
 ```ini
 [ui]
 scale=1.5
+font_path=/usr/share/fonts/TTF/DejaVuSansMono.ttf
 font_size_interface=17
 font_size_code=20
 ```
 
-You can enable subpixel font rendering by recompiling with `extra_flags=-DUI_FREETYPE_SUBPIXEL ./build.sh`.
+To change the font, FreeType must have been available when you compiled gf. You can enable subpixel font rendering by recompiling with `extra_flags=-DUI_FREETYPE_SUBPIXEL ./build.sh`.
     
 You can also configure the interface layout, with the `layout` parameter. Use `h(position,left,right)` to create a horizontal split, `v(position,left,right)` to create a vertical split, and `t(...)` to create a tab pane. This value should not contain any whitespace. Please note this value is not validated, so make sure it is formatted correctly!
 

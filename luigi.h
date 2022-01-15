@@ -4249,13 +4249,14 @@ UIFont *UIFontCreate(const char *cPath, uint32_t size) {
 
 #ifdef UI_FREETYPE
 	if (cPath) {
-		FT_New_Face(ui.ft, cPath, 0, &font->font); 
-		FT_Set_Char_Size(font->font, 0, size * 64, 100, 100);
-		FT_Load_Char(font->font, 'a', FT_LOAD_DEFAULT);
-		font->glyphWidth = font->font->glyph->advance.x / 64;
-		font->glyphHeight = (font->font->size->metrics.ascender - font->font->size->metrics.descender) / 64;
-		font->isFreeType = true;
-		return font;
+		if (!FT_New_Face(ui.ft, cPath, 0, &font->font)) {
+			FT_Set_Char_Size(font->font, 0, size * 64, 100, 100);
+			FT_Load_Char(font->font, 'a', FT_LOAD_DEFAULT);
+			font->glyphWidth = font->font->glyph->advance.x / 64;
+			font->glyphHeight = (font->font->size->metrics.ascender - font->font->size->metrics.descender) / 64;
+			font->isFreeType = true;
+			return font;
+		}
 	}
 #endif
 	

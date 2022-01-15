@@ -1,57 +1,12 @@
-RED='\033[0;31m'
-WHITE='\033[0m'
+#!/bin/sh
 
-if gdb --version > /dev/null
-then
-	do_nothing=""
-else
-	echo "GDB not detected. Please install GDB first!"
-	exit 1
-fi
+# Check GDB is installed and uses the expected prompt.
+gdb --version > /dev/null 2>&1 || printf "\033[0;31mWarning\033[0m: GDB not detected. You must install GDB to use gf.\n"
+echo q | gdb | grep "(gdb)" > /dev/null 2>&1 || printf "\033[0;31mWarning\033[0m: Your copy of GDB appears to be non-standard or has been heavily reconfigured with .gdbinit.\nIf you are using GDB plugins like 'GDB Dashboard' you must remove them,\nas otherwise gf will be unable to communicate with GDB.\n"
 
-if echo q | gdb | grep "(gdb)" > /dev/null
-then
-	do_nothing=""
-else
-	echo -e "${RED}"
-	echo "Your copy of GDB appears to be non-standard or has been heavily reconfigured with .gdbinit."
-	echo "If you are using GDB plugins like 'GDB Dashboard' you must remove them,"
-	echo "as otherwise gf will be unable to communicate with GDB."
-	echo -e "${WHITE}"
-fi
+# Check if FreeType is available.
+if [ -d /usr/include/freetype2 ]; then font_flags="-lfreetype -D UI_FREETYPE -I /usr/include/freetype2"; 
+else printf "\033[0;31mWarning\033[0m: FreeType could not be found. The fallback font will be used.\n"; fi
 
-if command -v fc-match &> /dev/null
-then
-	if [ $# -eq 0 ]; then
-		font_name=`fc-match mono | awk '{ print($1) }'`
-		font_path=`fc-list | grep $font_name | awk 'BEGIN { FS = ":" } ; { print($1) }' | head -n1`
-		echo "Automatically detected monospaced font: $font_path"
-		echo "If you want to change this, pass the path of the desired font to $0."
-		echo "(Only monospaced fonts are supported.)"
-	else
-		font_path=$1
-	fi
-
-	if [ -z "$font_path" ];
-	then
-		font_flags=
-		echo "No monospaced fonts were found."
-		echo "If you have a specific font you want to use, pass its path to $0."
-		echo "Falling back to builtin font..."
-	else
-		font_flags="-lfreetype -D UI_FREETYPE -I /usr/include/freetype2 -D UI_FONT_PATH=$font_path"
-	fi
-else
-	font_flags=
-	echo "It looks like you don't have fontconfig installed."
-	echo "Falling back to builtin font..."
-fi
-
-warning_flags="-Wall -Wextra -Wno-unused-parameter -Wno-unused-result -Wno-missing-field-initializers -Wno-format-truncation"
-
-if g++ gf2.cpp -o gf2 -g -O2 -lX11 -pthread -DUI_SSE2 $warning_flags $font_flags $extra_flags
-then
-	do_nothing=""
-else
-	exit 1
-fi
+# Build the executable.
+g++ gf2.cpp -o gf2 -g -O2 -lX11 -pthread -DUI_SSE2 $font_flags $extra_flags -Wall -Wextra -Wno-unused-parameter -Wno-unused-result -Wno-missing-field-initializers -Wno-format-truncation || exit 1
