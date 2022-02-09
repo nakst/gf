@@ -844,21 +844,33 @@ int TextboxInputMessage(UIElement *element, UIMessage message, int di, void *dp)
 			TabCompleterRun(&tabCompleter, textbox, lastKeyWasTab, false);
 			return 1;
 		} else if (m->code == UI_KEYCODE_UP) {
-			if (commandHistoryIndex < commandHistory.Length()) {
-				UITextboxClear(textbox, false);
-				UITextboxReplace(textbox, commandHistory[commandHistoryIndex], -1, false);
-				if (commandHistoryIndex < commandHistory.Length() - 1) commandHistoryIndex++;
-				UIElementRefresh(&textbox->e);
+			if (element->window->shift) {
+				if (currentLine > 1) {
+					DisplaySetPosition(NULL, currentLine - 1, false);
+				}
+			} else {
+				if (commandHistoryIndex < commandHistory.Length()) {
+					UITextboxClear(textbox, false);
+					UITextboxReplace(textbox, commandHistory[commandHistoryIndex], -1, false);
+					if (commandHistoryIndex < commandHistory.Length() - 1) commandHistoryIndex++;
+					UIElementRefresh(&textbox->e);
+				}
 			}
 		} else if (m->code == UI_KEYCODE_DOWN) {
-			UITextboxClear(textbox, false);
+			if (element->window->shift) {
+				if (currentLine < displayCode->lineCount) {
+					DisplaySetPosition(NULL, currentLine + 1, false);
+				}
+			} else {
+				UITextboxClear(textbox, false);
 
-			if (commandHistoryIndex > 0) {
-				--commandHistoryIndex;
-				UITextboxReplace(textbox, commandHistory[commandHistoryIndex], -1, false);
+				if (commandHistoryIndex > 0) {
+					--commandHistoryIndex;
+					UITextboxReplace(textbox, commandHistory[commandHistoryIndex], -1, false);
+				}
+
+				UIElementRefresh(&textbox->e);
 			}
-
-			UIElementRefresh(&textbox->e);
 		}
 	}
 
@@ -1770,11 +1782,23 @@ int WatchWindowMessage(UIElement *element, UIMessage message, int di, void *dp) 
 		} else if (m->code == UI_KEYCODE_ESCAPE) {
 			WatchDestroyTextbox(w);
 		} else if (m->code == UI_KEYCODE_UP) {
-			WatchDestroyTextbox(w);
-			w->selectedRow--;
+			if (element->window->shift) {
+				if (currentLine > 1) {
+					DisplaySetPosition(NULL, currentLine - 1, false);
+				}
+			} else {
+				WatchDestroyTextbox(w);
+				w->selectedRow--;
+			}
 		} else if (m->code == UI_KEYCODE_DOWN) {
-			WatchDestroyTextbox(w);
-			w->selectedRow++;
+			if (element->window->shift) {
+				if (currentLine < displayCode->lineCount) {
+					DisplaySetPosition(NULL, currentLine + 1, false);
+				}
+			} else {
+				WatchDestroyTextbox(w);
+				w->selectedRow++;
+			}
 		} else if (m->code == UI_KEYCODE_HOME) {
 			w->selectedRow = 0;
 		} else if (m->code == UI_KEYCODE_END) {
