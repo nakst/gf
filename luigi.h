@@ -9,6 +9,10 @@
 #include <stdbool.h>
 #include <stdarg.h>
 
+//@clipboard_change:
+unsigned char examplePasteText[256000];
+int examplePasteTextSize = 0;
+
 #ifdef UI_LINUX
 #include <X11/Xlib.h>
 #include <X11/Xutil.h>
@@ -719,6 +723,7 @@ struct {
 	XIM xim;
 	Atom windowClosedID, primaryID, uriListID, plainTextID;
 	Atom dndEnterID, dndPositionID, dndStatusID, dndActionCopyID, dndDropID, dndSelectionID, dndFinishedID, dndAwareID;
+    Atom clipboardID, xSelectionDataID, textID, targetID;//@clipboard_change
 	Cursor cursors[UI_CURSOR_COUNT];
 #endif
 
@@ -2978,7 +2983,31 @@ int _UITextboxMessage(UIElement *element, UIMessage message, int di, void *dp) {
 			textbox->carets[0] = textbox->bytes;
 		} else if (m->textBytes && !element->window->alt && !element->window->ctrl && m->text[0] >= 0x20) {
 			UITextboxReplace(textbox, m->text, m->textBytes, true);
-		} else {
+		} else if (m->code == UI_KEYCODE_LETTER('C') && element->window->ctrl) {//@clipboard_change
+            int largeCaret = (textbox->carets[0] > textbox->carets[1]) ? textbox->carets[0] : textbox->carets[1];
+            int smallCaret = (textbox->carets[0] < textbox->carets[1]) ? textbox->carets[0] : textbox->carets[1];
+            for (int i = smallCaret; i < largeCaret; i++) {
+                examplePasteText[i-smallCaret] = textbox->string[i];
+            }
+            examplePasteTextSize = largeCaret-smallCaret;
+            XSetSelectionOwner(ui.display, ui.clipboardID, element->window->window, 0);
+        } else if (m->code == UI_KEYCODE_LETTER('V') && element->window->ctrl) {//@clipboard_change
+            Atom target;
+            unsigned long size, item_amount;
+            char *data;
+            int format;
+            XConvertSelection(ui.display, ui.clipboardID, XA_STRING, ui.xSelectionDataID, element->window->window, CurrentTime);
+            XSync(ui.display, 0);
+            XEvent event;
+            XNextEvent(ui.display, &event);
+            if((event.type == SelectionNotify) && (event.xselection.selection == ui.clipboardID) && event.xselection.property) {
+                XGetWindowProperty(event.xselection.display, event.xselection.requestor, event.xselection.property, 0L,(~0L), 0, AnyPropertyType, &target, &format, &size, &item_amount,(unsigned char**)&data);
+                UITextboxReplace(textbox,data,size,true);
+                XFree(data);
+                XDeleteProperty(event.xselection.display, event.xselection.requestor, event.xselection.property);
+            }
+        }
+         else {
 			handled = false;
 		}
 
@@ -4555,6 +4584,11 @@ void UIInitialise() {
 	ui.dndAwareID = XInternAtom(ui.display, "XdndAware", 0);
 	ui.uriListID = XInternAtom(ui.display, "text/uri-list", 0);
 	ui.plainTextID = XInternAtom(ui.display, "text/plain", 0);
+    ui.clipboardID = XInternAtom(ui.display, "CLIPBOARD", 0);//@clipboard_change
+    ui.xSelectionDataID = XInternAtom(ui.display, "XSEL_DATA", 0);//@clipboard_change
+    ui.textID = XInternAtom(ui.display, "TEXT", 0);//@clipboard_change
+    ui.targetID = XInternAtom(ui.display, "TARGETS", 0);//@clipboard_change
+
 
 	ui.cursors[UI_CURSOR_ARROW] = XCreateFontCursor(ui.display, XC_left_ptr);
 	ui.cursors[UI_CURSOR_TEXT] = XCreateFontCursor(ui.display, XC_xterm);
@@ -4916,7 +4950,40 @@ bool _UIProcessEvent(XEvent *event) {
 
 		window->dragSource = 0; // Drag complete.
 		_UIUpdate();
-	}
+	} else if (event->type == SelectionRequest) {//@clipboard_change
+        UIWindow *window = _UIFindWindow(event->xclient.window);
+        if ((XGetSelectionOwner(ui.display, ui.clipboardID) == window->window) && (event->xselectionrequest.selection == ui.clipboardID)) {
+            XSelectionRequestEvent requestEvent = event->xselectionrequest;
+            Atom UTF8 = XInternAtom(ui.display, "UTF8_STRING", 1);
+            if(UTF8 == None) {
+                UTF8 = XA_STRING;
+            }
+            Atom type = requestEvent.target;
+            type = (type == ui.textID) ? XA_STRING : type;
+            int propertySuccessfullyChanged = 0;
+
+            if((requestEvent.target == XA_STRING) || (requestEvent.target == ui.textID) || (requestEvent.target == UTF8)) {
+                propertySuccessfullyChanged = XChangeProperty(requestEvent.display, requestEvent.requestor, requestEvent.property, type, 8, PropModeReplace, examplePasteText, examplePasteTextSize);
+            }
+            else if(requestEvent.target == ui.targetID) {
+                propertySuccessfullyChanged = XChangeProperty(requestEvent.display, requestEvent.requestor, requestEvent.property, XA_ATOM, 32, PropModeReplace, (unsigned char *) &UTF8, 1);
+            }
+            if((propertySuccessfullyChanged==0)||(propertySuccessfullyChanged==1)) {
+                XSelectionEvent sendEvent = {
+                    .type = SelectionNotify,
+                    .serial = requestEvent.serial,
+                    .send_event = requestEvent.send_event,
+                    .display = requestEvent.display,
+                    .requestor = requestEvent.requestor,
+                    .selection = requestEvent.selection,
+                    .target = requestEvent.target,
+                    .property = requestEvent.property,
+                    .time = requestEvent.time
+                };
+                XSendEvent(ui.display, requestEvent.requestor, 0, 0, (XEvent *)&sendEvent);
+            }
+        }
+    }
 
 	return false;
 }
