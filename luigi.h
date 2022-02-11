@@ -9,10 +9,6 @@
 #include <stdbool.h>
 #include <stdarg.h>
 
-//@clipboard_change:
-unsigned char examplePasteText[256000];
-int examplePasteTextSize = 0;
-
 #ifdef UI_LINUX
 #include <X11/Xlib.h>
 #include <X11/Xutil.h>
@@ -723,8 +719,10 @@ struct {
 	XIM xim;
 	Atom windowClosedID, primaryID, uriListID, plainTextID;
 	Atom dndEnterID, dndPositionID, dndStatusID, dndActionCopyID, dndDropID, dndSelectionID, dndFinishedID, dndAwareID;
-    Atom clipboardID, xSelectionDataID, textID, targetID;//@clipboard_change
+	Atom clipboardID, xSelectionDataID, textID, targetID;
 	Cursor cursors[UI_CURSOR_COUNT];
+	char *pasteText;
+	XEvent copyEvent;
 #endif
 
 #ifdef UI_WINDOWS
@@ -843,6 +841,9 @@ void _UIWindowEndPaint(UIWindow *window, UIPainter *painter);
 void _UIWindowSetCursor(UIWindow *window, int cursor);
 void _UIWindowGetScreenPosition(UIWindow *window, int *x, int *y);
 void _UIWindowSetPressed(UIWindow *window, UIElement *element, int button);
+void _UIClipboardWriteText(UIWindow *window, char *text);
+char *_UIClipboardReadTextStart(UIWindow *window, size_t *bytes);
+void _UIClipboardReadTextEnd(UIWindow *window, char *text);
 bool _UIMessageLoopSingle(int *result);
 void _UIInspectorRefresh();
 void _UIUpdate();
@@ -2983,31 +2984,21 @@ int _UITextboxMessage(UIElement *element, UIMessage message, int di, void *dp) {
 			textbox->carets[0] = textbox->bytes;
 		} else if (m->textBytes && !element->window->alt && !element->window->ctrl && m->text[0] >= 0x20) {
 			UITextboxReplace(textbox, m->text, m->textBytes, true);
-		} else if (m->code == UI_KEYCODE_LETTER('C') && element->window->ctrl) {//@clipboard_change
-            int largeCaret = (textbox->carets[0] > textbox->carets[1]) ? textbox->carets[0] : textbox->carets[1];
-            int smallCaret = (textbox->carets[0] < textbox->carets[1]) ? textbox->carets[0] : textbox->carets[1];
-            for (int i = smallCaret; i < largeCaret; i++) {
-                examplePasteText[i-smallCaret] = textbox->string[i];
-            }
-            examplePasteTextSize = largeCaret-smallCaret;
-            XSetSelectionOwner(ui.display, ui.clipboardID, element->window->window, 0);
-        } else if (m->code == UI_KEYCODE_LETTER('V') && element->window->ctrl) {//@clipboard_change
-            Atom target;
-            unsigned long size, item_amount;
-            char *data;
-            int format;
-            XConvertSelection(ui.display, ui.clipboardID, XA_STRING, ui.xSelectionDataID, element->window->window, CurrentTime);
-            XSync(ui.display, 0);
-            XEvent event;
-            XNextEvent(ui.display, &event);
-            if((event.type == SelectionNotify) && (event.xselection.selection == ui.clipboardID) && event.xselection.property) {
-                XGetWindowProperty(event.xselection.display, event.xselection.requestor, event.xselection.property, 0L,(~0L), 0, AnyPropertyType, &target, &format, &size, &item_amount,(unsigned char**)&data);
-                UITextboxReplace(textbox,data,size,true);
-                XFree(data);
-                XDeleteProperty(event.xselection.display, event.xselection.requestor, event.xselection.property);
-            }
-        }
-         else {
+		} else if (m->code == UI_KEYCODE_LETTER('C') && element->window->ctrl && !element->window->alt && !element->window->shift) {
+			int   to = textbox->carets[0] > textbox->carets[1] ? textbox->carets[0] : textbox->carets[1];
+			int from = textbox->carets[0] < textbox->carets[1] ? textbox->carets[0] : textbox->carets[1];
+
+			if (from != to) {
+				char *pasteText = (char *) UI_CALLOC(to - from + 1);
+				for (int i = from; i < to; i++) pasteText[i - from] = textbox->string[i];
+				_UIClipboardWriteText(element->window, pasteText);
+			}
+		} else if (m->code == UI_KEYCODE_LETTER('V') && element->window->ctrl && !element->window->alt && !element->window->shift) {
+			size_t bytes;
+			char *text = _UIClipboardReadTextStart(element->window, &bytes);
+			if (text) UITextboxReplace(textbox, text, bytes, true);
+			_UIClipboardReadTextEnd(element->window, text);
+		} else {
 			handled = false;
 		}
 
@@ -4564,6 +4555,39 @@ Display *_UIX11GetDisplay() {
 	return ui.display;
 }
 
+void _UIClipboardWriteText(UIWindow *window, char *text) {
+	UI_FREE(ui.pasteText);
+	ui.pasteText = text;
+	XSetSelectionOwner(ui.display, ui.clipboardID, window->window, 0);
+}
+
+char *_UIClipboardReadTextStart(UIWindow *window, size_t *bytes) {
+	XConvertSelection(ui.display, ui.clipboardID, XA_STRING, ui.xSelectionDataID, window->window, CurrentTime);
+	XSync(ui.display, 0);
+	XNextEvent(ui.display, &ui.copyEvent);
+
+	if (ui.copyEvent.type == SelectionNotify && ui.copyEvent.xselection.selection == ui.clipboardID && ui.copyEvent.xselection.property) {
+		Atom target;
+		unsigned long size, itemAmount;
+		char *data;
+		int format;
+		XGetWindowProperty(ui.copyEvent.xselection.display, ui.copyEvent.xselection.requestor, ui.copyEvent.xselection.property, 0L, ~0L, 0, 
+				AnyPropertyType, &target, &format, &size, &itemAmount, (unsigned char **) &data);
+		*bytes = size;
+		return data;
+	} else {
+		return NULL;
+		// TODO What should happen in this case? Is the next event always going to be the selection event?
+	}
+}
+
+void _UIClipboardReadTextEnd(UIWindow *window, char *text) {
+	if (text) {
+		XFree(text);
+		XDeleteProperty(ui.copyEvent.xselection.display, ui.copyEvent.xselection.requestor, ui.copyEvent.xselection.property);
+	}
+}
+
 void UIInitialise() {
 	_UIInitialiseCommon();
 
@@ -4584,11 +4608,10 @@ void UIInitialise() {
 	ui.dndAwareID = XInternAtom(ui.display, "XdndAware", 0);
 	ui.uriListID = XInternAtom(ui.display, "text/uri-list", 0);
 	ui.plainTextID = XInternAtom(ui.display, "text/plain", 0);
-    ui.clipboardID = XInternAtom(ui.display, "CLIPBOARD", 0);//@clipboard_change
-    ui.xSelectionDataID = XInternAtom(ui.display, "XSEL_DATA", 0);//@clipboard_change
-    ui.textID = XInternAtom(ui.display, "TEXT", 0);//@clipboard_change
-    ui.targetID = XInternAtom(ui.display, "TARGETS", 0);//@clipboard_change
-
+	ui.clipboardID = XInternAtom(ui.display, "CLIPBOARD", 0);
+	ui.xSelectionDataID = XInternAtom(ui.display, "XSEL_DATA", 0);
+	ui.textID = XInternAtom(ui.display, "TEXT", 0);
+	ui.targetID = XInternAtom(ui.display, "TARGETS", 0);
 
 	ui.cursors[UI_CURSOR_ARROW] = XCreateFontCursor(ui.display, XC_left_ptr);
 	ui.cursors[UI_CURSOR_TEXT] = XCreateFontCursor(ui.display, XC_xterm);
@@ -4950,39 +4973,44 @@ bool _UIProcessEvent(XEvent *event) {
 
 		window->dragSource = 0; // Drag complete.
 		_UIUpdate();
-	} else if (event->type == SelectionRequest) {//@clipboard_change
-        UIWindow *window = _UIFindWindow(event->xclient.window);
-        if ((XGetSelectionOwner(ui.display, ui.clipboardID) == window->window) && (event->xselectionrequest.selection == ui.clipboardID)) {
-            XSelectionRequestEvent requestEvent = event->xselectionrequest;
-            Atom UTF8 = XInternAtom(ui.display, "UTF8_STRING", 1);
-            if(UTF8 == None) {
-                UTF8 = XA_STRING;
-            }
-            Atom type = requestEvent.target;
-            type = (type == ui.textID) ? XA_STRING : type;
-            int propertySuccessfullyChanged = 0;
+	} else if (event->type == SelectionRequest) {
+		UIWindow *window = _UIFindWindow(event->xclient.window);
+		if (!window) return false;
 
-            if((requestEvent.target == XA_STRING) || (requestEvent.target == ui.textID) || (requestEvent.target == UTF8)) {
-                propertySuccessfullyChanged = XChangeProperty(requestEvent.display, requestEvent.requestor, requestEvent.property, type, 8, PropModeReplace, examplePasteText, examplePasteTextSize);
-            }
-            else if(requestEvent.target == ui.targetID) {
-                propertySuccessfullyChanged = XChangeProperty(requestEvent.display, requestEvent.requestor, requestEvent.property, XA_ATOM, 32, PropModeReplace, (unsigned char *) &UTF8, 1);
-            }
-            if((propertySuccessfullyChanged==0)||(propertySuccessfullyChanged==1)) {
-                XSelectionEvent sendEvent = {
-                    .type = SelectionNotify,
-                    .serial = requestEvent.serial,
-                    .send_event = requestEvent.send_event,
-                    .display = requestEvent.display,
-                    .requestor = requestEvent.requestor,
-                    .selection = requestEvent.selection,
-                    .target = requestEvent.target,
-                    .property = requestEvent.property,
-                    .time = requestEvent.time
-                };
-                XSendEvent(ui.display, requestEvent.requestor, 0, 0, (XEvent *)&sendEvent);
-            }
-        }
+		if ((XGetSelectionOwner(ui.display, ui.clipboardID) == window->window) 
+				&& (event->xselectionrequest.selection == ui.clipboardID)) {
+			XSelectionRequestEvent requestEvent = event->xselectionrequest;
+			Atom utf8ID = XInternAtom(ui.display, "UTF8_STRING", 1);
+			if (utf8ID == None) utf8ID = XA_STRING;
+
+			Atom type = requestEvent.target;
+			type = (type == ui.textID) ? XA_STRING : type;
+			int changePropertyResult = 0;
+
+			if(requestEvent.target == XA_STRING || requestEvent.target == ui.textID || requestEvent.target == utf8ID) {
+				changePropertyResult = XChangeProperty(requestEvent.display, requestEvent.requestor, requestEvent.property, 
+						type, 8, PropModeReplace, (const unsigned char *) ui.pasteText, strlen(ui.pasteText));
+			} else if (requestEvent.target == ui.targetID) {
+				changePropertyResult = XChangeProperty(requestEvent.display, requestEvent.requestor, requestEvent.property, 
+						XA_ATOM, 32, PropModeReplace, (unsigned char *) &utf8ID, 1);
+			}
+
+			if(changePropertyResult == 0 || changePropertyResult == 1) {
+				XSelectionEvent sendEvent = {
+					.type = SelectionNotify,
+					.serial = requestEvent.serial,
+					.send_event = requestEvent.send_event,
+					.display = requestEvent.display,
+					.requestor = requestEvent.requestor,
+					.selection = requestEvent.selection,
+					.target = requestEvent.target,
+					.property = requestEvent.property,
+					.time = requestEvent.time
+				};
+
+				XSendEvent(ui.display, requestEvent.requestor, 0, 0, (XEvent *) &sendEvent);
+			}
+		}
     }
 
 	return false;
@@ -5370,6 +5398,20 @@ void *_UIHeapReAlloc(void *pointer, size_t size) {
 	}
 }
 
+void _UIClipboardWriteText(UIWindow *window, char *text) {
+	// TODO.
+	UI_FREE(text);
+}
+
+char *_UIClipboardReadTextStart(UIWindow *window, size_t *bytes) {
+	// TODO.
+	return NULL;
+}
+
+void _UIClipboardReadTextEnd(UIWindow *window, char *text) {
+	// TODO.
+}
+
 #endif
 
 #ifdef UI_ESSENCE
@@ -5557,6 +5599,19 @@ void UIWindowPostMessage(UIWindow *window, UIMessage message, void *_dp) {
 	m.user.context1.u = message;
 	m.user.context2.p = _dp;
 	EsMessagePost(window->canvas, &m);
+}
+
+void _UIClipboardWriteText(UIWindow *window, char *text) {
+	EsClipboardAddText(ES_CLIPBOARD_PRIMARY, text, -1);
+	UI_FREE(text);
+}
+
+char *_UIClipboardReadTextStart(UIWindow *window, size_t *bytes) {
+	return EsClipboardReadText(ES_CLIPBOARD_PRIMARY, bytes, NULL);
+}
+
+void _UIClipboardReadTextEnd(UIWindow *window, char *text) {
+	EsHeapFree(text);
 }
 
 #endif
