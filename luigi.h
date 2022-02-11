@@ -719,7 +719,7 @@ struct {
 	XIM xim;
 	Atom windowClosedID, primaryID, uriListID, plainTextID;
 	Atom dndEnterID, dndPositionID, dndStatusID, dndActionCopyID, dndDropID, dndSelectionID, dndFinishedID, dndAwareID;
-	Atom clipboardID, xSelectionDataID, textID, targetID;
+	Atom clipboardID, xSelectionDataID, textID, targetID, incrID;
 	Cursor cursors[UI_CURSOR_COUNT];
 	char *pasteText;
 	XEvent copyEvent;
@@ -4523,7 +4523,7 @@ UIWindow *UIWindowCreate(UIWindow *owner, uint32_t flags, const char *cTitle, in
 	if (cTitle) XStoreName(ui.display, window->window, cTitle);
 	XSelectInput(ui.display, window->window, SubstructureNotifyMask | ExposureMask | PointerMotionMask 
 		| ButtonPressMask | ButtonReleaseMask | KeyPressMask | KeyReleaseMask | StructureNotifyMask
-		| EnterWindowMask | LeaveWindowMask | ButtonMotionMask | KeymapStateMask | FocusChangeMask);
+		| EnterWindowMask | LeaveWindowMask | ButtonMotionMask | KeymapStateMask | FocusChangeMask | PropertyChangeMask);
 
 	if (flags & UI_WINDOW_MAXIMIZE) {
 		Atom atoms[2] = { XInternAtom(ui.display, "_NET_WM_STATE_MAXIMIZED_HORZ", 0), XInternAtom(ui.display, "_NET_WM_STATE_MAXIMIZED_VERT", 0) };
@@ -4566,15 +4566,70 @@ char *_UIClipboardReadTextStart(UIWindow *window, size_t *bytes) {
 	XSync(ui.display, 0);
 	XNextEvent(ui.display, &ui.copyEvent);
 
+	// Hack to get around the fact that PropertyNotify arrives before SelectionNotify.
+	// We need PropertyNotify for incremental transfers.
+	while (ui.copyEvent.type == PropertyNotify) {
+		XNextEvent(ui.display, &ui.copyEvent);
+	}
+
 	if (ui.copyEvent.type == SelectionNotify && ui.copyEvent.xselection.selection == ui.clipboardID && ui.copyEvent.xselection.property) {
 		Atom target;
+		// This `itemAmount` is actually `bytes_after_return`
 		unsigned long size, itemAmount;
 		char *data;
 		int format;
 		XGetWindowProperty(ui.copyEvent.xselection.display, ui.copyEvent.xselection.requestor, ui.copyEvent.xselection.property, 0L, ~0L, 0, 
 				AnyPropertyType, &target, &format, &size, &itemAmount, (unsigned char **) &data);
-		*bytes = size;
-		return data;
+
+		// We have to allocate for incremental transfers but we don't have to allocate for non-incremental transfers.
+		// I'm allocating for both here to make _UIClipboardReadTextEnd work the same for both
+		char *fullData = 0;
+		if (target != ui.incrID) {
+			*bytes = size;
+			fullData = (char *)UI_REALLOC(fullData, *bytes);
+			memcpy(fullData, data, *bytes);
+			XFree(data);
+			XDeleteProperty(ui.copyEvent.xselection.display, ui.copyEvent.xselection.requestor, ui.copyEvent.xselection.property);
+			return fullData;
+		}
+
+		XFree(data);
+		XDeleteProperty(ui.display, ui.copyEvent.xselection.requestor, ui.copyEvent.xselection.property);
+		XSync(ui.display, 0);
+
+		*bytes = 0;
+
+		while (true) {
+
+			XNextEvent(ui.display, &ui.copyEvent);
+
+			if (ui.copyEvent.type == PropertyNotify) {
+
+				// The other case - PropertyDelete would be caused by us and can be ignored
+				if (ui.copyEvent.xproperty.state == PropertyNewValue) {
+
+					unsigned long chunkSize;
+					// Note that this call deletes the property.
+					XGetWindowProperty(ui.display, ui.copyEvent.xproperty.window, ui.copyEvent.xproperty.atom, 0L, ~0L, 
+						True, AnyPropertyType, &target, &format, &chunkSize, &itemAmount, (unsigned char **) &data);
+					
+					if (chunkSize == 0) {
+						return fullData;
+					} else {
+						ptrdiff_t currentOffset = *bytes;
+						*bytes += chunkSize;
+						fullData = (char *)UI_REALLOC(fullData, *bytes);
+						memcpy(fullData + currentOffset, data, chunkSize);
+					}
+
+					XFree(data);
+				}
+
+			} else {
+				// TODO ?
+			}
+		}
+
 	} else {
 		return NULL;
 		// TODO What should happen in this case? Is the next event always going to be the selection event?
@@ -4583,8 +4638,9 @@ char *_UIClipboardReadTextStart(UIWindow *window, size_t *bytes) {
 
 void _UIClipboardReadTextEnd(UIWindow *window, char *text) {
 	if (text) {
-		XFree(text);
-		XDeleteProperty(ui.copyEvent.xselection.display, ui.copyEvent.xselection.requestor, ui.copyEvent.xselection.property);
+		//XFree(text);
+		//XDeleteProperty(ui.copyEvent.xselection.display, ui.copyEvent.xselection.requestor, ui.copyEvent.xselection.property);
+		UI_FREE(text);
 	}
 }
 
@@ -4612,6 +4668,7 @@ void UIInitialise() {
 	ui.xSelectionDataID = XInternAtom(ui.display, "XSEL_DATA", 0);
 	ui.textID = XInternAtom(ui.display, "TEXT", 0);
 	ui.targetID = XInternAtom(ui.display, "TARGETS", 0);
+	ui.incrID = XInternAtom(ui.display, "INCR", 0);
 
 	ui.cursors[UI_CURSOR_ARROW] = XCreateFontCursor(ui.display, XC_left_ptr);
 	ui.cursors[UI_CURSOR_TEXT] = XCreateFontCursor(ui.display, XC_xterm);
