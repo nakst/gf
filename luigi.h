@@ -4561,7 +4561,26 @@ void _UIClipboardWriteText(UIWindow *window, char *text) {
 	XSetSelectionOwner(ui.display, ui.clipboardID, window->window, 0);
 }
 
+UIWindow *_UIFindWindow(Window window);
+
 char *_UIClipboardReadTextStart(UIWindow *window, size_t *bytes) {
+
+	Window clipboardOwner = XGetSelectionOwner(ui.display, ui.clipboardID);
+
+	if (clipboardOwner == None) {
+		return NULL;
+	}
+
+	char *fullData = 0;
+
+	if (_UIFindWindow(clipboardOwner)) {
+		*bytes = strlen(ui.pasteText);
+		fullData = (char *)UI_REALLOC(fullData, *bytes + 1);
+		memcpy(fullData, ui.pasteText, *bytes);
+		fullData[*bytes] = 0;
+		return fullData;
+	}
+
 	XConvertSelection(ui.display, ui.clipboardID, XA_STRING, ui.xSelectionDataID, window->window, CurrentTime);
 	XSync(ui.display, 0);
 	XNextEvent(ui.display, &ui.copyEvent);
@@ -4583,7 +4602,6 @@ char *_UIClipboardReadTextStart(UIWindow *window, size_t *bytes) {
 
 		// We have to allocate for incremental transfers but we don't have to allocate for non-incremental transfers.
 		// I'm allocating for both here to make _UIClipboardReadTextEnd work the same for both
-		char *fullData = 0;
 		if (target != ui.incrID) {
 			*bytes = size;
 			fullData = (char *)UI_REALLOC(fullData, *bytes);
