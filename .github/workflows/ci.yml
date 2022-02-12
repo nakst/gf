@@ -18,4 +18,6 @@ jobs:
     - name: build
       run: |
         extra_flags=-DUI_AUTOMATED_TESTS ./build.sh
+        ulimit -c unlimited
+        ulimit -c
         ./gf2 || (printf "bt\nq\n" | gdb gf2 core)
