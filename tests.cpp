@@ -18,7 +18,8 @@ int UIAutomationRunTests() {
 	fwrite(automationTestApplication, 1, strlen(automationTestApplication), f);
 	fclose(f);
 	system("gcc -g -o hello hello.c");
-	for (int i = 0; i < 10; i++) AutomationSendCommand("echo test\n"); // HACK Synchronize with GDB.
+	sleep(3); // HACK Synchronize with GDB.
+	for (int i = 0; i < 10; i++) AutomationSendCommand("echo test\n"); 
 	AutomationSendCommand("file hello\n");
 	AutomationSendCommand("break 4\n");
 	AutomationSendCommand("run\n");
