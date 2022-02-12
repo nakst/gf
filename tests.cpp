@@ -8,6 +8,7 @@ const char *automationTestApplication =
 
 void AutomationSendCommand(const char *command) {
 	while (programRunning) UIAutomationProcessMessage();
+	sleep(1); // HACK Synchronize with GDB.
 	UIElementFocus(&textboxInput->e);
 	UIAutomationKeyboardType(command);
 	while (programRunning) UIAutomationProcessMessage();
@@ -18,8 +19,7 @@ int UIAutomationRunTests() {
 	fwrite(automationTestApplication, 1, strlen(automationTestApplication), f);
 	fclose(f);
 	system("gcc -g -o hello hello.c");
-	sleep(3); // HACK Synchronize with GDB.
-	for (int i = 0; i < 10; i++) AutomationSendCommand("echo test\n"); 
+	for (int i = 0; i < 3; i++) AutomationSendCommand("echo test\n"); // HACK Synchronize with GDB.
 	AutomationSendCommand("file hello\n");
 	AutomationSendCommand("break 4\n");
 	AutomationSendCommand("run\n");
