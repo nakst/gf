@@ -316,6 +316,7 @@ extern const int UI_KEYCODE_RIGHT;
 extern const int UI_KEYCODE_SPACE;
 extern const int UI_KEYCODE_TAB;
 extern const int UI_KEYCODE_UP;
+extern const int UI_KEYCODE_INSERT;
 extern const int UI_KEYCODE_0;
 
 #define UI_KEYCODE_LETTER(x) (UI_KEYCODE_A + (x) - 'A')
@@ -2985,7 +2986,7 @@ int _UITextboxMessage(UIElement *element, UIMessage message, int di, void *dp) {
 			textbox->carets[0] = textbox->bytes;
 		} else if (m->textBytes && !element->window->alt && !element->window->ctrl && m->text[0] >= 0x20) {
 			UITextboxReplace(textbox, m->text, m->textBytes, true);
-		} else if ((m->code == UI_KEYCODE_LETTER('C') || m->code == UI_KEYCODE_LETTER('X')) 
+		} else if ((m->code == UI_KEYCODE_LETTER('C') || m->code == UI_KEYCODE_LETTER('X') || m->code == UI_KEYCODE_INSERT) 
 				&& element->window->ctrl && !element->window->alt && !element->window->shift) {
 			int   to = textbox->carets[0] > textbox->carets[1] ? textbox->carets[0] : textbox->carets[1];
 			int from = textbox->carets[0] < textbox->carets[1] ? textbox->carets[0] : textbox->carets[1];
@@ -2999,7 +3000,8 @@ int _UITextboxMessage(UIElement *element, UIMessage message, int di, void *dp) {
 			if (m->code == UI_KEYCODE_LETTER('X')) {
 				UITextboxReplace(textbox, NULL, 0, true);
 			}
-		} else if (m->code == UI_KEYCODE_LETTER('V') && element->window->ctrl && !element->window->alt && !element->window->shift) {
+		} else if ((m->code == UI_KEYCODE_LETTER('V') && element->window->ctrl && !element->window->alt && !element->window->shift)
+				|| (m->code == UI_KEYCODE_INSERT && !element->window->ctrl && !element->window->alt && element->window->shift)) {
 			size_t bytes;
 			char *text = _UIClipboardReadTextStart(element->window, &bytes);
 			if (text) UITextboxReplace(textbox, text, bytes, true);
@@ -4496,6 +4498,7 @@ const int UI_KEYCODE_RIGHT = XK_Right;
 const int UI_KEYCODE_SPACE = XK_space;
 const int UI_KEYCODE_TAB = XK_Tab;
 const int UI_KEYCODE_UP = XK_Up;
+const int UI_KEYCODE_INSERT = XK_Insert;
 const int UI_KEYCODE_0 = XK_0;
 
 int _UIWindowMessage(UIElement *element, UIMessage message, int di, void *dp) {
@@ -5176,6 +5179,7 @@ const int UI_KEYCODE_RIGHT = VK_RIGHT;
 const int UI_KEYCODE_SPACE = VK_SPACE;
 const int UI_KEYCODE_TAB = VK_TAB;
 const int UI_KEYCODE_UP = VK_UP;
+const int UI_KEYCODE_INSERT = VK_INSERT;
 
 int _UIWindowMessage(UIElement *element, UIMessage message, int di, void *dp) {
 	if (message == UI_MSG_DESTROY) {
@@ -5502,6 +5506,7 @@ const int UI_KEYCODE_RIGHT = ES_SCANCODE_RIGHT_ARROW;
 const int UI_KEYCODE_SPACE = ES_SCANCODE_SPACE;
 const int UI_KEYCODE_TAB = ES_SCANCODE_TAB;
 const int UI_KEYCODE_UP = ES_SCANCODE_UP_ARROW;
+const int UI_KEYCODE_INSERT = ES_SCANCODE_INSERT;
 
 int _UIWindowMessage(UIElement *element, UIMessage message, int di, void *dp) {
 	if (message == UI_MSG_DESTROY) {
