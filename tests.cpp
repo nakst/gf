@@ -38,5 +38,6 @@ int UIAutomationRunTests() {
 	UI_ASSERT(currentLine == 5);
 	AutomationSendCommand("c\n");
 	UI_ASSERT(((UITable *) InterfaceWindowSwitchToAndFocus("Stack"))->itemCount == 0);
+	fprintf(stderr, "UIAutomationRunTests success!\n");
 	return 0;
 }
