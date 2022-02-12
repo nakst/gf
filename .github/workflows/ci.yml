@@ -16,4 +16,4 @@ jobs:
     - name: install-dependencies
       run: sudo apt-get install --no-install-recommends -y gdb
     - name: build
-      run: ./build.sh
+      run: Xvfb :99 -screen 0 1024x768x24 && extra_flags=-DUI_AUTOMATION_TESTS ./build.sh && ./gf2
