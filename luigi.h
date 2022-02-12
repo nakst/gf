@@ -847,6 +847,7 @@ void _UIClipboardReadTextEnd(UIWindow *window, char *text);
 bool _UIMessageLoopSingle(int *result);
 void _UIInspectorRefresh();
 void _UIUpdate();
+UIWindow *_UIFindWindow(Window window);
 
 #ifdef UI_WINDOWS
 void *_UIHeapReAlloc(void *pointer, size_t size);
@@ -4561,24 +4562,18 @@ void _UIClipboardWriteText(UIWindow *window, char *text) {
 	XSetSelectionOwner(ui.display, ui.clipboardID, window->window, 0);
 }
 
-UIWindow *_UIFindWindow(Window window);
-
 char *_UIClipboardReadTextStart(UIWindow *window, size_t *bytes) {
-
 	Window clipboardOwner = XGetSelectionOwner(ui.display, ui.clipboardID);
 
 	if (clipboardOwner == None) {
 		return NULL;
 	}
 
-	char *fullData = 0;
-
 	if (_UIFindWindow(clipboardOwner)) {
 		*bytes = strlen(ui.pasteText);
-		fullData = (char *)UI_REALLOC(fullData, *bytes + 1);
-		memcpy(fullData, ui.pasteText, *bytes);
-		fullData[*bytes] = 0;
-		return fullData;
+		char *copy = (char *) UI_MALLOC(*bytes);
+		memcpy(copy, ui.pasteText, *bytes);
+		return copy;
 	}
 
 	XConvertSelection(ui.display, ui.clipboardID, XA_STRING, ui.xSelectionDataID, window->window, CurrentTime);
@@ -4604,11 +4599,11 @@ char *_UIClipboardReadTextStart(UIWindow *window, size_t *bytes) {
 		// I'm allocating for both here to make _UIClipboardReadTextEnd work the same for both
 		if (target != ui.incrID) {
 			*bytes = size;
-			fullData = (char *)UI_REALLOC(fullData, *bytes);
-			memcpy(fullData, data, *bytes);
+			char *copy = (char *) UI_MALLOC(*bytes);
+			memcpy(copy, data, *bytes);
 			XFree(data);
 			XDeleteProperty(ui.copyEvent.xselection.display, ui.copyEvent.xselection.requestor, ui.copyEvent.xselection.property);
-			return fullData;
+			return copy;
 		}
 
 		XFree(data);
@@ -4616,17 +4611,17 @@ char *_UIClipboardReadTextStart(UIWindow *window, size_t *bytes) {
 		XSync(ui.display, 0);
 
 		*bytes = 0;
+		char *fullData = NULL;
 
 		while (true) {
-
+			// TODO Timeout.
 			XNextEvent(ui.display, &ui.copyEvent);
 
 			if (ui.copyEvent.type == PropertyNotify) {
-
 				// The other case - PropertyDelete would be caused by us and can be ignored
 				if (ui.copyEvent.xproperty.state == PropertyNewValue) {
-
 					unsigned long chunkSize;
+
 					// Note that this call deletes the property.
 					XGetWindowProperty(ui.display, ui.copyEvent.xproperty.window, ui.copyEvent.xproperty.atom, 0L, ~0L, 
 						True, AnyPropertyType, &target, &format, &chunkSize, &itemAmount, (unsigned char **) &data);
@@ -4636,21 +4631,17 @@ char *_UIClipboardReadTextStart(UIWindow *window, size_t *bytes) {
 					} else {
 						ptrdiff_t currentOffset = *bytes;
 						*bytes += chunkSize;
-						fullData = (char *)UI_REALLOC(fullData, *bytes);
+						fullData = (char *) UI_REALLOC(fullData, *bytes);
 						memcpy(fullData + currentOffset, data, chunkSize);
 					}
 
 					XFree(data);
 				}
-
-			} else {
-				// TODO ?
 			}
 		}
-
 	} else {
-		return NULL;
 		// TODO What should happen in this case? Is the next event always going to be the selection event?
+		return NULL;
 	}
 }
 
