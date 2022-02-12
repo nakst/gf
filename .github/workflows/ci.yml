@@ -16,4 +16,4 @@ jobs:
     - name: install-dependencies
       run: sudo apt-get install --no-install-recommends -y gdb
     - name: build
-      run: ./build.sh
+      run: ./build.sh && extra_flags=-DUI_AUTOMATED_TESTS ./build.sh && ./gf2
