@@ -1503,6 +1503,10 @@ void InterfaceLayoutCreate(UIElement *parent) {
 #endif
 
 int main(int argc, char **argv) {
+#ifdef UI_AUTOMATION_TESTS
+	fprintf(stderr, "Running in UI automation test mode.\n");
+#endif
+	
 	if (argc == 2 && (0 == strcmp(argv[1], "-?") || 0 == strcmp(argv[1], "-h") || 0 == strcmp(argv[1], "--help"))) {
 		fprintf(stderr, "Read the README.md for help.\n");
 		return 0;
