@@ -14,12 +14,6 @@ jobs:
     steps:
     - uses: actions/checkout@v2
     - name: install-dependencies
-      run: |
-        sudo add-apt-repository ppa:oibaf/graphics-drivers
-        sudo apt-get update
-        sudo apt-get full-upgrade -y
-        sudo apt-get install --no-install-recommends -y gdb mesa-utils
+      run: sudo apt-get install --no-install-recommends -y gdb
     - name: build
-      run: |          
-        extra_flags=-DUI_AUTOMATED_TESTS ./build.sh
-        printf "r\nbt\nq\n" | gdb gf2
+      run: ./build.sh
