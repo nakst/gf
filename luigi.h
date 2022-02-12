@@ -2985,7 +2985,8 @@ int _UITextboxMessage(UIElement *element, UIMessage message, int di, void *dp) {
 			textbox->carets[0] = textbox->bytes;
 		} else if (m->textBytes && !element->window->alt && !element->window->ctrl && m->text[0] >= 0x20) {
 			UITextboxReplace(textbox, m->text, m->textBytes, true);
-		} else if (m->code == UI_KEYCODE_LETTER('C') && element->window->ctrl && !element->window->alt && !element->window->shift) {
+		} else if ((m->code == UI_KEYCODE_LETTER('C') || m->code == UI_KEYCODE_LETTER('X')) 
+				&& element->window->ctrl && !element->window->alt && !element->window->shift) {
 			int   to = textbox->carets[0] > textbox->carets[1] ? textbox->carets[0] : textbox->carets[1];
 			int from = textbox->carets[0] < textbox->carets[1] ? textbox->carets[0] : textbox->carets[1];
 
@@ -2993,6 +2994,10 @@ int _UITextboxMessage(UIElement *element, UIMessage message, int di, void *dp) {
 				char *pasteText = (char *) UI_CALLOC(to - from + 1);
 				for (int i = from; i < to; i++) pasteText[i - from] = textbox->string[i];
 				_UIClipboardWriteText(element->window, pasteText);
+			}
+			
+			if (m->code == UI_KEYCODE_LETTER('X')) {
+				UITextboxReplace(textbox, NULL, 0, true);
 			}
 		} else if (m->code == UI_KEYCODE_LETTER('V') && element->window->ctrl && !element->window->alt && !element->window->shift) {
 			size_t bytes;
