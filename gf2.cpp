@@ -140,7 +140,7 @@ struct INIState {
 
 FILE *commandLog;
 char emptyString;
-bool programRunning;
+bool programRunning = true;
 const char *vimServerName = "GVIM";
 const char *logPipePath;
 const char *controlPipePath;
@@ -1489,6 +1489,10 @@ void InterfaceLayoutCreate(UIElement *parent) {
 		}
 	}
 }
+
+#ifdef UI_AUTOMATED_TESTS
+#include "tests.cpp"
+#endif
 
 int main(int argc, char **argv) {
 	if (argc == 2 && (0 == strcmp(argv[1], "-?") || 0 == strcmp(argv[1], "-h") || 0 == strcmp(argv[1], "--help"))) {

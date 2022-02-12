@@ -337,6 +337,7 @@ typedef struct UIElement {
 #define UI_ELEMENT_DESTROY_DESCENDENT (1 << 31)
 
 	uint32_t flags; // First 16 bits are element specific.
+	uint32_t id;
 
 	struct UIElement *parent;
 	struct UIElement *next;
@@ -350,10 +351,7 @@ typedef struct UIElement {
 	int (*messageClass)(struct UIElement *element, UIMessage message, int di /* data integer */, void *dp /* data pointer */);
 	int (*messageUser)(struct UIElement *element, UIMessage message, int di, void *dp);
 
-#ifdef UI_DEBUG
 	const char *cClassName;
-	int id;
-#endif
 } UIElement;
 
 #define UI_SHORTCUT(code, ctrl, shift, alt, invoke, cp) ((UIShortcut) { (code), (ctrl), (shift), (alt), (invoke), (cp) })
@@ -1514,10 +1512,11 @@ UIElement *UIElementCreate(size_t bytes, UIElement *parent, uint32_t flags, int 
 		UI_ASSERT(~parent->flags & UI_ELEMENT_DESTROY);
 	}
 
-#ifdef UI_DEBUG
 	element->cClassName = cClassName;
-	static int id = 0;
+	static uint32_t id = 0;
 	element->id = ++id;
+
+#ifdef UI_DEBUG
 	_UIInspectorRefresh();
 #endif
 
@@ -4474,12 +4473,93 @@ void _UIInspectorRefresh() {}
 
 #endif
 
+#ifdef UI_AUTOMATED_TESTS
+
+int UIAutomationRunTests();
+
+void UIAutomationProcessMessage() {
+	int result;
+	_UIMessageLoopSingle(&result);
+}
+
+void UIAutomationKeyboardTypeSingle(intptr_t code, bool ctrl, bool shift, bool alt) {
+	UIWindow *window = ui.windows; // TODO Get the focused window.
+	UIKeyTyped m = { 0 };
+	m.code = code;
+	window->ctrl = ctrl;
+	window->alt = alt;
+	window->shift = shift;
+	_UIWindowInputEvent(window, UI_MSG_KEY_TYPED, 0, &m);
+	window->ctrl = false;
+	window->alt = false;
+	window->shift = false;
+}
+
+void UIAutomationKeyboardType(const char *string) {
+	UIWindow *window = ui.windows; // TODO Get the focused window.
+
+	UIKeyTyped m = { 0 };
+	char c[2];
+	m.text = c;
+	m.textBytes = 1;
+	c[1] = 0;
+
+	for (int i = 0; string[i]; i++) {
+		window->ctrl = false;
+		window->alt = false;
+		window->shift = (c[0] >= 'A' && c[0] <= 'Z');
+		c[0] = string[i];
+		m.code = (c[0] >= 'A' && c[0] <= 'Z') ? UI_KEYCODE_LETTER(c[0]) 
+			: c[0] == '\n' ? UI_KEYCODE_ENTER 
+			: c[0] == '\t' ? UI_KEYCODE_TAB 
+			: c[0] == ' ' ? UI_KEYCODE_SPACE 
+			: (c[0] >= '0' && c[0] <= '9') ? UI_KEYCODE_DIGIT(c[0]) : 0;
+		_UIWindowInputEvent(window, UI_MSG_KEY_TYPED, 0, &m);
+	}
+
+	window->ctrl = false;
+	window->alt = false;
+	window->shift = false;
+}
+
+bool UIAutomationCheckCodeLineMatches(UICode *code, int lineIndex, const char *input) {
+	if (lineIndex < 1 || lineIndex > code->lineCount) return false;
+	int bytes = 0;
+	for (int i = 0; input[i]; i++) bytes++;
+	if (bytes != code->lines[lineIndex - 1].bytes) return false;
+	for (int i = 0; input[i]; i++) if (code->content[code->lines[lineIndex - 1].offset + i] != input[i]) return false;
+	return true;
+}
+
+bool UIAutomationCheckTableItemMatches(UITable *table, int row, int column, const char *input) {
+	int bytes = 0;
+	for (int i = 0; input[i]; i++) bytes++;
+	if (row < 0 || row >= table->itemCount) return false;
+	if (column < 0 || column >= table->columnCount) return false;
+	char *buffer = (char *) UI_MALLOC(bytes + 1);
+	UITableGetItem m = { 0 };
+	m.buffer = buffer;
+	m.bufferBytes = bytes + 1;
+	m.column = column;
+	m.index = row;
+	int length = UIElementMessage(&table->e, UI_MSG_TABLE_GET_ITEM, 0, &m);
+	if (length != bytes) return false;
+	for (int i = 0; input[i]; i++) if (buffer[i] != input[i]) return false;
+	return true;
+}
+
+#endif
+
 int UIMessageLoop() {
 	_UIInspectorCreate();
 	_UIUpdate();
+#ifdef UI_AUTOMATED_TESTS
+	return UIAutomationRunTests();
+#else
 	int result = 0;
 	while (!ui.quit && _UIMessageLoopSingle(&result)) ui.dialogResult = NULL;
 	return result;
+#endif
 }
 
 #ifdef UI_LINUX
@@ -5085,7 +5165,7 @@ bool _UIProcessEvent(XEvent *event) {
 				XSendEvent(ui.display, requestEvent.requestor, 0, 0, (XEvent *) &sendEvent);
 			}
 		}
-    }
+	}
 
 	return false;
 }
