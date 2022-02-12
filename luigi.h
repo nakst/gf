@@ -4585,8 +4585,10 @@ int _UIWindowMessage(UIElement *element, UIMessage message, int di, void *dp) {
 	if (message == UI_MSG_DESTROY) {
 		UIWindow *window = (UIWindow *) element;
 		_UIWindowDestroyCommon(window);
+#ifdef UI_AUTOMATED_TESTS
 		window->image->data = NULL;
 		XDestroyImage(window->image);
+#endif
 		XDestroyIC(window->xic);
 		XDestroyWindow(ui.display, ((UIWindow *) element)->window);
 	}
@@ -4630,7 +4632,9 @@ UIWindow *UIWindowCreate(UIWindow *owner, uint32_t flags, const char *cTitle, in
 	}
 
 	XSetWMProtocols(ui.display, window->window, &ui.windowClosedID, 1);
+#ifndef UI_AUTOMATED_TESTS
 	window->image = XCreateImage(ui.display, ui.visual, 24, ZPixmap, 0, NULL, 10, 10, 32, 0);
+#endif
 
 	window->xic = XCreateIC(ui.xim, XNInputStyle, XIMPreeditNothing | XIMStatusNothing, XNClientWindow, window->window, XNFocusWindow, window->window, NULL);
 
@@ -4747,7 +4751,9 @@ void UIInitialise() {
 	XInitThreads();
 
 	ui.display = XOpenDisplay(NULL);
+#ifndef UI_AUTOMATED_TESTS
 	ui.visual = XDefaultVisual(ui.display, 0);
+#endif
 
 	ui.windowClosedID = XInternAtom(ui.display, "WM_DELETE_WINDOW", 0);
 	ui.primaryID = XInternAtom(ui.display, "PRIMARY", 0);
@@ -4818,9 +4824,11 @@ void _UIX11ResetCursor(UIWindow *window) {
 void _UIWindowEndPaint(UIWindow *window, UIPainter *painter) {
 	(void) painter;
 
+#ifndef UI_AUTOMATED_TESTS
 	XPutImage(ui.display, window->window, DefaultGC(ui.display, 0), window->image, 
 		UI_RECT_TOP_LEFT(window->updateRegion), UI_RECT_TOP_LEFT(window->updateRegion),
 		UI_RECT_SIZE(window->updateRegion));
+#endif
 }
 
 void _UIWindowGetScreenPosition(UIWindow *window, int *_x, int *_y) {
@@ -4893,7 +4901,9 @@ bool _UIProcessEvent(XEvent *event) {
 	} else if (event->type == Expose) {
 		UIWindow *window = _UIFindWindow(event->xexpose.window);
 		if (!window) return false;
+#ifndef UI_AUTOMATED_TESTS
 		XPutImage(ui.display, window->window, DefaultGC(ui.display, 0), window->image, 0, 0, 0, 0, window->width, window->height);
+#endif
 	} else if (event->type == ConfigureNotify) {
 		UIWindow *window = _UIFindWindow(event->xconfigure.window);
 		if (!window) return false;
@@ -4902,10 +4912,12 @@ bool _UIProcessEvent(XEvent *event) {
 			window->width = event->xconfigure.width;
 			window->height = event->xconfigure.height;
 			window->bits = (uint32_t *) UI_REALLOC(window->bits, window->width * window->height * 4);
+#ifndef UI_AUTOMATED_TESTS
 			window->image->width = window->width;
 			window->image->height = window->height;
 			window->image->bytes_per_line = window->width * 4;
 			window->image->data = (char *) window->bits;
+#endif
 			window->e.bounds = UI_RECT_2S(window->width, window->height);
 			window->e.clip = UI_RECT_2S(window->width, window->height);
 #ifdef UI_DEBUG
