@@ -4473,7 +4473,7 @@ void _UIInspectorRefresh() {}
 
 #endif
 
-#ifdef UI_AUTOMATED_TESTS
+#ifdef UI_AUTOMATION_TESTS
 
 int UIAutomationRunTests();
 
@@ -4553,7 +4553,7 @@ bool UIAutomationCheckTableItemMatches(UITable *table, int row, int column, cons
 int UIMessageLoop() {
 	_UIInspectorCreate();
 	_UIUpdate();
-#ifdef UI_AUTOMATED_TESTS
+#ifdef UI_AUTOMATION_TESTS
 	return UIAutomationRunTests();
 #else
 	int result = 0;
