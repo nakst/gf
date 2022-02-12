@@ -557,6 +557,10 @@ void DebuggerStartThread() {
 }
 
 void DebuggerSend(const char *string, bool echo, bool synchronous) {
+#ifdef UI_AUTOMATED_TESTS
+	fprintf(stderr, "sending (%d, %d) '%s'\n", echo, synchronous, string);
+#endif
+
 	if (synchronous) {
 		if (programRunning) {
 			kill(gdbPID, SIGINT);
@@ -1314,6 +1318,10 @@ int WindowMessage(UIElement *, UIMessage message, int di, void *dp) {
 	if (message == MSG_RECEIVED_DATA) {
 		programRunning = false;
 		char *input = (char *) dp;
+
+#ifdef UI_AUTOMATED_TESTS
+		fprintf(stderr, "received '%s'\n", input);
+#endif
 
 		if (firstUpdate) EvaluateCommand(pythonCode);
 		firstUpdate = false;
