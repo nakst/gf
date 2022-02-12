@@ -256,11 +256,14 @@ Templates are removed from the name of the type. For example, `Array<int>`, `Arr
 
 ## Contributors
 
-Add your name here!
-
 ```
-@nakst nakst Nakst
-@phmongeau phmongeau Philippe Mongeau
-@JimmyLefevre JimmyLefevre Jimmy "Keeba" Lefevre
-@johnblat64 johnblat64 John Blat 
+nakst
+Philippe Mongeau phmongeau 
+Jimmy "Keeba" Lefevre JimmyLefevre 
+John Blat johnblat64 
+IWouldRatherUsePasteBin
+Gavin Beatty gavinbeatty
+Michael Stopa StomyPX
+Anders Kaare sqaxomonophonen
+Arseniy Khvorov khvorov45
 ```
