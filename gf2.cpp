@@ -8,14 +8,7 @@
 // 	- Jump/run to selected line.
 // 	- How to show overloaded variables correctly when moving lines?
 
-// TODO Other features:
-// 	- Automatically restoring breakpoints and symbols files after restarting gdb.
-// 	- Viewing data breakpoints in the breakpoint window.
-// 	- Using the correct variable size in the watch logger.
-
-// TODO Future extensions:
-// 	- Memory window.
-// 	- More data visualization tools in the data window.
+// TODO More data visualization tools in the data window.
 
 #include <pthread.h>
 #include <unistd.h>
