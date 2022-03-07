@@ -588,6 +588,10 @@ typedef struct UIImageDisplay {
 	int previousPanPointX, previousPanPointY;
 } UIImageDisplay;
 
+typedef struct UIWrapPanel {
+	UIElement e;
+} UIWrapPanel;
+
 void UIInitialise();
 int UIMessageLoop();
 
@@ -607,6 +611,7 @@ UISlider *UISliderCreate(UIElement *parent, uint32_t flags);
 UISpacer *UISpacerCreate(UIElement *parent, uint32_t flags, int width, int height);
 UISplitPane *UISplitPaneCreate(UIElement *parent, uint32_t flags, float weight);
 UITabPane *UITabPaneCreate(UIElement *parent, uint32_t flags, const char *tabs /* separate with \t, terminate with \0 */);
+UIWrapPanel *UIWrapPanelCreate(UIElement *parent, uint32_t flags);
 
 UILabel *UILabelCreate(UIElement *parent, uint32_t flags, const char *label, ptrdiff_t labelBytes);
 void UILabelSetContent(UILabel *code, const char *content, ptrdiff_t byteCount);
@@ -619,6 +624,7 @@ void UIWindowRegisterShortcut(UIWindow *window, UIShortcut shortcut);
 void UIWindowPostMessage(UIWindow *window, UIMessage message, void *dp); // Thread-safe.
 void UIWindowPack(UIWindow *window, int width); // Change the size of the window to best match its contents.
 
+typedef void (*UIDialogUserCallback)(UIElement *);
 const char *UIDialogShow(UIWindow *window, uint32_t flags, const char *format, ...);
 
 UIMenu *UIMenuCreate(UIElement *parent, uint32_t flags);
@@ -644,6 +650,8 @@ void UICodeInsertContent(UICode *code, const char *content, ptrdiff_t byteCount,
 void UIDrawBlock(UIPainter *painter, UIRectangle rectangle, uint32_t color);
 void UIDrawInvert(UIPainter *painter, UIRectangle rectangle);
 bool UIDrawLine(UIPainter *painter, int x0, int y0, int x1, int y1, uint32_t color); // Returns false if the line was not visible.
+void UIDrawTriangle(UIPainter *painter, int x0, int y0, int x1, int y1, int x2, int y2, uint32_t color);
+void UIDrawTriangleOutline(UIPainter *painter, int x0, int y0, int x1, int y1, int x2, int y2, uint32_t color);
 void UIDrawGlyph(UIPainter *painter, int x, int y, int c, uint32_t color);
 void UIDrawRectangle(UIPainter *painter, UIRectangle r, uint32_t mainColor, uint32_t borderColor, UIRectangle borderSize);
 void UIDrawBorder(UIPainter *painter, UIRectangle r, uint32_t borderColor, UIRectangle borderSize);
@@ -846,7 +854,6 @@ void _UIClipboardReadTextEnd(UIWindow *window, char *text);
 bool _UIMessageLoopSingle(int *result);
 void _UIInspectorRefresh();
 void _UIUpdate();
-UIWindow *_UIFindWindow(Window window);
 
 #ifdef UI_WINDOWS
 void *_UIHeapReAlloc(void *pointer, size_t size);
@@ -1201,6 +1208,56 @@ bool UIDrawLine(UIPainter *painter, int x0, int y0, int x1, int y1, uint32_t col
 	}
 
 	return true;
+}
+
+void UIDrawTriangle(UIPainter *painter, int x0, int y0, int x1, int y1, int x2, int y2, uint32_t color) {
+	// Step 1: Sort the points by their y-coordinate.
+	if (y1 < y0) { int xt = x0; x0 = x1, x1 = xt; int yt = y0; y0 = y1, y1 = yt; }
+	if (y2 < y1) { int xt = x1; x1 = x2, x2 = xt; int yt = y1; y1 = y2, y2 = yt; }
+	if (y1 < y0) { int xt = x0; x0 = x1, x1 = xt; int yt = y0; y0 = y1, y1 = yt; }
+	if (y2 == y0) return;
+
+	// Step 2: Clip the triangle.
+	if (x0 < painter->clip.l && x1 < painter->clip.l && x2 < painter->clip.l) return;
+	if (x0 >= painter->clip.r && x1 >= painter->clip.r && x2 >= painter->clip.r) return;
+	if (y2 < painter->clip.t || y0 >= painter->clip.b) return;
+	bool needsXClip = x0 < painter->clip.l + 1 || x0 >= painter->clip.r - 1
+		|| x1 < painter->clip.l + 1 || x1 >= painter->clip.r - 1
+		|| x2 < painter->clip.l + 1 || x2 >= painter->clip.r - 1;
+	bool needsYClip = y0 < painter->clip.t + 1 || y2 >= painter->clip.b - 1;
+#define _UI_DRAW_TRIANGLE_APPLY_CLIP(xo, yo) \
+	if (needsYClip && (yi + yo < painter->clip.t || yi + yo >= painter->clip.b)) continue; \
+	if (needsXClip && xf + xo < painter->clip.l) xf = painter->clip.l - xo; \
+	if (needsXClip && xt + xo > painter->clip.r) xt = painter->clip.r - xo;
+
+	// Step 3: Split into 2 triangles with bases aligned with the x-axis.
+	float xm0 = (x2 - x0) * (y1 - y0) / (y2 - y0), xm1 = x1 - x0;
+	if (xm1 < xm0) { float xmt = xm0; xm0 = xm1, xm1 = xmt; }
+	float xe0 = xm0 + x0 - x2, xe1 = xm1 + x0 - x2;
+	int ym = y1 - y0, ye = y2 - y1;
+	float ymr = 1.0f / ym, yer = 1.0f / ye;
+
+	// Step 4: Draw the top part.
+	for (float y = 0; y < ym; y++) {
+		int xf = xm0 * y * ymr, xt = xm1 * y * ymr, yi = (int) y;
+		_UI_DRAW_TRIANGLE_APPLY_CLIP(x0, y0);
+		uint32_t *b = &painter->bits[(yi + y0) * painter->width + x0];
+		for (int x = xf; x < xt; x++) b[x] = color;
+	}
+
+	// Step 5: Draw the bottom part.
+	for (float y = 0; y < ye; y++) {
+		int xf = xe0 * (ye - y) * yer, xt = xe1 * (ye - y) * yer, yi = (int) y;
+		_UI_DRAW_TRIANGLE_APPLY_CLIP(x2, y1);
+		uint32_t *b = &painter->bits[(yi + y1) * painter->width + x2];
+		for (int x = xf; x < xt; x++) b[x] = color;
+	}
+}
+
+void UIDrawTriangleOutline(UIPainter *painter, int x0, int y0, int x1, int y1, int x2, int y2, uint32_t color) {
+	UIDrawLine(painter, x0, y0, x1, y1, color);
+	UIDrawLine(painter, x1, y1, x2, y2, color);
+	UIDrawLine(painter, x2, y2, x0, y0, color);
 }
 
 void UIDrawInvert(UIPainter *painter, UIRectangle rectangle) {
@@ -1711,6 +1768,68 @@ UIPanel *UIPanelCreate(UIElement *parent, uint32_t flags) {
 	}
 
 	return panel;
+}
+
+void _UIWrapPanelLayoutRow(UIWrapPanel *panel, UIElement *child, UIElement *rowEnd, int rowY, int rowHeight) {
+	int rowPosition = 0;
+
+	while (child != rowEnd) {
+		int height = UIElementMessage(child, UI_MSG_GET_HEIGHT, 0, 0);
+		int width = UIElementMessage(child, UI_MSG_GET_WIDTH, 0, 0);
+		UIRectangle relative = UI_RECT_4(rowPosition, rowPosition + width, rowY + rowHeight / 2 - height / 2, rowY + rowHeight / 2 + height / 2);
+		UIElementMove(child, UIRectangleTranslate(relative, panel->e.bounds), false);
+		child = child->next;
+		rowPosition += width;
+	}
+}
+
+int _UIWrapPanelMessage(UIElement *element, UIMessage message, int di, void *dp) {
+	UIWrapPanel *panel = (UIWrapPanel *) element;
+	bool horizontal = element->flags & UI_PANEL_HORIZONTAL;
+
+	if (message == UI_MSG_LAYOUT || message == UI_MSG_GET_HEIGHT) {
+		int totalHeight = 0;
+		int rowPosition = 0;
+		int rowHeight = 0;
+		int rowLimit = message == UI_MSG_LAYOUT ? UI_RECT_WIDTH(element->bounds) : di;
+
+		UIElement *child = panel->e.children;
+		UIElement *rowStart = child;
+
+		while (child) {
+			if (~child->flags & UI_ELEMENT_HIDE) {
+				int height = UIElementMessage(child, UI_MSG_GET_HEIGHT, 0, 0);
+				int width = UIElementMessage(child, UI_MSG_GET_WIDTH, 0, 0);
+
+				if (rowLimit && rowPosition + width > rowLimit) {
+					_UIWrapPanelLayoutRow(panel, rowStart, child, totalHeight, rowHeight);
+					totalHeight += rowHeight;
+					rowPosition = rowHeight = 0;
+					rowStart = child;
+				}
+
+				if (height > rowHeight) {
+					rowHeight = height;
+				}
+
+				rowPosition += width;
+			}
+
+			child = child->next;
+		}
+
+		if (message == UI_MSG_GET_HEIGHT) {
+			return totalHeight + rowHeight;
+		} else {
+			_UIWrapPanelLayoutRow(panel, rowStart, child, totalHeight, rowHeight);
+		}
+	}
+
+	return 0;
+}
+
+UIWrapPanel *UIWrapPanelCreate(UIElement *parent, uint32_t flags) {
+	return (UIWrapPanel *) UIElementCreate(sizeof(UIWrapPanel), parent, flags, _UIWrapPanelMessage, "Wrap Panel");
 }
 
 void _UIButtonCalculateColors(UIElement *element, uint32_t *color, uint32_t *textColor) {
@@ -2481,6 +2600,8 @@ void UICodeFocusLine(UICode *code, int index) {
 }
 
 void UICodeInsertContent(UICode *code, const char *content, ptrdiff_t byteCount, bool replace) {
+	UIFont *previousFont = UIFontActivate(code->font);
+
 	if (byteCount == -1) {
 		byteCount = _UIStringLength(content);
 	}
@@ -2503,8 +2624,6 @@ void UICodeInsertContent(UICode *code, const char *content, ptrdiff_t byteCount,
 	if (!byteCount) {
 		return;
 	}
-	
-	UIFont *previousFont = UIFontActivate(code->font);
 
 	int lineCount = content[byteCount - 1] != '\n';
 
@@ -3698,7 +3817,7 @@ const char *UIDialogShow(UIWindow *window, uint32_t flags, const char *format, .
 			} else if (format[i] == 'l' /* horizontal line */) {
 				UISpacerCreate(&row->e, UI_SPACER_LINE | UI_ELEMENT_H_FILL, 0, 1);
 			} else if (format[i] == 'u' /* user */) {
-				void (*callback)(UIElement *) = va_arg(arguments, void (*)(UIElement *));
+				UIDialogUserCallback callback = va_arg(arguments, UIDialogUserCallback);
 				callback(&row->e);
 			}
 		} else {
@@ -4640,6 +4759,20 @@ Display *_UIX11GetDisplay() {
 	return ui.display;
 }
 
+UIWindow *_UIFindWindow(Window window) {
+	UIWindow *w = ui.windows;
+
+	while (w) {
+		if (w->window == window) {
+			return w;
+		}
+
+		w = w->next;
+	}
+
+	return NULL;
+}
+
 void _UIClipboardWriteText(UIWindow *window, char *text) {
 	UI_FREE(ui.pasteText);
 	ui.pasteText = text;
@@ -4787,20 +4920,6 @@ void UIInitialise() {
 		XSetLocaleModifiers("@im=none");
 		ui.xim = XOpenIM(ui.display, 0, 0, 0);
 	}
-}
-
-UIWindow *_UIFindWindow(Window window) {
-	UIWindow *w = ui.windows;
-
-	while (w) {
-		if (w->window == window) {
-			return w;
-		}
-
-		w = w->next;
-	}
-
-	return NULL;
 }
 
 void _UIWindowSetCursor(UIWindow *window, int cursor) {
@@ -5409,6 +5528,8 @@ LRESULT CALLBACK _UIWindowProcedure(HWND hwnd, UINT message, WPARAM wParam, LPAR
 }
 
 void UIInitialise() {
+	ui.heap = GetProcessHeap();
+	
 	_UIInitialiseCommon();
 
 	ui.cursors[UI_CURSOR_ARROW] = LoadCursor(NULL, IDC_ARROW);
@@ -5426,8 +5547,6 @@ void UIInitialise() {
 	ui.cursors[UI_CURSOR_RESIZE_RIGHT] = LoadCursor(NULL, IDC_SIZEWE);
 	ui.cursors[UI_CURSOR_RESIZE_DOWN_LEFT] = LoadCursor(NULL, IDC_SIZENESW);
 	ui.cursors[UI_CURSOR_RESIZE_DOWN_RIGHT] = LoadCursor(NULL, IDC_SIZENWSE);
-
-	ui.heap = GetProcessHeap();
 
 	WNDCLASS windowClass = { 0 };
 	windowClass.lpfnWndProc = _UIWindowProcedure;
