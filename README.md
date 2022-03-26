@@ -106,6 +106,8 @@ layout=h(75,v(75,Source,Console),v(50,t(Watch,Breakpoints,Commands,Struct,Exe),t
 
 You can maximize the window at startup with `maximize=1`.
 
+You can request for the expressions in the watch window to be saved and restored by setting `restore_watch_window=1`.
+
 ### Themes
 
 You can change the theme in the `theme` section. See https://github.com/nakst/gf/wiki/Themes for a list of examples.
