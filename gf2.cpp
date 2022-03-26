@@ -151,6 +151,8 @@ const char *fontPath;
 int fontSizeCode = 13;
 int fontSizeInterface = 11;
 float uiScale = 1;
+bool restoreWatchWindow;
+struct WatchWindow *watchWindowToRestore;
 bool maximize;
 
 // Current file and line:
@@ -1136,6 +1138,8 @@ void SettingsLoad(bool earlyPass) {
 					layoutString = state.value;
 				} else if (0 == strcmp(state.key, "maximize")) {
 					maximize = atoi(state.value);
+				} else if (0 == strcmp(state.key, "restore_watch_window")) {
+					restoreWatchWindow = atoi(state.value);
 				}
 			} else if (0 == strcmp(state.section, "gdb") && !earlyPass) {
 				if (0 == strcmp(state.key, "argument")) {
@@ -1316,8 +1320,23 @@ int WindowMessage(UIElement *, UIMessage message, int di, void *dp) {
 		fprintf(stderr, "received '%s'\n", input);
 #endif
 
-		if (firstUpdate) EvaluateCommand(pythonCode);
-		firstUpdate = false;
+		if (firstUpdate) {
+			EvaluateCommand(pythonCode);
+
+			char path[PATH_MAX];
+			StringFormat(path, sizeof(path), "%s/.config/gf2_watch.txt", getenv("HOME"));
+			char *data = LoadFile(path, NULL);
+
+			while (data && restoreWatchWindow) {
+				char *end = strchr(data, '\n');
+				if (!end) break;
+				*end = 0;
+				WatchAddExpression2(data);
+				data = end + 1;
+			}
+
+			firstUpdate = false;
+		}
 
 		if (WatchLoggerUpdate(input)) goto skip;
 		if (showingDisassembly) DisassemblyUpdateLine();
@@ -1563,6 +1582,19 @@ int main(int argc, char **argv) {
 	CommandSyncWithGvim(nullptr);
 	UIMessageLoop();
 	DebuggerClose();
+
+	if (restoreWatchWindow && watchWindowToRestore) {
+		StringFormat(globalConfigPath, sizeof(globalConfigPath), "%s/.config/gf2_watch.txt", getenv("HOME"));
+		FILE *f = fopen(globalConfigPath, "wb");
+
+		if (f) {
+			for (int i = 0; i < watchWindowToRestore->baseExpressions.Length(); i++) {
+				fprintf(f, "%s\n", watchWindowToRestore->baseExpressions[i]->key);
+			}
+		} else {
+			fprintf(stderr, "Warning: Could not save the contents of the watch window; '%s' was not accessible.\n", globalConfigPath);
+		}
+	}
 
 	return 0;
 }

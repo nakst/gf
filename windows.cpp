@@ -1868,6 +1868,8 @@ UIElement *WatchWindowCreate(UIElement *parent) {
 	panel->e.cp = w;
 	w->element = UIElementCreate(sizeof(UIElement), &panel->e, UI_ELEMENT_H_FILL | UI_ELEMENT_TAB_STOP, WatchWindowMessage, "Watch");
 	w->element->cp = w;
+	if (!watchWindowToRestore) watchWindowToRestore = w;
+
 	return &panel->e;
 }
 
