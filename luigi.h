@@ -5181,7 +5181,8 @@ bool _UIProcessEvent(XEvent *event) {
 
 		Atom type = None;
 		int format = 0;
-		uint64_t count = 0, bytesLeft = 0;
+		long unsigned int count = 0;
+		uint64_t bytesLeft = 0;
 		uint8_t *data = NULL;
 		XGetWindowProperty(ui.display, window->window, ui.primaryID, 0, 65536, False, AnyPropertyType, &type, &format, &count, &bytesLeft, &data);
 
