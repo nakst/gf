@@ -14,7 +14,9 @@
 #include <X11/Xutil.h>
 #include <X11/Xatom.h>
 #include <X11/cursorfont.h>
+#endif
 
+#ifdef UI_SSE2
 #include <xmmintrin.h>
 #endif
 
@@ -899,8 +901,6 @@ bool UIRectangleContains(UIRectangle a, int x, int y) {
 	return a.l <= x && a.r > x && a.t <= y && a.b > y;
 }
 
-#include <xmmintrin.h>
-
 typedef union _UIConvertFloatInteger {
 	float f;
 	uint32_t i;
@@ -925,63 +925,6 @@ float _UIFloorFloat(float x) {
 	}
 
 	return convert.f;
-}
-
-float _UISquareRootFloat(float x) {
-	float result[4];
-	_mm_storeu_ps(result, _mm_sqrt_ps(_mm_set_ps(0, 0, 0, x)));
-	return result[0];
-}
-
-#define _F(x) (((_UIConvertFloatInteger) { .i = (x) }).f)
-
-float _UIArcTanFloatI(float x) {
-	float x2 = x * x;
-	return x * (_F(0x3F7FFFF8) + x2 * (_F(0xBEAAA53C) + x2 * (_F(0x3E4BC990) + x2 * (_F(0xBE084A60) + x2 * _F(0x3D8864B0)))));
-}
-
-float _UISinFloatI(float x) {
-	float x2 = x * x;
-	return x * (_F(0x3F800000) + x2 * (_F(0xBE2AAAA0) + x2 * (_F(0x3C0882C0) + x2 * _F(0xB94C6000))));
-}
-
-float _UICosFloatI(float x) {
-	float x2 = x * x;
-	return _F(0x3F800000) + x2 * (_F(0xBEFFFFDA) + x2 * (_F(0x3D2A9F60) + x2 * _F(0xBAB22C00)));
-}
-
-#undef _F
-
-float _UISinFloat(float x) {
-	bool negate = false;
-	if (x < 0) { x = -x; negate = true; }
-	x -= 2 * 3.141592654f * _UIFloorFloat(x / (2 * 3.141592654f));
-	if (x < 3.141592654f / 2) {}
-	else if (x < 3.141592654f) { x = 3.141592654f - x; }
-	else if (x < 3 * 3.141592654f / 2) { x = x - 3.141592654f; negate = !negate; }
-	else { x = 3.141592654f * 2 - x; negate = !negate; }
-	float y = x < 3.141592654f / 4 ? _UISinFloatI(x) : _UICosFloatI(3.141592654f / 2 - x);
-	return negate ? -y : y;
-}
-
-float _UICosFloat(float x) {
-	return _UISinFloat(3.141592654f / 2 - x);
-}
-
-float _UIArcTanFloat(float x) {
-	bool negate = false, reciprocalTaken = false;
-	if (x < 0) { x = -x; negate = true; }
-	if (x > 1) { x = 1 / x; reciprocalTaken = true; }
-	float y = x < 0.5f ? _UIArcTanFloatI(x) : (0.463647609f + _UIArcTanFloatI((2 * x - 1) / (2 + x)));
-	if (reciprocalTaken) { y = 3.141592654f / 2 - y; }
-	return negate ? -y : y;
-}
-
-float _UIArcTan2Float(float y, float x) {
-	if (x == 0) return y > 0 ? 3.141592654f / 2 : -3.141592654f / 2;
-	else if (x > 0) return _UIArcTanFloat(y / x);
-	else if (y >= 0) return 3.141592654f + _UIArcTanFloat(y / x);
-	else return -3.141592654f + _UIArcTanFloat(y / x);
 }
 
 float _UILinearMap(float value, float inFrom, float inTo, float outFrom, float outTo) {
@@ -1785,7 +1728,6 @@ void _UIWrapPanelLayoutRow(UIWrapPanel *panel, UIElement *child, UIElement *rowE
 
 int _UIWrapPanelMessage(UIElement *element, UIMessage message, int di, void *dp) {
 	UIWrapPanel *panel = (UIWrapPanel *) element;
-	bool horizontal = element->flags & UI_PANEL_HORIZONTAL;
 
 	if (message == UI_MSG_LAYOUT || message == UI_MSG_GET_HEIGHT) {
 		int totalHeight = 0;
@@ -3137,6 +3079,65 @@ UITextbox *UITextboxCreate(UIElement *parent, uint32_t flags) {
 	return (UITextbox *) UIElementCreate(sizeof(UITextbox), parent, flags | UI_ELEMENT_TAB_STOP, _UITextboxMessage, "Textbox");
 }
 
+#ifndef UI_NO_COLOR_PICKER
+
+float _UISquareRootFloat(float x) {
+	float result[4];
+	_mm_storeu_ps(result, _mm_sqrt_ps(_mm_set_ps(0, 0, 0, x)));
+	return result[0];
+}
+
+#define _F(x) (((_UIConvertFloatInteger) { .i = (x) }).f)
+
+float _UIArcTanFloatI(float x) {
+	float x2 = x * x;
+	return x * (_F(0x3F7FFFF8) + x2 * (_F(0xBEAAA53C) + x2 * (_F(0x3E4BC990) + x2 * (_F(0xBE084A60) + x2 * _F(0x3D8864B0)))));
+}
+
+float _UISinFloatI(float x) {
+	float x2 = x * x;
+	return x * (_F(0x3F800000) + x2 * (_F(0xBE2AAAA0) + x2 * (_F(0x3C0882C0) + x2 * _F(0xB94C6000))));
+}
+
+float _UICosFloatI(float x) {
+	float x2 = x * x;
+	return _F(0x3F800000) + x2 * (_F(0xBEFFFFDA) + x2 * (_F(0x3D2A9F60) + x2 * _F(0xBAB22C00)));
+}
+
+#undef _F
+
+float _UISinFloat(float x) {
+	bool negate = false;
+	if (x < 0) { x = -x; negate = true; }
+	x -= 2 * 3.141592654f * _UIFloorFloat(x / (2 * 3.141592654f));
+	if (x < 3.141592654f / 2) {}
+	else if (x < 3.141592654f) { x = 3.141592654f - x; }
+	else if (x < 3 * 3.141592654f / 2) { x = x - 3.141592654f; negate = !negate; }
+	else { x = 3.141592654f * 2 - x; negate = !negate; }
+	float y = x < 3.141592654f / 4 ? _UISinFloatI(x) : _UICosFloatI(3.141592654f / 2 - x);
+	return negate ? -y : y;
+}
+
+float _UICosFloat(float x) {
+	return _UISinFloat(3.141592654f / 2 - x);
+}
+
+float _UIArcTanFloat(float x) {
+	bool negate = false, reciprocalTaken = false;
+	if (x < 0) { x = -x; negate = true; }
+	if (x > 1) { x = 1 / x; reciprocalTaken = true; }
+	float y = x < 0.5f ? _UIArcTanFloatI(x) : (0.463647609f + _UIArcTanFloatI((2 * x - 1) / (2 + x)));
+	if (reciprocalTaken) { y = 3.141592654f / 2 - y; }
+	return negate ? -y : y;
+}
+
+float _UIArcTan2Float(float y, float x) {
+	if (x == 0) return y > 0 ? 3.141592654f / 2 : -3.141592654f / 2;
+	else if (x > 0) return _UIArcTanFloat(y / x);
+	else if (y >= 0) return 3.141592654f + _UIArcTanFloat(y / x);
+	else return -3.141592654f + _UIArcTanFloat(y / x);
+}
+
 int _UIColorCircleMessage(UIElement *element, UIMessage message, int di, void *dp) {
 	UIColorPicker *colorPicker = (UIColorPicker *) element->parent;
 
@@ -3289,6 +3290,8 @@ UIColorPicker *UIColorPickerCreate(UIElement *parent, uint32_t flags) {
 
 	return colorPicker;
 }
+
+#endif
 
 #define UI_MDI_CHILD_CALCULATE_LAYOUT() \
 	int titleSize = UI_SIZE_MDI_CHILD_TITLE * element->window->scale; \
@@ -5067,10 +5070,11 @@ bool _UIProcessEvent(XEvent *event) {
 
 		if (event->xkey.x == 0x7123 && event->xkey.y == 0x7456) {
 			// HACK! See UIWindowPostMessage.
-			UIElementMessage(&window->e, (UIMessage) event->xkey.state, 0, 
-				(void *) (((uintptr_t) (event->xkey.time & 0xFFFFFFFF) << 32) 
-					| ((uintptr_t) (event->xkey.x_root & 0xFFFF) << 0) 
-					| ((uintptr_t) (event->xkey.y_root & 0xFFFF) << 16)));
+			uintptr_t p = ((uintptr_t) (event->xkey.x_root & 0xFFFF) << 0) | ((uintptr_t) (event->xkey.y_root & 0xFFFF) << 16);
+#if INTPTR_MAX == INT64_MAX
+			p |= (uintptr_t) (event->xkey.time & 0xFFFFFFFF) << 32;
+#endif
+			UIElementMessage(&window->e, (UIMessage) event->xkey.state, 0, (void *) p);
 			_UIUpdate();
 		} else {
 			char text[32];
@@ -5342,7 +5346,9 @@ void UIWindowPostMessage(UIWindow *window, UIMessage message, void *_dp) {
 	event.window = window->window;
 	event.root = DefaultRootWindow(ui.display);
 	event.subwindow = None;
+#if INTPTR_MAX == INT64_MAX
 	event.time = dp >> 32;
+#endif
 	event.x = 0x7123;
 	event.y = 0x7456;
 	event.x_root = (dp >> 0) & 0xFFFF;
