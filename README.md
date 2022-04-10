@@ -203,7 +203,7 @@ LOG("Hello, world!\n");
 
 ### gf-command
 
-`gf-command <name>` runs the command(s) corresponding to `name` in the `[commands]` section of your configuration file.
+`gf-command <name>` runs the command(s) corresponding to `<name>` in the `[commands]` section of your configuration file.
 
 ### gf-inspect-line
 
