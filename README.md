@@ -69,6 +69,13 @@ You can also change the location of the GDB executable. For example,
 path=/home/a/opt/gdb
 ```
 
+You can direct all output from GDB to be sent to the "Log" window, if you have one in your layout string. This will work even if you haven't setup a log pipe. This can be used to view the stderr output from your target dynamically as it is running.
+
+```ini
+[gdb]
+log_all_output=1
+```
+
 ### Custom keyboard shortcuts
 
 Keyboard shortcuts are placed in the `[shortcuts]` section. For example,

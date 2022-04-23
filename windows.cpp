@@ -2385,9 +2385,17 @@ UIElement *CommandsWindowCreate(UIElement *parent) {
 //////////////////////////////////////////////////////
 
 void *LogWindowThread(void *context) {
-	if (!logPipePath) { fprintf(stderr, "Error: The log pipe path has not been set in the configuration file!\n"); return nullptr; }
+	if (!logPipePath) { 
+		fprintf(stderr, "Warning: The log pipe path has not been set in the configuration file!\n"); 
+		return nullptr; 
+	}
+
 	int file = open(logPipePath, O_RDONLY | O_NONBLOCK);
-	if (file == -1) { fprintf(stderr, "Error: Could not open the log pipe!\n"); return nullptr; }
+
+	if (file == -1) { 
+		fprintf(stderr, "Warning: Could not open the log pipe!\n"); 
+		return nullptr; 
+	}
 
 	struct pollfd p = { .fd = file, .events = POLLIN };
 

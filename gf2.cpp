@@ -474,9 +474,6 @@ bool SourceFindOuterFunctionCall(char **start, char **end) {
 // Debugger interaction:
 //////////////////////////////////////////////////////
 
-#define RECEIVE_BUFFER_SIZE (16777216)
-char receiveBuffer[RECEIVE_BUFFER_SIZE];
-size_t receiveBufferPosition;
 volatile int pipeToGDB;
 volatile pid_t gdbPID;
 volatile pthread_t gdbThread;
@@ -488,6 +485,7 @@ char **gdbArgv;
 int gdbArgc;
 const char *gdbPath = "gdb";
 bool firstUpdate = true;
+void *sendAllGDBOutputToLogWindowContext;
 
 void *DebuggerThread(void *) {
 	int outputPipe[2], inputPipe[2];
@@ -510,17 +508,34 @@ void *DebuggerThread(void *) {
 	const char *setPrompt = "set prompt (gdb) \n";
 	write(pipeToGDB, setPrompt, strlen(setPrompt));
 
+	char *catBuffer = NULL;
+	size_t catBufferUsed = 0;
+	size_t catBufferAllocated = 0;
+
 	while (true) {
 		char buffer[512 + 1];
 		int count = read(outputPipe[0], buffer, 512);
 		buffer[count] = 0;
 		if (!count) break;
-		receiveBufferPosition += StringFormat(receiveBuffer + receiveBufferPosition,
-			RECEIVE_BUFFER_SIZE - receiveBufferPosition, "%s", buffer);
-		if (!strstr(receiveBuffer, "(gdb) ")) continue;
 
-		receiveBuffer[receiveBufferPosition] = 0;
-		char *copy = strdup(receiveBuffer);
+		if (sendAllGDBOutputToLogWindowContext && !evaluateMode) {
+			void *message = malloc(count + sizeof(sendAllGDBOutputToLogWindowContext) + 1);
+			memcpy(message, &sendAllGDBOutputToLogWindowContext, sizeof(sendAllGDBOutputToLogWindowContext));
+			strcpy((char *) message + sizeof(sendAllGDBOutputToLogWindowContext), buffer);
+			UIWindowPostMessage(windowMain, MSG_RECEIVED_LOG, message);
+		}
+
+		size_t neededSpace = catBufferUsed + count + 1;
+
+		if (neededSpace > catBufferAllocated) {
+			catBufferAllocated *= 2;
+			if (catBufferAllocated < neededSpace) catBufferAllocated = neededSpace;
+			catBuffer = (char *) realloc(catBuffer, catBufferAllocated);
+		}
+
+		strcpy(catBuffer + catBufferUsed, buffer);
+		catBufferUsed += count;
+		if (!strstr(catBuffer, "(gdb) ")) continue;
 
 		// printf("got (%d) {%s}\n", evaluateMode, copy);
 
@@ -528,16 +543,18 @@ void *DebuggerThread(void *) {
 
 		if (evaluateMode) {
 			free(evaluateResult);
-			evaluateResult = copy;
+			evaluateResult = catBuffer;
 			evaluateMode = false;
 			pthread_mutex_lock(&evaluateMutex);
 			pthread_cond_signal(&evaluateEvent);
 			pthread_mutex_unlock(&evaluateMutex);
 		} else {
-			UIWindowPostMessage(windowMain, MSG_RECEIVED_DATA, copy);
+			UIWindowPostMessage(windowMain, MSG_RECEIVED_DATA, catBuffer);
 		}
 
-		receiveBufferPosition = 0;
+		catBuffer = NULL;
+		catBufferUsed = 0;
+		catBufferAllocated = 0;
 	}
 
 	return nullptr;
@@ -833,7 +850,6 @@ bool CommandParseInternal(const char *command, bool synchronous) {
 		firstUpdate = true;
 		kill(gdbPID, SIGKILL);
 		pthread_cancel(gdbThread); // TODO Is there a nicer way to do this?
-		receiveBufferPosition = 0;
 		DebuggerStartThread();
 	} else if (0 == strcmp(command, "gf-get-pwd")) {
 		EvaluateCommand("info source");
@@ -1149,6 +1165,19 @@ void SettingsLoad(bool earlyPass) {
 					gdbArgv[gdbArgc] = nullptr;
 				} else if (0 == strcmp(state.key, "path")) {
 					gdbPath = state.value;
+				} else if (0 == strcmp(state.key, "log_all_output") && atoi(state.value)) {
+					for (int i = 0; i < interfaceWindows.Length(); i++) {
+						InterfaceWindow *window = &interfaceWindows[i];
+
+						if (0 == strcmp(window->name, "Log")) {
+							sendAllGDBOutputToLogWindowContext = window->element;
+						}
+					}
+
+					if (!sendAllGDBOutputToLogWindowContext) {
+						fprintf(stderr, "Warning: gdb.log_all_output was enabled, "
+								"but your layout does not have a 'Log' window.\n");
+					}
 				}
 			} else if (0 == strcmp(state.section, "commands") && earlyPass && state.keyBytes && state.valueBytes) {
 				presetCommands.Add(state);
