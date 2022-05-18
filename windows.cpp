@@ -584,6 +584,55 @@ void CommandInspectLine(void *) {
 }
 
 //////////////////////////////////////////////////////
+// Data viewers:
+//////////////////////////////////////////////////////
+
+struct AutoUpdateViewer {
+	UIElement *element;
+	void (*callback)(UIElement *);
+};
+
+Array<AutoUpdateViewer> autoUpdateViewers;
+bool autoUpdateViewersQueued;
+
+bool DataViewerRemoveFromAutoUpdateList(UIElement *element) {
+	for (int i = 0; i < autoUpdateViewers.Length(); i++) {
+		if (autoUpdateViewers[i].element == element) {
+			autoUpdateViewers.DeleteSwap(i);
+			return true;
+		}
+	}
+
+	return false;
+}
+
+int DataViewerAutoUpdateButtonMessage(UIElement *element, UIMessage message, int di, void *dp) {
+	if (message == UI_MSG_CLICKED) {
+		element->flags ^= UI_BUTTON_CHECKED;
+
+		if (element->flags & UI_BUTTON_CHECKED) {
+			AutoUpdateViewer v = { .element = element->parent, .callback = (void (*)(UIElement *)) element->cp };
+			autoUpdateViewers.Add(v);
+		} else {
+			bool found = DataViewerRemoveFromAutoUpdateList(element->parent);
+			assert(found);
+		}
+	}
+
+	return 0;
+}
+
+void DataViewersUpdateAll() {
+	if (~dataTab->e.flags & UI_ELEMENT_HIDE) {
+		for (int i = 0; i < autoUpdateViewers.Length(); i++) {
+			autoUpdateViewers[i].callback(autoUpdateViewers[i].element);
+		}
+	} else if (autoUpdateViewers.Length()) {
+		autoUpdateViewersQueued = true;
+	}
+}
+
+//////////////////////////////////////////////////////
 // Bitmap viewer:
 //////////////////////////////////////////////////////
 
@@ -599,11 +648,9 @@ struct BitmapViewer {
 	UILabel *label;
 };
 
-Array<UIElement *> autoUpdateBitmapViewers;
-bool autoUpdateBitmapViewersQueued;
-
 int BitmapViewerWindowMessage(UIElement *element, UIMessage message, int di, void *dp) {
 	if (message == UI_MSG_DESTROY) {
+		DataViewerRemoveFromAutoUpdateList(element);
 		free(element->cp);
 	} else if (message == UI_MSG_GET_WIDTH) {
 		int fit = ((BitmapViewer *) element->cp)->parsedWidth + 40;
@@ -622,30 +669,6 @@ int BitmapViewerRefreshMessage(UIElement *element, UIMessage message, int di, vo
 	if (message == UI_MSG_CLICKED) {
 		BitmapViewer *bitmap = (BitmapViewer *) element->parent->cp;
 		BitmapViewerUpdate(bitmap->pointer, bitmap->width, bitmap->height, bitmap->stride, element->parent);
-	}
-
-	return 0;
-}
-
-int BitmapViewerAutoMessage(UIElement *element, UIMessage message, int di, void *dp) {
-	if (message == UI_MSG_CLICKED) {
-		element->flags ^= UI_BUTTON_CHECKED;
-
-		if (element->flags & UI_BUTTON_CHECKED) {
-			autoUpdateBitmapViewers.Add(element->parent);
-		} else {
-			bool found = false;
-
-			for (int i = 0; i < autoUpdateBitmapViewers.Length(); i++) {
-				if (autoUpdateBitmapViewers[i] == element->parent) {
-					autoUpdateBitmapViewers.DeleteSwap(i);
-					found = true;
-					break;
-				}
-			}
-
-			assert(found);
-		}
 	}
 
 	return 0;
@@ -674,7 +697,7 @@ const char *BitmapViewerGetBits(const char *pointerString, const char *widthStri
 		stride = atoi(strideResult + 1);
 	}
 
-	uint32_t *bits = (uint32_t *) malloc(stride * height * 4);
+	uint32_t *bits = (uint32_t *) malloc(stride * height * 4); // TODO Is this multiply by 4 necessary?! And the one below.
 
 	char bitmapPath[PATH_MAX];
 	realpath(".bitmap.gf", bitmapPath);
@@ -686,7 +709,7 @@ const char *BitmapViewerGetBits(const char *pointerString, const char *widthStri
 	FILE *f = fopen(bitmapPath, "rb");
 
 	if (f) {
-		fread(bits, 1, stride * height * 4, f);
+		fread(bits, 1, stride * height * 4, f); // TODO Is this multiply by 4 necessary?!
 		fclose(f);
 		unlink(bitmapPath);
 	}
@@ -726,6 +749,11 @@ int BitmapViewerDisplayMessage(UIElement *element, UIMessage message, int di, vo
 	return 0;
 }
 
+void BitmapViewerAutoUpdateCallback(UIElement *element) {
+	BitmapViewer *bitmap = (BitmapViewer *) element->cp;
+	BitmapViewerUpdate(bitmap->pointer, bitmap->width, bitmap->height, bitmap->stride, element);
+}
+
 void BitmapViewerUpdate(const char *pointerString, const char *widthString, const char *heightString, const char *strideString, UIElement *owner) {
 	uint32_t *bits = nullptr;
 	int width = 0, height = 0, stride = 0;
@@ -743,7 +771,8 @@ void BitmapViewerUpdate(const char *pointerString, const char *widthString, cons
 		window->e.messageUser = BitmapViewerWindowMessage;
 		window->e.cp = bitmap;
 		bitmap->autoToggle = UIButtonCreate(&window->e, UI_BUTTON_SMALL | UI_ELEMENT_NON_CLIENT, "Auto", -1);
-		bitmap->autoToggle->e.messageUser = BitmapViewerAutoMessage;
+		bitmap->autoToggle->e.cp = (void *) BitmapViewerAutoUpdateCallback;
+		bitmap->autoToggle->e.messageUser = DataViewerAutoUpdateButtonMessage;
 		UIButtonCreate(&window->e, UI_BUTTON_SMALL | UI_ELEMENT_NON_CLIENT, "Refresh", -1)->e.messageUser = BitmapViewerRefreshMessage;
 		owner = &window->e;
 
@@ -778,17 +807,6 @@ void BitmapAddDialog(void *) {
 
 	if (0 == strcmp(result, "Add")) {
 		BitmapViewerUpdate(pointer, width, height, (stride && stride[0]) ? stride : nullptr);
-	}
-}
-
-void BitmapViewerUpdateAll() {
-	if (~dataTab->e.flags & UI_ELEMENT_HIDE) {
-		for (int i = 0; i < autoUpdateBitmapViewers.Length(); i++) {
-			BitmapViewer *bitmap = (BitmapViewer *) autoUpdateBitmapViewers[i]->cp;
-			BitmapViewerUpdate(bitmap->pointer, bitmap->width, bitmap->height, bitmap->stride, autoUpdateBitmapViewers[i]);
-		}
-	} else if (autoUpdateBitmapViewers.Length()) {
-		autoUpdateBitmapViewersQueued = true;
 	}
 }
 
@@ -2051,15 +2069,14 @@ void BreakpointsWindowUpdate(const char *, UIElement *_table) {
 UIButton *buttonFillWindow;
 
 int DataTabMessage(UIElement *element, UIMessage message, int di, void *dp) {
-	if (message == UI_MSG_TAB_SELECTED && autoUpdateBitmapViewersQueued) {
+	if (message == UI_MSG_TAB_SELECTED && autoUpdateViewersQueued) {
 		// If we've switched to the data tab, we may need to update the bitmap viewers.
 
-		for (int i = 0; i < autoUpdateBitmapViewers.Length(); i++) {
-			BitmapViewer *bitmap = (BitmapViewer *) autoUpdateBitmapViewers[i]->cp;
-			BitmapViewerUpdate(bitmap->pointer, bitmap->width, bitmap->height, bitmap->stride, autoUpdateBitmapViewers[i]);
+		for (int i = 0; i < autoUpdateViewers.Length(); i++) {
+			autoUpdateViewers[i].callback(autoUpdateViewers[i].element);
 		}
 
-		autoUpdateBitmapViewersQueued = false;
+		autoUpdateViewersQueued = false;
 	}
 
 	return 0;
@@ -2096,7 +2113,12 @@ UIElement *DataWindowCreate(UIElement *parent) {
 	UIPanel *panel5 = UIPanelCreate(&dataTab->e, UI_PANEL_GRAY | UI_PANEL_HORIZONTAL | UI_PANEL_SMALL_SPACING);
 	buttonFillWindow = UIButtonCreate(&panel5->e, UI_BUTTON_SMALL, "Fill window", -1);
 	buttonFillWindow->invoke = CommandToggleFillDataTab;
-	UIButtonCreate(&panel5->e, UI_BUTTON_SMALL, "Add bitmap...", -1)->invoke = BitmapAddDialog;
+
+	for (int i = 0; i < interfaceDataViewers.Length(); i++) {
+		UIButtonCreate(&panel5->e, UI_BUTTON_SMALL, interfaceDataViewers[i].addButtonLabel, -1)->invoke 
+			= interfaceDataViewers[i].addButtonCallback;
+	}
+
 	dataWindow = UIMDIClientCreate(&dataTab->e, UI_ELEMENT_V_FILL);
 	dataTab->e.messageUser = DataTabMessage;
 	return &dataTab->e;

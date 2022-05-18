@@ -126,6 +126,11 @@ struct InterfaceWindow {
 	bool queuedUpdate, alwaysUpdate;
 };
 
+struct InterfaceDataViewer {
+	const char *addButtonLabel;
+	void (*addButtonCallback)(void *_unused);
+};
+
 struct INIState {
 	char *buffer, *section, *key, *value;
 	size_t bytes, sectionBytes, keyBytes, valueBytes;
@@ -146,6 +151,7 @@ const char *executableArguments;
 bool executableAskDirectory = true;
 Array<InterfaceWindow> interfaceWindows;
 Array<InterfaceCommand> interfaceCommands;
+Array<InterfaceDataViewer> interfaceDataViewers;
 char *layoutString = (char *) "v(75,h(80,Source,v(50,t(Exe,Breakpoints,Commands,Struct),t(Stack,Files,Thread))),h(65,Console,t(Watch,Registers,Data)))";
 const char *fontPath;
 int fontSizeCode = 13;
@@ -1241,6 +1247,8 @@ void InterfaceAddBuiltinWindowsAndCommands() {
 	interfaceWindows.Add({ "Thread", ThreadWindowCreate, ThreadWindowUpdate });
 	interfaceWindows.Add({ "Exe", ExecutableWindowCreate, nullptr });
 
+	interfaceDataViewers.Add({ "Add bitmap...", BitmapAddDialog });
+
 	interfaceCommands.Add({ .label = "Run\tShift+F5", 
 			{ .code = UI_KEYCODE_FKEY(5), .shift = true, .invoke = CommandSendToGDB, .cp = (void *) "r" } });
 	interfaceCommands.Add({ .label = "Run paused\tCtrl+F5", 
@@ -1380,7 +1388,7 @@ int WindowMessage(UIElement *, UIMessage message, int di, void *dp) {
 			else window->update(input, window->element);
 		}
 
-		BitmapViewerUpdateAll();
+		DataViewersUpdateAll();
 
 		if (displayOutput) {
 			UICodeInsertContent(displayOutput, input, -1, false);
