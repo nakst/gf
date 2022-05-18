@@ -263,6 +263,76 @@ def MyArrayHook(item, field):
 
 Templates are removed from the name of the type. For example, `Array<int>`, `Array<char *>` and `Array<float>` would all use the `Array` hook.
 
+## Plugins
+
+There is a simple plugin system. Make a file called `plugins.cpp` in the source code folder. It will be found automatically, and #included in the compilation of the main translation unit.
+
+gf uses the Luigi UI library. It is documented here: [https://github.com/nakst/luigi/blob/main/README.md](https://github.com/nakst/luigi/blob/main/README.md).
+
+You can register new windows, command and data viewers in a constructor function. For example,
+
+```cpp
+__attribute__((constructor)) 
+void MyPluginRegister() {
+	interfaceWindows.Add({ 
+		"Hello", // The window's name. Used to match it against the UI layout string.
+		MyPluginHelloWindowCreate, // The callback to create an instance of the window.
+		MyPluginHelloWindowUpdate // The callback to update an instance of the window (called every time the target pauses/steps).
+	});
+
+	interfaceDataViewers.Add({ 
+		"Add test...", // The label of the button to show in the Data tab.
+		MyPluginTestViewerCreate // The callback to create the data viewer.
+	});
+
+	interfaceCommands.Add({ 
+		"My command", // The label to show in the application menu.
+		{ /* UIShortcut */ } 
+	});
+}
+```
+
+The interface window creation callback is passed the parent UIElement and should return the UIElement it creates.
+
+```cpp
+UIElement *MyPluginHelloWindowCreate(UIElement *parent) {
+	UIPanel *panel = UIPanelCreate(parent, UI_PANEL_GRAY | UI_PANEL_EXPAND);
+	UILabelCreate(&panel->e, 0, "Hello, world!", -1);
+	return &panel->e;
+}
+```
+
+The interface window update callback is passed the output of GDB from the most recent step, and the UIElement returned by the creation callback.
+
+```cpp
+void MyPluginHelloWindowUpdate(const char *gdbOutput, UIElement *element) {
+	// TODO Update the window.
+}
+```
+
+The interface data viewer creation callback should create a MDI child of the data tab as follows:
+
+```cpp
+void MyPluginTestViewerCreate(void *unused) {
+	UIMDIChild *window = UIMDIChildCreate(&dataWindow->e, UI_MDI_CHILD_CLOSE_BUTTON, UI_RECT_1(0), "Title", -1);
+	// TODO Configure the viewer.
+	UIElementRefresh(&dataWindow->e);
+}
+```
+
+For communicating with GDB, there are the following functions.
+
+```cpp
+// Evaluate an expression. The result is overwritten between calls!
+const char *EvaluateExpression(const char *expression, const char *format = nullptr);
+
+// Send and run a command in GDB. Set `echo` to log the command in the console window. 
+// If `synchronous` is set the function will wait for the command to complete before it returns.
+void DebuggerSend(const char *string, bool echo, bool synchronous);
+```
+
+There are many examples of how to do these things in `windows.cpp`.
+
 ## Contributors
 
 ```

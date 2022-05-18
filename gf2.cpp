@@ -1227,6 +1227,10 @@ void SettingsLoad(bool earlyPass) {
 #include "extensions.cpp"
 #endif
 
+#if __has_include("plugins.cpp")
+#include "plugins.cpp"
+#endif
+
 //////////////////////////////////////////////////////
 // Interface and main:
 //////////////////////////////////////////////////////
