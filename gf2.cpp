@@ -10,10 +10,6 @@
 
 // TODO More data visualization tools in the data window.
 
-#if defined(__FreeBSD__)
-extern char **environ;
-#endif
-
 #include <pthread.h>
 #include <unistd.h>
 #include <signal.h>
