@@ -10,6 +10,10 @@
 
 // TODO More data visualization tools in the data window.
 
+#if defined(__FreeBSD__)
+extern char **environ;
+#endif
+
 #include <pthread.h>
 #include <unistd.h>
 #include <signal.h>
@@ -498,6 +502,23 @@ void *DebuggerThread(void *) {
 	pipe(outputPipe);
 	pipe(inputPipe);
 
+
+
+#if defined(__FreeBSD__)
+	pid_t gdbPID = fork();
+	if(gdbPID == 0) {
+		setsid();
+		dup2(inputPipe[0],  0);
+		dup2(outputPipe[1], 1);
+		dup2(outputPipe[1], 2);
+		execvp(gdbPath, gdbArgv);
+		fprintf(stderr, "couldn't execute gdb");
+		exit(EXIT_FAILURE);
+	} else if (gdbPID < 0 ) {
+		fprintf(stderr, "couldn't fork");
+		exit(EXIT_FAILURE);
+	}
+#else
 	posix_spawn_file_actions_t actions = {};
 	posix_spawn_file_actions_adddup2(&actions, inputPipe[0],  0);
 	posix_spawn_file_actions_adddup2(&actions, outputPipe[1], 1);
@@ -508,6 +529,9 @@ void *DebuggerThread(void *) {
 	posix_spawnattr_setflags(&attrs, POSIX_SPAWN_SETSID);
 
 	posix_spawnp((pid_t *) &gdbPID, gdbPath, &actions, &attrs, gdbArgv, environ);
+#endif
+
+
 
 	pipeToGDB = inputPipe[1];
 
