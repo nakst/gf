@@ -826,10 +826,10 @@ void TabCompleterRun(TabCompleter *completer, UITextbox *textbox, bool lastKeyWa
 
 bool CommandParseInternal(const char *command, bool synchronous) {
 	if (0 == strcmp(command, "gf-step")) {
-		DebuggerSend(showingDisassembly ? "stepi" : "s", true, synchronous);
+		if (!programRunning) DebuggerSend(showingDisassembly ? "stepi" : "s", true, synchronous);
 		return true;
 	} else if (0 == strcmp(command, "gf-next")) {
-		DebuggerSend(showingDisassembly ? "nexti" : "n", true, synchronous);
+		if (!programRunning) DebuggerSend(showingDisassembly ? "nexti" : "n", true, synchronous);
 		return true;
 	} else if (0 == strcmp(command, "gf-step-out-of-block")) {
 		int line = SourceFindEndOfBlock();
