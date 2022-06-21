@@ -187,7 +187,7 @@ UIFont *fontCode;
 // Breakpoints:
 
 struct Breakpoint {
-	char file[64];
+	char file[PATH_MAX];
 	char fileFull[PATH_MAX];
 	int line;
 	int watchpoint;
