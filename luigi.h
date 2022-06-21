@@ -158,6 +158,7 @@ typedef enum UIMessage {
 	UI_MSG_RIGHT_DOWN,
 	UI_MSG_RIGHT_UP,
 	UI_MSG_KEY_TYPED, // dp = pointer to UIKeyTyped; return 1 if handled
+	UI_MSG_KEY_RELEASED, // dp = pointer to UIKeyTyped; return 1 if handled
 	UI_MSG_MOUSE_MOVE,
 	UI_MSG_MOUSE_DRAG,
 	UI_MSG_MOUSE_WHEEL, // di = delta; return 1 if handled
@@ -3181,8 +3182,11 @@ int _UIColorCircleMessage(UIElement *element, UIMessage message, int di, void *d
 		UIDrawInvert(painter, UI_RECT_4(cx - 1, cx + 1, startY, endY));
 		UIDrawInvert(painter, UI_RECT_4(startX, endX, cy - 1, cy + 1));
 	} else if (message == UI_MSG_GET_CURSOR) {
+		if (colorPicker->e.flags & UI_ELEMENT_DISABLED) return 0;
 		return UI_CURSOR_CROSS_HAIR;
 	} else if (message == UI_MSG_LEFT_DOWN || message == UI_MSG_MOUSE_DRAG) {
+		if (colorPicker->e.flags & UI_ELEMENT_DISABLED) return 0;
+
 		int startY = element->bounds.t, endY = element->bounds.b, cursorY = element->window->cursorY;
 		int startX = element->bounds.l, endX = element->bounds.r, cursorX = element->window->cursorX;
 		int dx = (startX + endX) / 2, dy = (startY + endY) / 2;
@@ -3239,8 +3243,10 @@ int _UIColorSliderMessage(UIElement *element, UIMessage message, int di, void *d
 		int cy = (size - 1) * (1 - (opacitySlider ? colorPicker->opacity : colorPicker->value)) + startY;
 		UIDrawInvert(painter, UI_RECT_4(startX, endX, cy - 1, cy + 1));
 	} else if (message == UI_MSG_GET_CURSOR) {
+		if (colorPicker->e.flags & UI_ELEMENT_DISABLED) return 0;
 		return UI_CURSOR_CROSS_HAIR;
 	} else if (message == UI_MSG_LEFT_DOWN || message == UI_MSG_MOUSE_DRAG) {
+		if (colorPicker->e.flags & UI_ELEMENT_DISABLED) return 0;
 		int startY = element->bounds.t, endY = element->bounds.b, cursorY = element->window->cursorY;
 		float *value = opacitySlider ? &colorPicker->opacity : &colorPicker->value;
 		*value = 1 - (float) (cursorY - startY) / (endY - startY);
@@ -4307,14 +4313,14 @@ bool _UIWindowInputEvent(UIWindow *window, UIMessage message, int di, void *dp) 
 
 				element = element->parent;
 			}
-		} else if (message == UI_MSG_KEY_TYPED) {
+		} else if (message == UI_MSG_KEY_TYPED || message == UI_MSG_KEY_RELEASED) {
 			handled = false;
 
 			if (window->focused) {
 				UIElement *element = window->focused;
 
 				while (element) {
-					if (UIElementMessage(element, UI_MSG_KEY_TYPED, di, dp)) {
+					if (UIElementMessage(element, message, di, dp)) {
 						handled = true;
 						break;
 					}
@@ -4322,12 +4328,12 @@ bool _UIWindowInputEvent(UIWindow *window, UIMessage message, int di, void *dp) 
 					element = element->parent;
 				}
 			} else {
-				if (UIElementMessage(&window->e, UI_MSG_KEY_TYPED, di, dp)) {
+				if (UIElementMessage(&window->e, message, di, dp)) {
 					handled = true;
 				}
 			}
 
-			if (!handled && !_UIMenusOpen()) {
+			if (!handled && !_UIMenusOpen() && message == UI_MSG_KEY_TYPED) {
 				UIKeyTyped *m = (UIKeyTyped *) dp;
 
 				if (m->code == UI_KEYCODE_TAB && !window->ctrl && !window->alt) {
@@ -5131,6 +5137,15 @@ bool _UIProcessEvent(XEvent *event) {
 		} else if (event->xkey.keycode == window->altCode) {
 			window->alt = false;
 			_UIWindowInputEvent(window, UI_MSG_MOUSE_MOVE, 0, 0);
+		} else {
+			char text[32];
+			KeySym symbol = NoSymbol;
+			Status status;
+			UIKeyTyped m = { 0 };
+			m.textBytes = Xutf8LookupString(window->xic, &event->xkey, text, sizeof(text) - 1, &symbol, &status); 
+			m.text = text;
+			m.code = XLookupKeysym(&event->xkey, 0);
+			_UIWindowInputEvent(window, UI_MSG_KEY_RELEASED, 0, &m);
 		}
 	} else if (event->type == FocusIn) {
 		UIWindow *window = _UIFindWindow(event->xfocus.window);
@@ -5181,7 +5196,7 @@ bool _UIProcessEvent(XEvent *event) {
 
 		Atom type = None;
 		int format = 0;
-		long unsigned int count = 0, bytesLeft = 0;
+		uint64_t count = 0, bytesLeft = 0;
 		uint8_t *data = NULL;
 		XGetWindowProperty(ui.display, window->window, ui.primaryID, 0, 65536, False, AnyPropertyType, &type, &format, &count, &bytesLeft, &data);
 
