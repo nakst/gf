@@ -52,8 +52,8 @@
 #define UI_FREE free
 #define UI_MALLOC malloc
 #define UI_REALLOC realloc
-#define UI_CLOCK clock
-#define UI_CLOCKS_PER_SECOND CLOCKS_PER_SEC
+#define UI_CLOCK _UIClock
+#define UI_CLOCKS_PER_SECOND 1000
 #define UI_CLOCK_T clock_t
 #endif
 
@@ -857,6 +857,14 @@ void _UIClipboardReadTextEnd(UIWindow *window, char *text);
 bool _UIMessageLoopSingle(int *result);
 void _UIInspectorRefresh();
 void _UIUpdate();
+
+#ifdef UI_LINUX
+UI_CLOCK_T _UIClock() {
+	struct timespec spec;
+	clock_gettime(CLOCK_REALTIME, &spec);
+	return spec.tv_sec * 1000 + spec.tv_nsec / 1000000;
+}
+#endif
 
 #ifdef UI_WINDOWS
 void *_UIHeapReAlloc(void *pointer, size_t size);
