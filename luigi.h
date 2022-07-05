@@ -5736,7 +5736,7 @@ int _UIWindowMessage(UIElement *element, UIMessage message, int di, void *dp) {
 	if (message == UI_MSG_DESTROY) {
 		// TODO Non-main windows.
 		element->window = NULL;
-		EsInstanceDestroy(ui.instance);
+		EsInstanceCloseReference(ui.instance);
 	}
 
 	return _UIWindowMessageCommon(element, message, di, dp);
