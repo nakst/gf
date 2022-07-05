@@ -498,20 +498,19 @@ void *DebuggerThread(void *) {
 	pipe(outputPipe);
 	pipe(inputPipe);
 
-
-
 #if defined(__FreeBSD__)
-	pid_t gdbPID = fork();
+	gdbPID = fork();
+	
 	if(gdbPID == 0) {
 		setsid();
 		dup2(inputPipe[0],  0);
 		dup2(outputPipe[1], 1);
 		dup2(outputPipe[1], 2);
 		execvp(gdbPath, gdbArgv);
-		fprintf(stderr, "couldn't execute gdb");
+		fprintf(stderr, "Error: Couldn't execute gdb.\n");
 		exit(EXIT_FAILURE);
-	} else if (gdbPID < 0 ) {
-		fprintf(stderr, "couldn't fork");
+	} else if (gdbPID < 0) {
+		fprintf(stderr, "Error: Couldn't fork.\n");
 		exit(EXIT_FAILURE);
 	}
 #else
@@ -526,8 +525,6 @@ void *DebuggerThread(void *) {
 
 	posix_spawnp((pid_t *) &gdbPID, gdbPath, &actions, &attrs, gdbArgv, environ);
 #endif
-
-
 
 	pipeToGDB = inputPipe[1];
 
