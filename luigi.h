@@ -3031,10 +3031,11 @@ int _UITextboxMessage(UIElement *element, UIMessage message, int di, void *dp) {
 
 			UITextboxReplace(textbox, NULL, 0, true);
 		} else if (m->code == UI_KEYCODE_LEFT || m->code == UI_KEYCODE_RIGHT) {
-			UITextboxMoveCaret(textbox, m->code == UI_KEYCODE_LEFT, element->window->ctrl);
-
-			if (!element->window->shift) {
-				textbox->carets[1] = textbox->carets[0];
+			if (textbox->carets[0] == textbox->carets[1] || element->window->shift) {
+				UITextboxMoveCaret(textbox, m->code == UI_KEYCODE_LEFT, element->window->ctrl);
+				if (!element->window->shift) textbox->carets[1] = textbox->carets[0];
+			} else {
+				textbox->carets[1 - element->window->shift] = textbox->carets[element->window->shift];
 			}
 		} else if (m->code == UI_KEYCODE_HOME || m->code == UI_KEYCODE_END) {
 			if (m->code == UI_KEYCODE_HOME) {
