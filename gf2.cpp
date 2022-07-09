@@ -959,17 +959,15 @@ void CommandSyncWithGvim(void *) {
 	char *nameEnd = strchr(++name, '"');
 	if (!nameEnd) return;
 	*nameEnd = 0;
-        char *line = nameEnd+1;
-        while(!isdigit(*line) && *line != '\0' ) line++;
+	char *line = nameEnd + 1;
+	while (!isdigit(*line) && *line) line++;
 	if (!line) return;
 	int lineNumber = atoi(line);
 	char buffer2[PATH_MAX];
 
-
 	if (name[0] != '/' && name[0] != '~') {
 		char buffer[1024];
 		StringFormat(buffer, sizeof(buffer), "vim --servername %s --remote-expr \"execute(\\\"pwd\\\")\" | grep '/'", vimServerName);
-
 		FILE *file = popen(buffer, "r");
 		if (!file) return;
 		buffer[fread(buffer, 1, 1023, file)] = 0;
