@@ -1,8 +1,7 @@
-// TODO UITextbox features - mouse input, multi-line, undo, IME support, number dragging.
+// TODO UITextbox features - mouse input, undo, number dragging.
 // TODO New elements - list view, menu bar.
 // TODO Keyboard navigation in menus.
 // TODO Easier to use fonts.
-// TODO Windows clipboard.
 
 /////////////////////////////////////////
 // Header includes.
@@ -4902,8 +4901,6 @@ char *_UIClipboardReadTextStart(UIWindow *window, size_t *bytes) {
 
 void _UIClipboardReadTextEnd(UIWindow *window, char *text) {
 	if (text) {
-		//XFree(text);
-		//XDeleteProperty(ui.copyEvent.xselection.display, ui.copyEvent.xselection.requestor, ui.copyEvent.xselection.property);
 		UI_FREE(text);
 	}
 }
@@ -5718,18 +5715,59 @@ void *_UIHeapReAlloc(void *pointer, size_t size) {
 	}
 }
 
-void _UIClipboardWriteText(UIWindow *window, char *text) {
-	// TODO.
-	UI_FREE(text);
+void _UIClipboardWriteText(UIWindow *window, char *string) {
+	if (OpenClipboard(window->window)) {
+		EmptyClipboard();
+		HGLOBAL memory = GlobalAlloc(GMEM_MOVEABLE | GMEM_ZEROINIT, _UIStringLength(string) + 1);
+		char *copy = (char *) GlobalLock(memory);
+		for (uintptr_t i = 0; string[i]; i++) copy[i] = string[i];
+		GlobalUnlock(copy);
+		SetClipboardData(CF_TEXT, memory);
+		CloseClipboard();
+	}
 }
 
 char *_UIClipboardReadTextStart(UIWindow *window, size_t *bytes) {
-	// TODO.
-	return NULL;
+	if (!OpenClipboard(window->window)) {
+		return NULL;
+	}
+	
+	HANDLE memory = GetClipboardData(CF_TEXT);
+	
+	if (!memory) {
+		CloseClipboard();
+		return NULL;
+	}
+	
+	char *buffer = (char *) GlobalLock(memory);
+	
+	if (!buffer) {
+		CloseClipboard();
+		return NULL;
+	}
+	
+	size_t byteCount = GlobalSize(memory);
+	
+	if (byteCount < 1) {
+		GlobalUnlock(memory);
+		CloseClipboard();
+		return NULL;
+	}
+
+	char *copy = (char *) UI_MALLOC(byteCount + 1);
+	for (uintptr_t i = 0; i < byteCount; i++) copy[i] = buffer[i];
+	copy[byteCount] = 0; // Just in case.
+	
+	GlobalUnlock(memory);
+	CloseClipboard();
+	
+	if (bytes) *bytes = _UIStringLength(copy);
+	return copy;
 }
 
 void _UIClipboardReadTextEnd(UIWindow *window, char *text) {
-	// TODO.
+	(void) window;
+	UI_FREE(text);
 }
 
 void *_UIMemmove(void *dest, const void *src, size_t n) {
