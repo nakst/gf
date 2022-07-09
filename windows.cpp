@@ -728,7 +728,7 @@ int BitmapViewerDisplayMessage(UIElement *element, UIMessage message, int di, vo
 
 		UIMenuAddItem(menu, 0, "Save to file...", -1, [] (void *cp) { 
 			static char *path = NULL;
-			const char *result = UIDialogShow(windowMain, 0, "Save to file       \nPath:\n%t\n%f%b%b", &path, "Save", "Cancel");
+			const char *result = UIDialogShow(windowMain, 0, "Save to file       \nPath:\n%t\n%f%B%C", &path, "Save", "Cancel");
 			if (strcmp(result, "Save")) return;
 
 			UIImageDisplay *display = (UIImageDisplay *) cp;
@@ -800,7 +800,7 @@ void BitmapAddDialog(void *) {
 	static char *pointer = nullptr, *width = nullptr, *height = nullptr, *stride = nullptr;
 
 	const char *result = UIDialogShow(windowMain, 0, 
-			"Add bitmap\n\n%l\n\nPointer to bits: (32bpp, RR GG BB AA)\n%t\nWidth:\n%t\nHeight:\n%t\nStride: (optional)\n%t\n\n%l\n\n%f%b%b",
+			"Add bitmap\n\n%l\n\nPointer to bits: (32bpp, RR GG BB AA)\n%t\nWidth:\n%t\nHeight:\n%t\nStride: (optional)\n%t\n\n%l\n\n%f%B%C",
 			&pointer, &width, &height, &stride, "Add", "Cancel");
 
 	if (0 == strcmp(result, "Add")) {
@@ -1346,14 +1346,14 @@ bool WatchGetAddress(Watch *watch) {
 	WatchEvaluate("gf_addressof", watch);
 
 	if (strstr(evaluateResult, "??")) {
-		UIDialogShow(windowMain, 0, "Couldn't get the address of the variable.\n%f%b", "OK");
+		UIDialogShow(windowMain, 0, "Couldn't get the address of the variable.\n%f%B", "OK");
 		return false;
 	}
 
 	char *end = strstr(evaluateResult, " ");
 
 	if (!end) {
-		UIDialogShow(windowMain, 0, "Couldn't get the address of the variable.\n%f%b", "OK");
+		UIDialogShow(windowMain, 0, "Couldn't get the address of the variable.\n%f%B", "OK");
 		return false;
 	}
 
@@ -1377,7 +1377,7 @@ void WatchChangeLoggerCreate(WatchWindow *w) {
 	}
 
 	if (!dataTab) {
-		UIDialogShow(windowMain, 0, "The data window is not open.\nThe watch log cannot be created.\n%f%b", "OK");
+		UIDialogShow(windowMain, 0, "The data window is not open.\nThe watch log cannot be created.\n%f%B", "OK");
 		return;
 	}
 
@@ -1386,7 +1386,7 @@ void WatchChangeLoggerCreate(WatchWindow *w) {
 	}
 
 	char *expressionsToEvaluate = nullptr;
-	const char *result = UIDialogShow(windowMain, 0, "-- Watch logger settings --\nExpressions to evaluate (separate with semicolons):\n%t\n\n%l\n\n%f%b%b", 
+	const char *result = UIDialogShow(windowMain, 0, "-- Watch logger settings --\nExpressions to evaluate (separate with semicolons):\n%t\n\n%l\n\n%f%B%C", 
 			&expressionsToEvaluate, "Start", "Cancel");
 
 	if (0 == strcmp(result, "Cancel")) {
@@ -1402,7 +1402,7 @@ void WatchChangeLoggerCreate(WatchWindow *w) {
 	char *number = strstr(evaluateResult, "point ");
 
 	if (!number) {
-		UIDialogShow(windowMain, 0, "Couldn't set the watchpoint.\n%f%b", "OK");
+		UIDialogShow(windowMain, 0, "Couldn't set the watchpoint.\n%f%B", "OK");
 		return;
 	}
 
@@ -1450,7 +1450,7 @@ void WatchChangeLoggerCreate(WatchWindow *w) {
 	UIElementRefresh(&dataWindow->e);
 	WatchLoggerResizeColumns(logger);
 
-	UIDialogShow(windowMain, 0, "The log has been setup in the data window.\n%f%b", "OK");
+	UIDialogShow(windowMain, 0, "The log has been setup in the data window.\n%f%B", "OK");
 	return;
 }
 
@@ -1584,7 +1584,7 @@ void CommandWatchViewSourceAtAddress(void *cp) {
 	if (strstr(evaluateResult, "No line number")) {
 		char *end = strchr(evaluateResult, '\n');
 		if (end) *end = 0;
-		UIDialogShow(windowMain, 0, "%s\n%f%b", evaluateResult, "OK");
+		UIDialogShow(windowMain, 0, "%s\n%f%B", evaluateResult, "OK");
 		return;
 	}
 
@@ -1631,7 +1631,7 @@ void CommandWatchSaveAs(void *cp) {
 	if (w->selectedRow == w->rows.Length()) return;
 
 	char *filePath = nullptr;
-	const char *result = UIDialogShow(windowMain, 0, "Path:            \n%t\n%f%b%b", &filePath, "Save", "Cancel");
+	const char *result = UIDialogShow(windowMain, 0, "Path:            \n%t\n%f%B%C", &filePath, "Save", "Cancel");
 
 	if (0 == strcmp(result, "Cancel")) {
 		free(filePath);
@@ -1642,7 +1642,7 @@ void CommandWatchSaveAs(void *cp) {
 	free(filePath);
 
 	if (!f) {
-		UIDialogShow(windowMain, 0, "Could not open the file for writing!\n%f%b", "OK");
+		UIDialogShow(windowMain, 0, "Could not open the file for writing!\n%f%B", "OK");
 		return;
 	}
 
@@ -2563,7 +2563,7 @@ void ExecutableWindowSaveButton(void *_window) {
 	FILE *f = fopen(localConfigPath, "rb");
 
 	if (f) {
-		const char *result = UIDialogShow(windowMain, 0, ".project.gf already exists in the current directory.\n%f%b%b", "Overwrite", "Cancel");
+		const char *result = UIDialogShow(windowMain, 0, ".project.gf already exists in the current directory.\n%f%B%C", "Overwrite", "Cancel");
 		if (strcmp(result, "Overwrite")) return;
 		fclose(f);
 	}
@@ -2575,7 +2575,7 @@ void ExecutableWindowSaveButton(void *_window) {
 			window->askDirectory->check == UI_CHECK_CHECKED ? '1' : '0');
 	fclose(f);
 	SettingsAddTrustedFolder();
-	UIDialogShow(windowMain, 0, "Saved executable settings!\n%f%b", "OK");
+	UIDialogShow(windowMain, 0, "Saved executable settings!\n%f%B", "OK");
 }
 
 UIElement *ExecutableWindowCreate(UIElement *parent) {

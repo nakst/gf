@@ -1,7 +1,8 @@
-// TODO UITextbox features - mouse input, multi-line, clipboard, undo, IME support, number dragging.
+// TODO UITextbox features - mouse input, multi-line, undo, IME support, number dragging.
 // TODO New elements - list view, menu bar.
-// TODO Keyboard navigation - menus, dialogs, tables.
-// TODO Easier to use fonts; GDI font support.
+// TODO Keyboard navigation in menus.
+// TODO Easier to use fonts.
+// TODO Windows clipboard.
 
 /////////////////////////////////////////
 // Header includes.
@@ -1831,7 +1832,7 @@ int _UIButtonMessage(UIElement *element, UIMessage message, int di, void *dp) {
 
 		UIDrawRectangle(painter, element->bounds, color, ui.theme.border, UI_RECT_1(isMenuItem ? 0 : 1));
 
-		if (element->flags & UI_BUTTON_CHECKED) {
+		if ((element->flags & UI_BUTTON_CHECKED) && element->window->focused != element) {
 			UIDrawBlock(painter, UIRectangleAdd(element->bounds, 
 				UI_RECT_1I((int) (UI_SIZE_BUTTON_CHECKED_AREA * element->window->scale))), ui.theme.buttonPressed);
 		}
@@ -1868,9 +1869,10 @@ int _UIButtonMessage(UIElement *element, UIMessage message, int di, void *dp) {
 	} else if (message == UI_MSG_KEY_TYPED) {
 		UIKeyTyped *m = (UIKeyTyped *) dp;
 		
-		if (m->textBytes == 1 && m->text[0] == ' ') {
+		if ((m->textBytes == 1 && m->text[0] == ' ') || m->code == UI_KEYCODE_ENTER) {
 			UIElementMessage(element, UI_MSG_CLICKED, 0, 0);
 			UIElementRepaint(element, NULL);
+			return 1;
 		}
 	} else if (message == UI_MSG_CLICKED) {
 		if (button->invoke) {
@@ -3485,6 +3487,12 @@ int _UIDialogWrapperMessage(UIElement *element, UIMessage message, int di, void 
 		if (element->window->ctrl) return 0;
 		if (element->window->shift) return 0;
 
+		if (!element->window->alt && typed->code == UI_KEYCODE_ESCAPE) {
+			ui.dialogResult = "__C";
+		} else if (!element->window->alt && typed->code == UI_KEYCODE_ENTER) {
+			ui.dialogResult = "__D";
+		}
+
 		char c0 = 0, c1 = 0;
 
 		if (typed->textBytes == 1 && typed->text[0] >= 'a' && typed->text[0] <= 'z') {
@@ -3533,6 +3541,17 @@ void _UIDialogButtonInvoke(void *cp) {
 	ui.dialogResult = (const char *) cp;
 }
 
+int _UIDialogDefaultButtonMessage(UIElement *element, UIMessage message, int di, void *dp) {
+	if (message == UI_MSG_PAINT && element->window->focused->messageClass != _UIButtonMessage) {
+		element->flags |= UI_BUTTON_CHECKED;
+		element->messageClass(element, message, di, dp);
+		element->flags &= ~UI_BUTTON_CHECKED;
+		return 1;
+	}
+
+	return 0;
+}
+
 int _UIDialogTextboxMessage(UIElement *element, UIMessage message, int di, void *dp) {
 	if (message == UI_MSG_VALUE_CHANGED) {
 		UITextbox *textbox = (UITextbox *) element;
@@ -3565,6 +3584,9 @@ const char *UIDialogShow(UIWindow *window, uint32_t flags, const char *format, .
 	va_start(arguments, format);
 	UIPanel *row = NULL;
 	UIElement *focus = NULL;
+	UIButton *defaultButton = NULL;
+	UIButton *cancelButton = NULL;
+	uint32_t buttonCount = 0;
 
 	for (int i = 0; format[i]; i++) {
 		if (i == 0 || format[i - 1] == '\n') {
@@ -3576,11 +3598,15 @@ const char *UIDialogShow(UIWindow *window, uint32_t flags, const char *format, .
 		} else if (format[i] == '%') {
 			i++;
 
-			if (format[i] == 'b' /* button */) {
+			if (format[i] == 'b' /* button */ || format[i] == 'B' /* default button */ || format[i] == 'C' /* cancel button */) {
 				const char *label = va_arg(arguments, const char *);
 				UIButton *button = UIButtonCreate(&row->e, 0, label, -1);
 				if (!focus) focus = &button->e;
+				if (format[i] == 'B') defaultButton = button;
+				if (format[i] == 'C') cancelButton = button;
+				buttonCount++;
 				button->invoke = _UIDialogButtonInvoke;
+				if (format[i] == 'B') button->e.messageUser = _UIDialogDefaultButtonMessage;
 				button->e.cp = (void *) label;
 			} else if (format[i] == 's' /* label from string */) {
 				const char *label = va_arg(arguments, const char *);
@@ -3622,6 +3648,18 @@ const char *UIDialogShow(UIWindow *window, uint32_t flags, const char *format, .
 	_UIUpdate();
 	while (!ui.dialogResult && _UIMessageLoopSingle(&result));
 	ui.quit = !ui.dialogResult;
+
+	// Check for cancel/default action.
+
+	if (buttonCount == 1 && defaultButton && !cancelButton) {
+		cancelButton = defaultButton;
+	}
+
+	if (ui.dialogResult[0] == '_' && ui.dialogResult[1] == '_' && ui.dialogResult[2] == 'C' && ui.dialogResult[3] == 0 && cancelButton) {
+		ui.dialogResult = (const char *) cancelButton->e.cp;
+	} else if (ui.dialogResult[0] == '_' && ui.dialogResult[1] == '_' && ui.dialogResult[2] == 'D' && ui.dialogResult[3] == 0 && defaultButton) {
+		ui.dialogResult = (const char *) defaultButton->e.cp;
+	}
 
 	// Destroy the dialog.
 
@@ -4223,6 +4261,8 @@ bool _UIWindowInputEvent(UIWindow *window, UIMessage message, int di, void *dp) 
 							break;
 						}
 					}
+				} else if (window->dialog) {
+					UIElementMessage(window->dialog, message, di, dp);
 				}
 			}
 		}

@@ -895,7 +895,7 @@ bool CommandParseInternal(const char *command, bool synchronous) {
 			}
 		}
 
-		UIDialogShow(windowMain, 0, "Couldn't get the working directory.\n%f%b", "OK");
+		UIDialogShow(windowMain, 0, "Couldn't get the working directory.\n%f%B", "OK");
 	} else if (strlen(command) > 13 && 0 == memcmp(command, "gf-switch-to ", 13)) {
 		InterfaceWindowSwitchToAndFocus(command + 13);
 	} else if (strlen(command) > 11 && 0 == memcmp(command, "gf-command ", 11)) {
@@ -1359,7 +1359,7 @@ UIElement *InterfaceWindowSwitchToAndFocus(const char *name) {
 		return window->element;
 	}
 
-	UIDialogShow(windowMain, 0, "Couldn't find the window '%s'.\n%f%b", name, "OK");
+	UIDialogShow(windowMain, 0, "Couldn't find the window '%s'.\n%f%B", name, "OK");
 	return nullptr;
 }
 
