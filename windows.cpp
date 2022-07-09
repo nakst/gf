@@ -778,7 +778,7 @@ void BitmapViewerUpdate(const char *pointerString, const char *widthString, cons
 
 		UIPanel *panel = UIPanelCreate(owner, UI_PANEL_EXPAND);
 		bitmap->display = UIImageDisplayCreate(&panel->e, UI_IMAGE_DISPLAY_INTERACTIVE | UI_ELEMENT_V_FILL, bits, width, height, stride);
-		bitmap->labelPanel = UIPanelCreate(&panel->e, UI_PANEL_GRAY | UI_ELEMENT_V_FILL);
+		bitmap->labelPanel = UIPanelCreate(&panel->e, UI_PANEL_COLOR_1 | UI_ELEMENT_V_FILL);
 		bitmap->label = UILabelCreate(&bitmap->labelPanel->e, UI_ELEMENT_H_FILL, nullptr, 0);
 		bitmap->display->e.messageUser = BitmapViewerDisplayMessage;
 	}
@@ -789,8 +789,6 @@ void BitmapViewerUpdate(const char *pointerString, const char *widthString, cons
 	if (error) UILabelSetContent(bitmap->label, error, -1);
 	if (error) bitmap->labelPanel->e.flags &= ~UI_ELEMENT_HIDE, bitmap->display->e.flags |= UI_ELEMENT_HIDE;
 	else bitmap->labelPanel->e.flags |= UI_ELEMENT_HIDE, bitmap->display->e.flags &= ~UI_ELEMENT_HIDE;
-	UIElementRefresh(&bitmap->display->e);
-	UIElementRefresh(&bitmap->label->e);
 	UIElementRefresh(bitmap->labelPanel->e.parent);
 	UIElementRefresh(owner);
 	UIElementRefresh(&dataWindow->e);
@@ -898,7 +896,7 @@ int TextboxInputMessage(UIElement *element, UIMessage message, int di, void *dp)
 UIElement *ConsoleWindowCreate(UIElement *parent) {
 	UIPanel *panel2 = UIPanelCreate(parent, UI_PANEL_EXPAND);
 	displayOutput = UICodeCreate(&panel2->e, UI_CODE_NO_MARGIN | UI_ELEMENT_V_FILL);
-	UIPanel *panel3 = UIPanelCreate(&panel2->e, UI_PANEL_HORIZONTAL | UI_PANEL_EXPAND | UI_PANEL_GRAY);
+	UIPanel *panel3 = UIPanelCreate(&panel2->e, UI_PANEL_HORIZONTAL | UI_PANEL_EXPAND | UI_PANEL_COLOR_1);
 	panel3->border = UI_RECT_1(5);
 	panel3->gap = 5;
 	trafficLight = UISpacerCreate(&panel3->e, 0, 30, 30);
@@ -1881,7 +1879,7 @@ int WatchPanelMessage(UIElement *element, UIMessage message, int di, void *dp) {
 
 UIElement *WatchWindowCreate(UIElement *parent) {
 	WatchWindow *w = (WatchWindow *) calloc(1, sizeof(WatchWindow));
-	UIPanel *panel = UIPanelCreate(parent, UI_PANEL_SCROLL | UI_PANEL_GRAY);
+	UIPanel *panel = UIPanelCreate(parent, UI_PANEL_SCROLL | UI_PANEL_COLOR_1);
 	panel->e.messageUser = WatchPanelMessage;
 	panel->e.cp = w;
 	w->element = UIElementCreate(sizeof(UIElement), &panel->e, UI_ELEMENT_H_FILL | UI_ELEMENT_TAB_STOP, WatchWindowMessage, "Watch");
@@ -2083,34 +2081,24 @@ int DataTabMessage(UIElement *element, UIMessage message, int di, void *dp) {
 }
 
 void CommandToggleFillDataTab(void *) {
-	// HACK.
-
 	if (!dataTab) return;
 	static UIElement *oldParent, *oldBefore;
-	UIWindow *window = dataTab->e.window;
+	buttonFillWindow->e.flags ^= ~UI_BUTTON_CHECKED;
 	
-	if (window->e.children == &dataTab->e) {
+	if (switcherMain->active == &dataTab->e) {
+		UISwitcherSwitchTo(switcherMain, switcherMain->e.children[0]);
 		UIElementChangeParent(&dataTab->e, oldParent, oldBefore);
-		buttonFillWindow->e.flags &= ~UI_BUTTON_CHECKED;
-		UIElementRefresh(&window->e);
-		UIElementRefresh(window->e.children);
-		UIElementRefresh(oldParent);
 	} else {
-		dataTab->e.flags &= ~UI_ELEMENT_HIDE;
 		UIElementMessage(&dataTab->e, UI_MSG_TAB_SELECTED, 0, 0);
 		oldParent = dataTab->e.parent;
-		oldBefore = dataTab->e.next;
-		window->e.children->clip = UI_RECT_1(0);
-		UIElementChangeParent(&dataTab->e, &window->e, window->e.children);
-		buttonFillWindow->e.flags |= UI_BUTTON_CHECKED;
-		UIElementRefresh(&window->e);
-		UIElementRefresh(&dataTab->e);
+		oldBefore = UIElementChangeParent(&dataTab->e, &switcherMain->e, NULL);
+		UISwitcherSwitchTo(switcherMain, &dataTab->e);
 	}
 }
 
 UIElement *DataWindowCreate(UIElement *parent) {
 	dataTab = UIPanelCreate(parent, UI_PANEL_EXPAND);
-	UIPanel *panel5 = UIPanelCreate(&dataTab->e, UI_PANEL_GRAY | UI_PANEL_HORIZONTAL | UI_PANEL_SMALL_SPACING);
+	UIPanel *panel5 = UIPanelCreate(&dataTab->e, UI_PANEL_COLOR_1 | UI_PANEL_HORIZONTAL | UI_PANEL_SMALL_SPACING);
 	buttonFillWindow = UIButtonCreate(&panel5->e, UI_BUTTON_SMALL, "Fill window", -1);
 	buttonFillWindow->invoke = CommandToggleFillDataTab;
 
@@ -2158,7 +2146,7 @@ int TextboxStructNameMessage(UIElement *element, UIMessage message, int di, void
 
 UIElement *StructWindowCreate(UIElement *parent) {
 	StructWindow *window = (StructWindow *) calloc(1, sizeof(StructWindow));
-	UIPanel *panel = UIPanelCreate(parent, UI_PANEL_GRAY | UI_PANEL_EXPAND);
+	UIPanel *panel = UIPanelCreate(parent, UI_PANEL_COLOR_1 | UI_PANEL_EXPAND);
 	window->textbox = UITextboxCreate(&panel->e, 0);
 	window->textbox->e.messageUser = TextboxStructNameMessage;
 	window->textbox->e.cp = window;
@@ -2259,7 +2247,6 @@ bool FilesPanelPopulate(FilesWindow *window) {
 		char path[PATH_MAX];
 		realpath(window->directory, path);
 		UILabelSetContent(window->path, path, -1);
-		UIElementRefresh(&window->path->e);
 	}
 
 	return true;
@@ -2282,10 +2269,10 @@ void FilesNavigateToActiveFile(void *cp) {
 UIElement *FilesWindowCreate(UIElement *parent) {
 	FilesWindow *window = (FilesWindow *) calloc(1, sizeof(FilesWindow));
 	UIPanel *container = UIPanelCreate(parent, UI_PANEL_EXPAND);
-	window->panel = UIPanelCreate(&container->e, UI_PANEL_GRAY | UI_PANEL_EXPAND | UI_PANEL_SCROLL | UI_ELEMENT_V_FILL);
+	window->panel = UIPanelCreate(&container->e, UI_PANEL_COLOR_1 | UI_PANEL_EXPAND | UI_PANEL_SCROLL | UI_ELEMENT_V_FILL);
 	window->panel->gap = -1, window->panel->border = UI_RECT_1(1);
 	window->panel->e.cp = window;
-	UIPanel *row = UIPanelCreate(&container->e, UI_PANEL_WHITE | UI_PANEL_HORIZONTAL | UI_PANEL_SMALL_SPACING);
+	UIPanel *row = UIPanelCreate(&container->e, UI_PANEL_COLOR_2 | UI_PANEL_HORIZONTAL | UI_PANEL_SMALL_SPACING);
 	UIButton *button;
 	button = UIButtonCreate(&row->e, UI_BUTTON_SMALL, "-> cwd", -1);
 	button->e.cp = window, button->invoke = FilesNavigateToCWD;
@@ -2304,7 +2291,7 @@ struct RegisterData { char string[128]; };
 Array<RegisterData> registerData;
 
 UIElement *RegistersWindowCreate(UIElement *parent) {
-	return &UIPanelCreate(parent, UI_PANEL_SMALL_SPACING | UI_PANEL_GRAY | UI_PANEL_SCROLL)->e;
+	return &UIPanelCreate(parent, UI_PANEL_SMALL_SPACING | UI_PANEL_COLOR_1 | UI_PANEL_SCROLL)->e;
 }
 
 void RegistersWindowUpdate(const char *, UIElement *panel) {
@@ -2388,7 +2375,7 @@ void RegistersWindowUpdate(const char *, UIElement *panel) {
 //////////////////////////////////////////////////////
 
 UIElement *CommandsWindowCreate(UIElement *parent) {
-	UIPanel *panel = UIPanelCreate(parent, UI_PANEL_GRAY | UI_PANEL_SMALL_SPACING | UI_PANEL_EXPAND | UI_PANEL_SCROLL);
+	UIPanel *panel = UIPanelCreate(parent, UI_PANEL_COLOR_1 | UI_PANEL_SMALL_SPACING | UI_PANEL_EXPAND | UI_PANEL_SCROLL);
 	if (!presetCommands.Length()) UILabelCreate(&panel->e, 0, "No preset commands found in config file!", -1);
 
 	for (int i = 0; i < presetCommands.Length(); i++) {
@@ -2593,7 +2580,7 @@ void ExecutableWindowSaveButton(void *_window) {
 
 UIElement *ExecutableWindowCreate(UIElement *parent) {
 	ExecutableWindow *window = (ExecutableWindow *) calloc(1, sizeof(ExecutableWindow));
-	UIPanel *panel = UIPanelCreate(parent, UI_PANEL_GRAY | UI_PANEL_EXPAND);
+	UIPanel *panel = UIPanelCreate(parent, UI_PANEL_COLOR_1 | UI_PANEL_EXPAND);
 	UILabelCreate(&panel->e, 0, "Path to executable:", -1);
 	window->path = UITextboxCreate(&panel->e, 0);
 	UITextboxReplace(window->path, executablePath, -1, false);

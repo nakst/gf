@@ -27,7 +27,7 @@ extern "C" {
 #define UI_FONT_PATH
 #define UI_LINUX
 #define UI_IMPLEMENTATION
-#include "luigi.h"
+#include "luigi2.h"
 }
 
 #define MSG_RECEIVED_DATA ((UIMessage) (UI_MSG_USER + 1))
@@ -173,6 +173,7 @@ char previousLocation[256];
 // User interface:
 
 UIWindow *windowMain;
+UISwitcher *switcherMain;
 
 UICode *displayCode;
 UICode *displayOutput;
@@ -1338,9 +1339,14 @@ UIElement *InterfaceWindowSwitchToAndFocus(const char *name) {
 		if ((window->element->flags & UI_ELEMENT_HIDE)
 				&& window->element->parent->messageClass == _UITabPaneMessage) {
 			UITabPane *tabPane = (UITabPane *) window->element->parent;
-			tabPane->active = 0;
-			UIElement *child = tabPane->e.children;
-			while (child != window->element) child = child->next, tabPane->active++;
+
+			for (uint32_t i = 0; i < tabPane->e.childCount; i++) {
+				if (tabPane->e.children[i] == window->element) {
+					tabPane->active = i;
+					break;
+				}
+			}
+
 			UIElementRefresh(&tabPane->e);
 		}
 
@@ -1597,6 +1603,7 @@ int main(int argc, char **argv) {
 
 	SettingsLoad(true);
 	UIInitialise();
+	ui.theme = uiThemeDark;
 
 #ifdef UI_FREETYPE
 	if (!fontPath) {
@@ -1627,7 +1634,9 @@ int main(int argc, char **argv) {
 		UIWindowRegisterShortcut(windowMain, interfaceCommands[i].shortcut);
 	}
 
-	InterfaceLayoutCreate(&UIPanelCreate(&windowMain->e, UI_PANEL_EXPAND)->e);
+	switcherMain = UISwitcherCreate(&windowMain->e, 0);
+	InterfaceLayoutCreate(&UIPanelCreate(&switcherMain->e, UI_PANEL_EXPAND)->e);
+	UISwitcherSwitchTo(switcherMain, switcherMain->e.children[0]);
 
 	if (*InterfaceLayoutNextToken()) {
 		fprintf(stderr, "Warning: Layout string has additional text after the end of the top-level entry.\n");
