@@ -1915,7 +1915,7 @@ int _UICheckboxMessage(UIElement *element, UIMessage message, int di, void *dp) 
 				box->check == UI_CHECK_CHECKED ? "*" : box->check == UI_CHECK_INDETERMINATE ? "-" : " ", -1, 
 				textColor, UI_ALIGN_CENTER, NULL);
 		UIDrawString(painter, UIRectangleAdd(element->bounds, UI_RECT_4(UI_SIZE_CHECKBOX_BOX + UI_SIZE_CHECKBOX_GAP, 0, 0, 0)), 
-				box->label, box->labelBytes, textColor, UI_ALIGN_LEFT, NULL);
+				box->label, box->labelBytes, (element->flags & UI_ELEMENT_DISABLED) ? ui.theme.textDisabled : ui.theme.text, UI_ALIGN_LEFT, NULL);
 	} else if (message == UI_MSG_UPDATE) {
 		UIElementRepaint(element, NULL);
 	} else if (message == UI_MSG_DESTROY) {

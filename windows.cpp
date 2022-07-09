@@ -2537,10 +2537,18 @@ void ExecutableWindowStartOrRun(ExecutableWindow *window, bool pause) {
 	char buffer[4096];
 	StringFormat(buffer, sizeof(buffer), "file \"%.*s\"", window->path->bytes, window->path->string);
 	EvaluateCommand(buffer);
-	if (strstr(evaluateResult, "No such file or directory.")) return;
+
+	if (strstr(evaluateResult, "No such file or directory.")) {
+		UIDialogShow(windowMain, 0, "The executable path is invalid.\n%f%B", "OK");
+		return;
+	}
+
 	StringFormat(buffer, sizeof(buffer), "start %.*s", window->arguments->bytes, window->arguments->string);
 	EvaluateCommand(buffer);
-	if (window->askDirectory->check == UI_CHECK_CHECKED) CommandParseInternal("gf-get-pwd", true);
+
+	if (window->askDirectory->check == UI_CHECK_CHECKED) {
+		CommandParseInternal("gf-get-pwd", true);
+	}
 
 	if (!pause) {
 		CommandParseInternal("run", false);
