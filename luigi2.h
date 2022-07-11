@@ -530,7 +530,6 @@ typedef struct UILabel {
 } UILabel;
 
 typedef struct UISpacer {
-#define UI_SPACER_LINE (1 << 0)
 	UIElement e;
 	int width, height;
 } UISpacer;
@@ -2305,8 +2304,6 @@ int _UISpacerMessage(UIElement *element, UIMessage message, int di, void *dp) {
 		return spacer->height * element->window->scale;
 	} else if (message == UI_MSG_GET_WIDTH) {
 		return spacer->width * element->window->scale;
-	} else if (message == UI_MSG_PAINT && (element->flags & UI_SPACER_LINE)) {
-		UIDrawBlock((UIPainter *) dp, element->bounds, ui.theme.border);
 	}
 
 	return 0;
@@ -3701,7 +3698,7 @@ const char *UIDialogShow(UIWindow *window, uint32_t flags, const char *format, .
 			} else if (format[i] == 'f' /* horizontal fill */) {
 				UISpacerCreate(&row->e, UI_ELEMENT_H_FILL, 0, 0);
 			} else if (format[i] == 'l' /* horizontal line */) {
-				UISpacerCreate(&row->e, UI_SPACER_LINE | UI_ELEMENT_H_FILL, 0, 1);
+				UISpacerCreate(&row->e, UI_ELEMENT_BORDER | UI_ELEMENT_H_FILL, 0, 1);
 			} else if (format[i] == 'u' /* user */) {
 				UIDialogUserCallback callback = va_arg(arguments, UIDialogUserCallback);
 				callback(&row->e);
@@ -3735,7 +3732,8 @@ const char *UIDialogShow(UIWindow *window, uint32_t flags, const char *format, .
 		cancelButton = defaultButton;
 	}
 
-	if (ui.dialogResult[0] == '_' && ui.dialogResult[1] == '_' && ui.dialogResult[2] == 'C' && ui.dialogResult[3] == 0 && cancelButton) {
+	if (!ui.dialogResult) {
+	} else if (ui.dialogResult[0] == '_' && ui.dialogResult[1] == '_' && ui.dialogResult[2] == 'C' && ui.dialogResult[3] == 0 && cancelButton) {
 		ui.dialogResult = (const char *) cancelButton->e.cp;
 	} else if (ui.dialogResult[0] == '_' && ui.dialogResult[1] == '_' && ui.dialogResult[2] == 'D' && ui.dialogResult[3] == 0 && defaultButton) {
 		ui.dialogResult = (const char *) defaultButton->e.cp;
