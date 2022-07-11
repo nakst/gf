@@ -2083,7 +2083,7 @@ int DataTabMessage(UIElement *element, UIMessage message, int di, void *dp) {
 void CommandToggleFillDataTab(void *) {
 	if (!dataTab) return;
 	static UIElement *oldParent, *oldBefore;
-	buttonFillWindow->e.flags ^= ~UI_BUTTON_CHECKED;
+	buttonFillWindow->e.flags ^= UI_BUTTON_CHECKED;
 	
 	if (switcherMain->active == &dataTab->e) {
 		UISwitcherSwitchTo(switcherMain, switcherMain->e.children[0]);
