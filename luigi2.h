@@ -161,6 +161,7 @@ void _UIMessageProcess(EsMessage *message);
 typedef enum UIMessage {
 	// General messages.
 	UI_MSG_PAINT, // dp = pointer to UIPainter
+	UI_MSG_PAINT_FOREGROUND, // after children have painted
 	UI_MSG_LAYOUT,
 	UI_MSG_DESTROY,
 	UI_MSG_DEALLOCATE,
@@ -285,6 +286,7 @@ typedef struct UICodeDecorateLine {
 #define UI_RECT_2I(x, y) ((UIRectangle) { (x), -(x), (y), -(y) })
 #define UI_RECT_2S(x, y) ((UIRectangle) { 0, (x), 0, (y) })
 #define UI_RECT_4(x, y, z, w) ((UIRectangle) { (x), (y), (z), (w) })
+#define UI_RECT_4PD(x, y, w, h) ((UIRectangle) { (x), ((x) + (w)), (y), ((y) + (h)) })
 #define UI_RECT_WIDTH(_r) ((_r).r - (_r).l)
 #define UI_RECT_HEIGHT(_r) ((_r).b - (_r).t)
 #define UI_RECT_TOTAL_H(_r) ((_r).r + (_r).l)
@@ -294,7 +296,7 @@ typedef struct UICodeDecorateLine {
 #define UI_RECT_BOTTOM_LEFT(_r) (_r).l, (_r).b
 #define UI_RECT_BOTTOM_RIGHT(_r) (_r).r, (_r).b
 #define UI_RECT_ALL(_r) (_r).l, (_r).r, (_r).t, (_r).b
-#define UI_RECT_VALID(_r) (UI_RECT_WIDTH(_r) > 0 && UI_RECT_HEIGHT(_r) > 0)
+#define UI_RECT_VALID(_r) ((_r).l < (_r).r && (_r).t < (_r).b)
 
 #define UI_COLOR_ALPHA_F(x) ((((x) >> 24) & 0xFF) / 255.0f)
 #define UI_COLOR_RED_F(x) ((((x) >> 16) & 0xFF) / 255.0f)
@@ -310,6 +312,9 @@ typedef struct UICodeDecorateLine {
 
 #define UI_SWAP(s, a, b) do { s t = (a); (a) = (b); (b) = t; } while (0)
 
+#ifndef UI_DRAW_CONTROL_CUSTOM
+#define UIDrawControl UIDrawControlDefault
+#endif
 #define UI_DRAW_CONTROL_PUSH_BUTTON          (1)
 #define UI_DRAW_CONTROL_DROP_DOWN            (2)
 #define UI_DRAW_CONTROL_MENU_ITEM            (3)
@@ -575,7 +580,7 @@ typedef struct UICode {
 
 typedef struct UIGauge {
 	UIElement e;
-	float position;
+	double position;
 } UIGauge;
 
 typedef struct UITable {
@@ -609,7 +614,7 @@ typedef struct UIMenu {
 
 typedef struct UISlider {
 	UIElement e;
-	float position;
+	double position;
 	int steps;
 } UISlider;
 
@@ -672,7 +677,6 @@ int UIMessageLoop();
 UIElement *UIElementCreate(size_t bytes, UIElement *parent, uint32_t flags, 
 	int (*messageClass)(UIElement *, UIMessage, int, void *), const char *cClassName);
 
-UIButton *UIButtonCreate(UIElement *parent, uint32_t flags, const char *label, ptrdiff_t labelBytes);
 UICheckbox *UICheckboxCreate(UIElement *parent, uint32_t flags, const char *label, ptrdiff_t labelBytes);
 UIColorPicker *UIColorPickerCreate(UIElement *parent, uint32_t flags);
 UIExpandPane *UIExpandPaneCreate(UIElement *parent, uint32_t flags, const char *label, ptrdiff_t labelBytes, uint32_t panelFlags);
@@ -689,6 +693,8 @@ UIWrapPanel *UIWrapPanelCreate(UIElement *parent, uint32_t flags);
 UIGauge *UIGaugeCreate(UIElement *parent, uint32_t flags);
 void UIGaugeSetPosition(UIGauge *gauge, float value);
 
+UIButton *UIButtonCreate(UIElement *parent, uint32_t flags, const char *label, ptrdiff_t labelBytes);
+void UIButtonSetLabel(UIButton *button, const char *string, ptrdiff_t stringBytes);
 UILabel *UILabelCreate(UIElement *parent, uint32_t flags, const char *label, ptrdiff_t labelBytes);
 void UILabelSetContent(UILabel *code, const char *content, ptrdiff_t byteCount);
 
@@ -730,7 +736,8 @@ void UICodeInsertContent(UICode *code, const char *content, ptrdiff_t byteCount,
 
 void UIDrawBlock(UIPainter *painter, UIRectangle rectangle, uint32_t color);
 void UIDrawCircle(UIPainter *painter, int centerX, int centerY, int radius, uint32_t fillColor, uint32_t outlineColor, bool hollow);
-void UIDrawControl(UIPainter *painter, UIRectangle bounds, uint32_t mode /* UI_DRAW_CONTROL_* */, const char *label, ptrdiff_t labelBytes, float position, float scale);
+void UIDrawControl(UIPainter *painter, UIRectangle bounds, uint32_t mode /* UI_DRAW_CONTROL_* */, const char *label, ptrdiff_t labelBytes, double position, float scale);
+void UIDrawControlDefault(UIPainter *painter, UIRectangle bounds, uint32_t mode, const char *label, ptrdiff_t labelBytes, float position, float scale);
 void UIDrawInvert(UIPainter *painter, UIRectangle rectangle);
 bool UIDrawLine(UIPainter *painter, int x0, int y0, int x1, int y1, uint32_t color); // Returns false if the line was not visible.
 void UIDrawTriangle(UIPainter *painter, int x0, int y0, int x1, int y1, int x2, int y2, uint32_t color);
@@ -767,6 +774,8 @@ UIRectangle UIRectangleIntersection(UIRectangle a, UIRectangle b);
 UIRectangle UIRectangleBounding(UIRectangle a, UIRectangle b);
 UIRectangle UIRectangleAdd(UIRectangle a, UIRectangle b);
 UIRectangle UIRectangleTranslate(UIRectangle a, UIRectangle b);
+UIRectangle UIRectangleCenter(UIRectangle parent, UIRectangle child);
+UIRectangle UIRectangleFit(UIRectangle parent, UIRectangle child, bool allowScalingUp);
 bool UIRectangleEquals(UIRectangle a, UIRectangle b);
 bool UIRectangleContains(UIRectangle a, int x, int y);
 
@@ -801,6 +810,7 @@ struct {
 	bool quit;
 	const char *dialogResult;
 	UIElement *dialogOldFocus;
+	bool dialogCanExit;
 
 	UIFont *activeFont;
 
@@ -965,6 +975,33 @@ UIRectangle UIRectangleTranslate(UIRectangle a, UIRectangle b) {
 	return a;
 }
 
+UIRectangle UIRectangleCenter(UIRectangle parent, UIRectangle child) {
+	int childWidth = UI_RECT_WIDTH(child), childHeight = UI_RECT_HEIGHT(child);
+	int parentWidth = UI_RECT_WIDTH(parent), parentHeight = UI_RECT_HEIGHT(parent);
+	child.l = parentWidth / 2 - childWidth / 2 + parent.l, child.r = child.l + childWidth;
+	child.t = parentHeight / 2 - childHeight / 2 + parent.t, child.b = child.t + childHeight;
+	return child;
+}
+
+UIRectangle UIRectangleFit(UIRectangle parent, UIRectangle child, bool allowScalingUp) {
+	int childWidth = UI_RECT_WIDTH(child), childHeight = UI_RECT_HEIGHT(child);
+	int parentWidth = UI_RECT_WIDTH(parent), parentHeight = UI_RECT_HEIGHT(parent);
+
+	if (childWidth < parentWidth && childHeight < parentHeight && !allowScalingUp) {
+		return UIRectangleCenter(parent, child);
+	}
+
+	float childAspectRatio = (float) childWidth / childHeight;
+	int childMaximumWidth = parentHeight * childAspectRatio;
+	int childMaximumHeight = parentWidth / childAspectRatio;
+
+	if (childMaximumWidth > parentWidth) {
+		return UIRectangleCenter(parent, UI_RECT_2S(parentWidth, childMaximumHeight));
+	} else {
+		return UIRectangleCenter(parent, UI_RECT_2S(childMaximumWidth, parentHeight));
+	}
+}
+
 bool UIRectangleEquals(UIRectangle a, UIRectangle b) {
 	return a.l == b.l && a.r == b.r && a.t == b.t && a.b == b.b;
 }
@@ -1108,10 +1145,9 @@ uint64_t UIAnimateClock() {
 }
 
 void _UIProcessAnimations() {
-	bool update = false;
+	bool update = ui.animatingCount;
 
 	for (uint32_t i = 0; i < ui.animatingCount; i++) {
-		update = true;
 		UIElementMessage(ui.animating[i], UI_MSG_ANIMATE, 0, 0);
 	}
 
@@ -1404,8 +1440,7 @@ void UIDrawRectangle(UIPainter *painter, UIRectangle r, uint32_t mainColor, uint
 	UIDrawBlock(painter, UI_RECT_4(r.l + borderSize.l, r.r - borderSize.r, r.t + borderSize.t, r.b - borderSize.b), mainColor);
 }
 
-#ifndef UI_CUSTOM_DRAW_CONTROL
-void UIDrawControl(UIPainter *painter, UIRectangle bounds, uint32_t mode, const char *label, ptrdiff_t labelBytes, float position, float scale) {
+void UIDrawControlDefault(UIPainter *painter, UIRectangle bounds, uint32_t mode, const char *label, ptrdiff_t labelBytes, double position, float scale) {
 	bool checked       = mode & UI_DRAW_CONTROL_STATE_CHECKED;
 	bool disabled      = mode & UI_DRAW_CONTROL_STATE_DISABLED;
 	bool focused       = mode & UI_DRAW_CONTROL_STATE_FOCUSED;
@@ -1500,7 +1535,7 @@ void UIDrawControl(UIPainter *painter, UIRectangle bounds, uint32_t mode, const 
 		int thumbSize = UI_SIZE_SLIDER_THUMB * scale;
 		int thumbPosition = (UI_RECT_WIDTH(bounds) - thumbSize) * position;
 		UIRectangle track = UI_RECT_4(bounds.l, bounds.r, centerY - (trackSize + 1) / 2, centerY + trackSize / 2);
-		UIDrawRectangle(painter, track, ui.theme.buttonNormal, ui.theme.border, UI_RECT_1(1));
+		UIDrawRectangle(painter, track, disabled ? ui.theme.buttonDisabled : ui.theme.buttonNormal, ui.theme.border, UI_RECT_1(1));
 		uint32_t color = disabled ? ui.theme.buttonDisabled : pressed ? ui.theme.buttonPressed : hovered ? ui.theme.buttonHovered : ui.theme.buttonNormal;
 		UIRectangle thumb = UI_RECT_4(bounds.l + thumbPosition, bounds.l + thumbPosition + thumbSize, centerY - (thumbSize + 1) / 2, centerY + thumbSize / 2);
 		UIDrawRectangle(painter, thumb, color, ui.theme.border, UI_RECT_1(1));
@@ -1545,7 +1580,6 @@ void UIDrawControl(UIPainter *painter, UIRectangle bounds, uint32_t mode, const 
 		UIDrawRectangle(painter, bounds, ui.theme.panel1, ui.theme.border, UI_RECT_4(0, 0, 0, 1));
 	}
 }
-#endif
 
 /////////////////////////////////////////
 // Element hierarchy.
@@ -2002,7 +2036,7 @@ int _UIButtonMessage(UIElement *element, UIMessage message, int di, void *dp) {
 				button->label, button->labelBytes, 0, element->window->scale);
 	} else if (message == UI_MSG_UPDATE) {
 		UIElementRepaint(element, NULL);
-	} else if (message == UI_MSG_DESTROY) {
+	} else if (message == UI_MSG_DEALLOCATE) {
 		UI_FREE(button->label);
 	} else if (message == UI_MSG_LEFT_DOWN) {
 		if (element->flags & UI_BUTTON_CAN_FOCUS) {
@@ -2054,7 +2088,7 @@ int _UICheckboxMessage(UIElement *element, UIMessage message, int di, void *dp) 
 				box->label, box->labelBytes, 0, element->window->scale);
 	} else if (message == UI_MSG_UPDATE) {
 		UIElementRepaint(element, NULL);
-	} else if (message == UI_MSG_DESTROY) {
+	} else if (message == UI_MSG_DEALLOCATE) {
 		UI_FREE(box->label);
 	} else if (message == UI_MSG_KEY_TYPED) {
 		UIKeyTyped *m = (UIKeyTyped *) dp;
@@ -2092,7 +2126,7 @@ int _UILabelMessage(UIElement *element, UIMessage message, int di, void *dp) {
 	} else if (message == UI_MSG_PAINT) {
 		UIDrawControl((UIPainter *) dp, element->bounds, UI_DRAW_CONTROL_LABEL | UI_DRAW_CONTROL_STATE_FROM_ELEMENT(element), 
 				label->label, label->labelBytes, 0, element->window->scale);
-	} else if (message == UI_MSG_DESTROY) {
+	} else if (message == UI_MSG_DEALLOCATE) {
 		UI_FREE(label->label);
 	}
 
@@ -2280,7 +2314,7 @@ int _UITabPaneMessage(UIElement *element, UIMessage message, int di, void *dp) {
 				return baseHeight + UIElementMessage(child, UI_MSG_GET_HEIGHT, di, dp);
 			}
 		}
-	} else if (message == UI_MSG_DESTROY) {
+	} else if (message == UI_MSG_DEALLOCATE) {
 		UI_FREE(tabPane->tabs);
 	}
 
@@ -2675,7 +2709,7 @@ int _UICodeMessage(UIElement *element, UIMessage message, int di, void *dp) {
 		if (UICodeHitTest(code, element->window->cursorX, element->window->cursorY) < 0) {
 			return UI_CURSOR_FLIPPED_ARROW;
 		}
-	} else if (message == UI_MSG_DESTROY) {
+	} else if (message == UI_MSG_DEALLOCATE) {
 		UI_FREE(code->content);
 		UI_FREE(code->lines);
 	}
@@ -2805,8 +2839,8 @@ int _UISliderMessage(UIElement *element, UIMessage message, int di, void *dp) {
 	} else if (message == UI_MSG_LEFT_DOWN || (message == UI_MSG_MOUSE_DRAG && element->window->pressedButton == 1)) {
 		UIRectangle bounds = element->bounds;
 		int thumbSize = UI_SIZE_SLIDER_THUMB * element->window->scale;
-		slider->position = (float) (element->window->cursorX - thumbSize / 2 - bounds.l) / (UI_RECT_WIDTH(bounds) - thumbSize);
-		if (slider->steps > 1) slider->position = (int) (slider->position * (slider->steps - 1) + 0.5f) / (float) (slider->steps - 1);
+		slider->position = (double) (element->window->cursorX - thumbSize / 2 - bounds.l) / (UI_RECT_WIDTH(bounds) - thumbSize);
+		if (slider->steps > 1) slider->position = (int) (slider->position * (slider->steps - 1) + 0.5f) / (double) (slider->steps - 1);
 		if (slider->position < 0) slider->position = 0;
 		if (slider->position > 1) slider->position = 1;
 		UIElementMessage(element, UI_MSG_VALUE_CHANGED, 0, 0);
@@ -3022,7 +3056,7 @@ int _UITableMessage(UIElement *element, UIMessage message, int di, void *dp) {
 		UIElementRefresh(element);
 	} else if (message == UI_MSG_MOUSE_WHEEL) {
 		return UIElementMessage(&table->vScroll->e, message, di, dp);
-	} else if (message == UI_MSG_DESTROY) {
+	} else if (message == UI_MSG_DEALLOCATE) {
 		UI_FREE(table->columns);
 		UI_FREE(table->columnWidths);
 	}
@@ -3154,7 +3188,7 @@ int _UITextboxMessage(UIElement *element, UIMessage message, int di, void *dp) {
 		UIElementFocus(element);
 	} else if (message == UI_MSG_UPDATE) {
 		UIElementRepaint(element, NULL);
-	} else if (message == UI_MSG_DESTROY) {
+	} else if (message == UI_MSG_DEALLOCATE) {
 		UI_FREE(textbox->string);
 	} else if (message == UI_MSG_KEY_TYPED) {
 		UIKeyTyped *m = (UIKeyTyped *) dp;
@@ -3322,12 +3356,13 @@ int _UIMDIChildMessage(UIElement *element, UIMessage message, int di, void *dp) 
 			UIElementRefresh(element->parent);
 		}
 	} else if (message == UI_MSG_DESTROY) {
-		UI_FREE(mdiChild->title);
 		UIMDIClient *client = (UIMDIClient *) element->parent;
 
 		if (client->active == mdiChild) {
 			client->active = (UIMDIChild *) (client->e.childCount == 1 ? NULL : client->e.children[client->e.childCount - 2]);
 		}
+	} else if (message == UI_MSG_DEALLOCATE) {
+		UI_FREE(mdiChild->title);
 	}
 
 	return 0;
@@ -3433,7 +3468,7 @@ int _UIImageDisplayMessage(UIElement *element, UIMessage message, int di, void *
 		return display->height;
 	} else if (message == UI_MSG_GET_WIDTH) {
 		return display->width;
-	} else if (message == UI_MSG_DESTROY) {
+	} else if (message == UI_MSG_DEALLOCATE) {
 		UI_FREE(display->bits);
 	} else if (message == UI_MSG_PAINT) {
 		UIPainter *painter = (UIPainter *) dp;
@@ -3564,10 +3599,13 @@ int _UIDialogWrapperMessage(UIElement *element, UIMessage message, int di, void 
 		if (element->window->ctrl) return 0;
 		if (element->window->shift) return 0;
 
-		if (!element->window->alt && typed->code == UI_KEYCODE_ESCAPE) {
+		if (!ui.dialogCanExit) {
+		} else if (!element->window->alt && typed->code == UI_KEYCODE_ESCAPE) {
 			ui.dialogResult = "__C";
+			return 1;
 		} else if (!element->window->alt && typed->code == UI_KEYCODE_ENTER) {
 			ui.dialogResult = "__D";
+			return 1;
 		}
 
 		char c0 = 0, c1 = 0;
@@ -3630,8 +3668,9 @@ int _UIDialogDefaultButtonMessage(UIElement *element, UIMessage message, int di,
 }
 
 int _UIDialogTextboxMessage(UIElement *element, UIMessage message, int di, void *dp) {
+	UITextbox *textbox = (UITextbox *) element;
+
 	if (message == UI_MSG_VALUE_CHANGED) {
-		UITextbox *textbox = (UITextbox *) element;
 		char **buffer = (char **) element->cp;
 		*buffer = (char *) UI_REALLOC(*buffer, textbox->bytes + 1);
 		(*buffer)[textbox->bytes] = 0;
@@ -3639,14 +3678,16 @@ int _UIDialogTextboxMessage(UIElement *element, UIMessage message, int di, void 
 		for (ptrdiff_t i = 0; i < textbox->bytes; i++) {
 			(*buffer)[i] = textbox->string[i];
 		}
+	} else if (message == UI_MSG_UPDATE && di == UI_UPDATE_FOCUSED && element->window->focused == element) {
+		textbox->carets[1] = 0;
+		textbox->carets[0] = textbox->bytes;
+		UIElementRepaint(element, NULL);
 	}
 
 	return 0;
 }
 
 const char *UIDialogShow(UIWindow *window, uint32_t flags, const char *format, ...) {
-	// TODO Enter and escape.
-
 	// Create the dialog wrapper and panel.
 
 	UI_ASSERT(!window->dialog);
@@ -3720,6 +3761,7 @@ const char *UIDialogShow(UIWindow *window, uint32_t flags, const char *format, .
 
 	int result;
 	ui.dialogResult = NULL;
+	ui.dialogCanExit = buttonCount != 0;
 	for (int i = 1; i <= 3; i++) _UIWindowSetPressed(window, NULL, i);
 	UIElementRefresh(&window->e);
 	_UIUpdate();
@@ -4041,10 +4083,12 @@ void _UIElementPaint(UIElement *element, UIPainter *painter) {
 		_UIElementPaint(element->children[i], painter);
 	}
 
-	// Draw the border.
+	// Draw the foreground and border.
+
+	painter->clip = previousClip;
+	UIElementMessage(element, UI_MSG_PAINT_FOREGROUND, 0, painter);
 
 	if (element->flags & UI_ELEMENT_BORDER) {
-		painter->clip = previousClip;
 		UIDrawBorder(painter, element->bounds, ui.theme.border, UI_RECT_1((int) element->window->scale));
 	}
 }
@@ -4081,6 +4125,7 @@ bool _UIDestroy(UIElement *element) {
 		}
 
 		UIElementAnimate(element, true);
+		UI_FREE(element->children);
 		UI_FREE(element);
 		return true;
 	} else {
