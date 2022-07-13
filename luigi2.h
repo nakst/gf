@@ -737,7 +737,7 @@ void UICodeInsertContent(UICode *code, const char *content, ptrdiff_t byteCount,
 void UIDrawBlock(UIPainter *painter, UIRectangle rectangle, uint32_t color);
 void UIDrawCircle(UIPainter *painter, int centerX, int centerY, int radius, uint32_t fillColor, uint32_t outlineColor, bool hollow);
 void UIDrawControl(UIPainter *painter, UIRectangle bounds, uint32_t mode /* UI_DRAW_CONTROL_* */, const char *label, ptrdiff_t labelBytes, double position, float scale);
-void UIDrawControlDefault(UIPainter *painter, UIRectangle bounds, uint32_t mode, const char *label, ptrdiff_t labelBytes, float position, float scale);
+void UIDrawControlDefault(UIPainter *painter, UIRectangle bounds, uint32_t mode, const char *label, ptrdiff_t labelBytes, double position, float scale);
 void UIDrawInvert(UIPainter *painter, UIRectangle rectangle);
 bool UIDrawLine(UIPainter *painter, int x0, int y0, int x1, int y1, uint32_t color); // Returns false if the line was not visible.
 void UIDrawTriangle(UIPainter *painter, int x0, int y0, int x1, int y1, int x2, int y2, uint32_t color);
