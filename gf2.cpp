@@ -226,9 +226,6 @@ def _gf_basic_type(value):
     return basic_type
 
 def _gf_value(expression):
-    if (expression[0] == ".locals"):
-        expression = expression[1:]
-
     try:
         value = gdb.parse_and_eval(expression[0])
         for index in expression[1:]:
@@ -241,21 +238,11 @@ def _gf_value(expression):
         return None
 
 def gf_typeof(expression):
-    if (expression[0] == ".locals"):
-        expression = expression[1:]
-    else:
-        value = _gf_value(expression)
-        if value == None: return
-        print(value.type)
+    value = _gf_value(expression)
+    if value == None: return
+    print(value.type)
 
 def gf_valueof(expression, format):
-    if (expression[0] == ".locals"):
-        if (len(expression) > 1):
-            expression = expression[1:]
-        else:
-            print('locals')
-            return
-
     value = _gf_value(expression)
     if value == None: return
     result = ''
@@ -291,24 +278,27 @@ def _gf_fields_recurse(value):
     __gf_fields_recurse(basic_type)
 
 def gf_fields(expression):
-    if (len(expression) == 1 and expression[0] == '.locals'):
+    value = _gf_value(expression)
+    if value == None: return
+    basic_type = _gf_basic_type(value)
+    hook_string = _gf_hook_string(basic_type)
+    try: gf_hooks[hook_string](value, None)
+    except: __gf_fields_recurse(basic_type)
+
+def gf_locals():
+    try:
         frame = gdb.selected_frame()
-        block = frame.block()
-        names = set()
-        while block.superblock:
-            for symbol in block:
-                if ((symbol.is_argument or symbol.is_variable) and symbol.needs_frame):
-                    if not (symbol.name in names):
-                        print(symbol.name)
-                        names.add(symbol.name)
-            block = block.superblock
-    else:
-        value = _gf_value(expression)
-        if value == None: return
-        basic_type = _gf_basic_type(value)
-        hook_string = _gf_hook_string(basic_type)
-        try: gf_hooks[hook_string](value, None)
-        except: _gf_fields_recurse(value)
+    except:
+        return
+    block = frame.block()
+    names = set()
+    while block.superblock:
+        for symbol in block:
+            if ((symbol.is_argument or symbol.is_variable) and symbol.needs_frame):
+                if not (symbol.name in names):
+                    print(symbol.name)
+                    names.add(symbol.name)
+        block = block.superblock
 
 end
 )";
@@ -1286,6 +1276,7 @@ void InterfaceAddBuiltinWindowsAndCommands() {
 	interfaceWindows.Add({ "Breakpoints", BreakpointsWindowCreate, BreakpointsWindowUpdate });
 	interfaceWindows.Add({ "Registers", RegistersWindowCreate, RegistersWindowUpdate });
 	interfaceWindows.Add({ "Watch", WatchWindowCreate, WatchWindowUpdate, WatchWindowFocus });
+	interfaceWindows.Add({ "Locals", LocalsWindowCreate, WatchWindowUpdate, WatchWindowFocus });
 	interfaceWindows.Add({ "Commands", CommandsWindowCreate, nullptr });
 	interfaceWindows.Add({ "Data", DataWindowCreate, nullptr });
 	interfaceWindows.Add({ "Struct", StructWindowCreate, nullptr });

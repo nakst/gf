@@ -925,14 +925,20 @@ struct Watch {
 	uint64_t updateIndex;
 };
 
+enum WatchWindowMode {
+	WATCH_NORMAL,
+	WATCH_LOCALS,
+};
+
 struct WatchWindow {
 	Array<Watch *> rows;
 	Array<Watch *> baseExpressions;
 	Array<Watch *> dynamicArrays;
-	Watch *locals;
 	UIElement *element;
 	UITextbox *textbox;
+	char *lastLocalList;
 	int selectedRow;
+	WatchWindowMode mode;
 	uint64_t updateIndex;
 	bool waitingForFormatCharacter;
 };
@@ -1149,10 +1155,6 @@ void WatchAddFields(WatchWindow *w, Watch *watch) {
 	} else {
 		char *start = strdup(evaluateResult);
 		char *position = start;
-
-		if (strstr(watch->key, ".locals")) {
-			w->locals = watch;
-		}
 
 		while (true) {
 			char *end = strchr(position, '\n');
@@ -1889,32 +1891,82 @@ UIElement *WatchWindowCreate(UIElement *parent) {
 	panel->e.cp = w;
 	w->element = UIElementCreate(sizeof(UIElement), &panel->e, UI_ELEMENT_H_FILL | UI_ELEMENT_TAB_STOP, WatchWindowMessage, "Watch");
 	w->element->cp = w;
+	w->mode = WATCH_NORMAL;
 	if (!watchWindowToRestore) watchWindowToRestore = w;
 
 	return &panel->e;
 }
 
-void WatchUpdateFieldCount(WatchWindow *w, Watch *watch) {
-	int index = -1;
+UIElement *LocalsWindowCreate(UIElement *parent) {
+	WatchWindow *w = (WatchWindow *) calloc(1, sizeof(WatchWindow));
+	UIPanel *panel = UIPanelCreate(parent, UI_PANEL_SCROLL | UI_PANEL_COLOR_1);
+	panel->e.messageUser = WatchPanelMessage;
+	panel->e.cp = w;
+	w->element = UIElementCreate(sizeof(UIElement), &panel->e, UI_ELEMENT_H_FILL | UI_ELEMENT_TAB_STOP, WatchWindowMessage, "Locals");
+	w->element->cp = w;
+	w->mode = WATCH_LOCALS;
 
-	for (int i = 0; i < w->rows.Length(); i++) {
-		if (w->rows[i] == watch) {
-			index = i;
-			break;
-		}
-	}
-
-	assert(index != -1);
-	w->selectedRow = index;
-	WatchDeleteExpression(w, true);
-	watch->open = true;
-	WatchAddFields(w, watch);
-	int position = index + 1;
-	WatchInsertFieldRows(w, watch, &position);
+	return &panel->e;
 }
 
 void WatchWindowUpdate(const char *, UIElement *element) {
 	WatchWindow *w = (WatchWindow *) element->cp;
+
+	if (w->mode == WATCH_LOCALS) {
+		EvaluateCommand("py gf_locals()");
+
+		bool newFrame = (!w->lastLocalList || 0 != strcmp(w->lastLocalList, evaluateResult));
+
+		if (newFrame) {
+			if (w->lastLocalList) free(w->lastLocalList);
+			w->lastLocalList = strdup(evaluateResult);
+			char *buffer = strdup(evaluateResult);
+			char *s = buffer;
+			char *end;
+			Array<char *> expressions;
+			memset(&expressions, 0, sizeof expressions);
+
+			while ((end = strchr(s, '\n')) != NULL) {
+				*end = '\0';
+				expressions.Add(s);
+				s = end + 1;
+			}
+
+			for (int watchIndex=0; watchIndex < w->baseExpressions.Length(); watchIndex++) {
+				Watch *watch = w->baseExpressions[watchIndex];
+				bool matched = false;
+				for (int exprIndex=0; exprIndex < expressions.Length(); exprIndex++) {
+					char *expression = expressions[exprIndex];
+					if (strstr(watch->key, expression)) {
+						expressions.Delete(exprIndex);
+						matched = true;
+						break;
+					}
+				}
+				if (!matched) {
+					bool found = false;
+					for (int rowIndex=0; rowIndex < w->rows.Length(); rowIndex++) {
+						if (w->rows[rowIndex] == watch) {
+							w->selectedRow = rowIndex;
+							WatchDeleteExpression(w);
+							found = true;
+						}
+					}
+					assert(found);
+				}
+			}
+
+			// add remaining (new) varianbles
+			for (int exprIndex=0; exprIndex < expressions.Length(); exprIndex++) {
+				char *expression = strdup(expressions[exprIndex]);
+				w->selectedRow = w->rows.Length();
+				WatchAddExpression(w, expression);
+			}
+
+			free(buffer);
+			expressions.Free();
+		}
+	}
 
 	for (int i = 0; i < w->baseExpressions.Length(); i++) {
 		Watch *watch = w->baseExpressions[i];
@@ -1951,19 +2003,22 @@ void WatchWindowUpdate(const char *, UIElement *element) {
 		int oldCount = watch->fields.Length();
 
 		if (oldCount != count) {
-			WatchUpdateFieldCount(w, watch);
-		}
-	}
+			int index = -1;
 
-	if (w->locals) {
-		WatchEvaluate("gf_fields", w->locals);
-		int count = 0;
-		char *ptr = evaluateResult;
-		while ((ptr = strchr(ptr, '\n')) != NULL) ptr++, count++;
-		int lastCount = w->locals->fields.Length();
+			for (int i = 0; i < w->rows.Length(); i++) {
+				if (w->rows[i] == watch) {
+					index = i;
+					break;
+				}
+			}
 
-		if (count != lastCount) {
-			WatchUpdateFieldCount(w, w->locals);
+			assert(index != -1);
+			w->selectedRow = index;
+			WatchDeleteExpression(w, true);
+			watch->open = true;
+			WatchAddFields(w, watch);
+			int position = index + 1;
+			WatchInsertFieldRows(w, watch, &position);
 		}
 	}
 
