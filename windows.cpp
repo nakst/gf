@@ -929,6 +929,7 @@ struct WatchWindow {
 	Array<Watch *> rows;
 	Array<Watch *> baseExpressions;
 	Array<Watch *> dynamicArrays;
+	Watch *locals;
 	UIElement *element;
 	UITextbox *textbox;
 	int selectedRow;
@@ -1148,6 +1149,10 @@ void WatchAddFields(WatchWindow *w, Watch *watch) {
 	} else {
 		char *start = strdup(evaluateResult);
 		char *position = start;
+
+		if (strstr(watch->key, ".locals")) {
+			w->locals = watch;
+		}
 
 		while (true) {
 			char *end = strchr(position, '\n');
@@ -1889,6 +1894,25 @@ UIElement *WatchWindowCreate(UIElement *parent) {
 	return &panel->e;
 }
 
+void WatchUpdateFieldCount(WatchWindow *w, Watch *watch) {
+	int index = -1;
+
+	for (int i = 0; i < w->rows.Length(); i++) {
+		if (w->rows[i] == watch) {
+			index = i;
+			break;
+		}
+	}
+
+	assert(index != -1);
+	w->selectedRow = index;
+	WatchDeleteExpression(w, true);
+	watch->open = true;
+	WatchAddFields(w, watch);
+	int position = index + 1;
+	WatchInsertFieldRows(w, watch, &position);
+}
+
 void WatchWindowUpdate(const char *, UIElement *element) {
 	WatchWindow *w = (WatchWindow *) element->cp;
 
@@ -1927,22 +1951,19 @@ void WatchWindowUpdate(const char *, UIElement *element) {
 		int oldCount = watch->fields.Length();
 
 		if (oldCount != count) {
-			int index = -1;
+			WatchUpdateFieldCount(w, watch);
+		}
+	}
 
-			for (int i = 0; i < w->rows.Length(); i++) {
-				if (w->rows[i] == watch) {
-					index = i;
-					break;
-				}
-			}
+	if (w->locals) {
+		WatchEvaluate("gf_fields", w->locals);
+		int count = 0;
+		char *ptr = evaluateResult;
+		while ((ptr = strchr(ptr, '\n')) != NULL) ptr++, count++;
+		int lastCount = w->locals->fields.Length();
 
-			assert(index != -1);
-			w->selectedRow = index;
-			WatchDeleteExpression(w, true);
-			watch->open = true;
-			WatchAddFields(w, watch);
-			int position = index + 1;
-			WatchInsertFieldRows(w, watch, &position);
+		if (count != lastCount) {
+			WatchUpdateFieldCount(w, w->locals);
 		}
 	}
 
