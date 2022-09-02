@@ -1668,8 +1668,8 @@ int WatchWindowMessage(UIElement *element, UIMessage message, int di, void *dp) 
 	if (message == UI_MSG_PAINT) {
 		UIPainter *painter = (UIPainter *) dp;
 
-		int last = w->rows.Length() + (w->mode == WATCH_NORMAL);
-		for (int i = (painter->clip.t - element->bounds.t) / rowHeight; i < last; i++) {
+		int last = w->rows.Length() + (w->mode == WATCH_NORMAL) - 1;
+		for (int i = (painter->clip.t - element->bounds.t) / rowHeight; i <= last; i++) {
 			UIRectangle row = element->bounds;
 			row.t += i * rowHeight, row.b = row.t + rowHeight;
 
@@ -1688,7 +1688,7 @@ int WatchWindowMessage(UIElement *element, UIMessage message, int di, void *dp) 
 				Watch *watch = w->rows[i];
 				char buffer[256];
 
-				if ((!watch->value || watch->updateIndex != w->updateIndex) && !watch->open) {
+				if ((!watch->value || watch->updateIndex != w->updateIndex) && !watch->open && !programRunning) {
 					free(watch->value);
 					watch->updateIndex = w->updateIndex;
 					WatchEvaluate("gf_valueof", watch);
@@ -1937,40 +1937,42 @@ void WatchWindowUpdate(const char *, UIElement *element) {
 				s = end + 1;
 			}
 
-			for (int watchIndex=0; watchIndex < w->baseExpressions.Length(); watchIndex++) {
-				Watch *watch = w->baseExpressions[watchIndex];
-				bool matched = false;
-				for (int exprIndex=0; exprIndex < expressions.Length(); exprIndex++) {
-					char *expression = expressions[exprIndex];
-					if (0 == strcmp(watch->key, expression)) {
-						expressions.Delete(exprIndex);
-						matched = true;
-						break;
-					}
-				}
-				if (!matched) {
-					bool found = false;
-					for (int rowIndex=0; rowIndex < w->rows.Length(); rowIndex++) {
-						if (w->rows[rowIndex] == watch) {
-							w->selectedRow = rowIndex;
-							WatchDeleteExpression(w);
-							watchIndex--;
-							found = true;
+			if (expressions.Length() > 0) {
+				for (int watchIndex=0; watchIndex < w->baseExpressions.Length(); watchIndex++) {
+					Watch *watch = w->baseExpressions[watchIndex];
+					bool matched = false;
+					for (int exprIndex=0; exprIndex < expressions.Length(); exprIndex++) {
+						char *expression = expressions[exprIndex];
+						if (0 == strcmp(watch->key, expression)) {
+							expressions.Delete(exprIndex);
+							matched = true;
 							break;
 						}
 					}
-					assert(found);
+					if (!matched) {
+						bool found = false;
+						for (int rowIndex=0; rowIndex < w->rows.Length(); rowIndex++) {
+							if (w->rows[rowIndex] == watch) {
+								w->selectedRow = rowIndex;
+								WatchDeleteExpression(w);
+								watchIndex--;
+								found = true;
+								break;
+							}
+						}
+						assert(found);
+					}
 				}
-			}
 
-			// add remaining (new) varianbles
-			for (int exprIndex=0; exprIndex < expressions.Length(); exprIndex++) {
-				char *expression = strdup(expressions[exprIndex]);
+				// add remaining (new) varianbles
+				for (int exprIndex=0; exprIndex < expressions.Length(); exprIndex++) {
+					char *expression = strdup(expressions[exprIndex]);
+					w->selectedRow = w->rows.Length();
+					WatchAddExpression(w, expression);
+				}
+
 				w->selectedRow = w->rows.Length();
-				WatchAddExpression(w, expression);
 			}
-
-			w->selectedRow = w->rows.Length();
 
 			free(buffer);
 			expressions.Free();
