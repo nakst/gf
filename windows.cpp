@@ -1168,15 +1168,33 @@ void WatchAddFields(WatchWindow *w, Watch *watch) {
 	}
 }
 
-void WatchInsertFieldRows(WatchWindow *w, Watch *watch, int *position) {
+uintptr_t WatchCountFields(Watch *watch) {
+	uintptr_t result = watch->fields.Length();
 	for (int i = 0; i < watch->fields.Length(); i++) {
-		w->rows.Insert(watch->fields[i], *position);
-		*position = *position + 1;
-
 		if (watch->fields[i]->open) {
-			WatchInsertFieldRows(w, watch->fields[i], position);
+			result += WatchCountFields(watch->fields[i]);
 		}
 	}
+	return result;
+}
+
+void WatchInsertFieldsMeta(WatchWindow *w, Watch *watch, int *position) {
+	for (int i = 0; i < watch->fields.Length(); i++) {
+		w->rows[*position] = watch->fields[i];
+		*position += 1;
+
+		if (watch->fields[i]->open) {
+			WatchInsertFieldsMeta(w, watch->fields[i], position);
+		}
+	}
+}
+
+void WatchInsertFieldRows(WatchWindow *w, Watch *watch, int *position) {
+	uintptr_t countNewRows = WatchCountFields(watch);
+
+	w->rows.InsertUninitialized(countNewRows, *position);
+
+	WatchInsertFieldsMeta(w, watch, position);
 }
 
 void WatchEnsureRowVisible(WatchWindow *w, int index) {

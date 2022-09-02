@@ -52,6 +52,16 @@ struct Array {
 		array[index] = item;
 	}
 
+	void InsertUninitialized(uintptr_t amount, uintptr_t index) {
+		length += amount;
+
+		while (length > allocated) allocated *= 2;
+		array = (T *) realloc(array, allocated * sizeof(T));
+
+		uintptr_t moveOffset = index + amount;
+		memmove(array + moveOffset, array + index, (length - moveOffset) * sizeof(T));
+	}
+
 	void Delete(uintptr_t index, size_t count = 1) { 
 		memmove(array + index, array + index + count, (length - index - count) * sizeof(T)); 
 		length -= count;
