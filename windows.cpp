@@ -1535,6 +1535,8 @@ bool WatchLoggerUpdate(char *data) {
 }
 
 void WatchCreateTextboxForRow(WatchWindow *w, bool addExistingText) {
+	if (w->mode == WATCH_LOCALS) return;
+
 	int rowHeight = (int) (UI_SIZE_TEXTBOX_HEIGHT * w->element->window->scale);
 	UIRectangle row = w->element->bounds;
 	row.t += w->selectedRow * rowHeight, row.b = row.t + rowHeight;
@@ -1666,7 +1668,8 @@ int WatchWindowMessage(UIElement *element, UIMessage message, int di, void *dp) 
 	if (message == UI_MSG_PAINT) {
 		UIPainter *painter = (UIPainter *) dp;
 
-		for (int i = (painter->clip.t - element->bounds.t) / rowHeight; i <= w->rows.Length(); i++) {
+		int last = w->rows.Length() + (w->mode == WATCH_NORMAL);
+		for (int i = (painter->clip.t - element->bounds.t) / rowHeight; i < last; i++) {
 			UIRectangle row = element->bounds;
 			row.t += i * rowHeight, row.b = row.t + rowHeight;
 
@@ -1743,7 +1746,7 @@ int WatchWindowMessage(UIElement *element, UIMessage message, int di, void *dp) 
 			WatchWindowMessage(element, UI_MSG_LEFT_DOWN, di, dp);
 			UIMenu *menu = UIMenuCreate(&element->window->e, UI_MENU_NO_SCROLL);
 
-			if (!w->rows[index]->parent) {
+			if (w->mode == WATCH_NORMAL && !w->rows[index]->parent) {
 				UIMenuAddItem(menu, 0, "Edit expression", -1, [] (void *cp) { 
 					WatchCreateTextboxForRow((WatchWindow *) cp, true); 
 				}, w);
