@@ -1920,6 +1920,7 @@ void WatchWindowUpdate(const char *, UIElement *element) {
 		if (newFrame) {
 			if (w->lastLocalList) free(w->lastLocalList);
 			w->lastLocalList = strdup(evaluateResult);
+
 			char *buffer = strdup(evaluateResult);
 			char *s = buffer;
 			char *end;
@@ -1928,6 +1929,7 @@ void WatchWindowUpdate(const char *, UIElement *element) {
 
 			while ((end = strchr(s, '\n')) != NULL) {
 				*end = '\0';
+				if (strstr(s, "(gdb)")) break;
 				expressions.Add(s);
 				s = end + 1;
 			}
@@ -1937,7 +1939,7 @@ void WatchWindowUpdate(const char *, UIElement *element) {
 				bool matched = false;
 				for (int exprIndex=0; exprIndex < expressions.Length(); exprIndex++) {
 					char *expression = expressions[exprIndex];
-					if (strstr(watch->key, expression)) {
+					if (0 == strcmp(watch->key, expression)) {
 						expressions.Delete(exprIndex);
 						matched = true;
 						break;
@@ -1949,7 +1951,9 @@ void WatchWindowUpdate(const char *, UIElement *element) {
 						if (w->rows[rowIndex] == watch) {
 							w->selectedRow = rowIndex;
 							WatchDeleteExpression(w);
+							watchIndex--;
 							found = true;
+							break;
 						}
 					}
 					assert(found);
@@ -1962,6 +1966,8 @@ void WatchWindowUpdate(const char *, UIElement *element) {
 				w->selectedRow = w->rows.Length();
 				WatchAddExpression(w, expression);
 			}
+
+			w->selectedRow = w->rows.Length();
 
 			free(buffer);
 			expressions.Free();

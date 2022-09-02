@@ -288,17 +288,17 @@ def gf_fields(expression):
 def gf_locals():
     try:
         frame = gdb.selected_frame()
+        block = frame.block()
     except:
         return
-    block = frame.block()
     names = set()
-    while block.superblock:
+    while block and not (block.is_global or block.is_static):
         for symbol in block:
-            if ((symbol.is_argument or symbol.is_variable) and symbol.needs_frame):
-                if not (symbol.name in names):
-                    print(symbol.name)
-                    names.add(symbol.name)
+            if (symbol.is_argument or symbol.is_variable or symbol.is_constant):
+                names.add(symbol.name)
         block = block.superblock
+    for name in names:
+        print(name)
 
 end
 )";
