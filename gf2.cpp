@@ -152,7 +152,7 @@ bool executableAskDirectory = true;
 Array<InterfaceWindow> interfaceWindows;
 Array<InterfaceCommand> interfaceCommands;
 Array<InterfaceDataViewer> interfaceDataViewers;
-char *layoutString = (char *) "v(75,h(80,Source,v(50,t(Exe,Breakpoints,Commands,Struct),t(Stack,Files,Thread))),h(65,Console,t(Watch,Registers,Data)))";
+char *layoutString = (char *) "v(75,h(80,Source,v(50,t(Exe,Breakpoints,Commands,Struct),t(Stack,Files,Thread))),h(65,Console,t(Watch,Locals,Registers,Data)))";
 const char *fontPath;
 int fontSizeCode = 13;
 int fontSizeInterface = 11;
