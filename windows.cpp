@@ -938,6 +938,7 @@ struct WatchWindow {
 	UITextbox *textbox;
 	char *lastLocalList;
 	int selectedRow;
+	int extraRows;
 	WatchWindowMode mode;
 	uint64_t updateIndex;
 	bool waitingForFormatCharacter;
@@ -963,6 +964,10 @@ struct WatchLogger {
 };
 
 Array<WatchLogger *> watchLoggers;
+
+int WatchLastRow(WatchWindow *w) {
+	return w->rows.Length() - 1 + w->extraRows;
+}
 
 int WatchTextboxMessage(UIElement *element, UIMessage message, int di, void *dp) {
 	UITextbox *textbox = (UITextbox *) element;
@@ -1535,8 +1540,6 @@ bool WatchLoggerUpdate(char *data) {
 }
 
 void WatchCreateTextboxForRow(WatchWindow *w, bool addExistingText) {
-	if (w->mode == WATCH_LOCALS) return;
-
 	int rowHeight = (int) (UI_SIZE_TEXTBOX_HEIGHT * w->element->window->scale);
 	UIRectangle row = w->element->bounds;
 	row.t += w->selectedRow * rowHeight, row.b = row.t + rowHeight;
@@ -1557,7 +1560,7 @@ WatchWindow *WatchGetFocused() {
 
 void CommandWatchAddEntryForAddress(void *cp) {
 	WatchWindow *w = (WatchWindow *) cp ?: WatchGetFocused();
-	if (!w) return;
+	if (!w || w->mode != WATCH_NORMAL) return;
 	if (w->selectedRow == w->rows.Length()) return;
 	Watch *watch = w->rows[w->selectedRow];
 	if (!WatchGetAddress(watch)) return;
@@ -1668,8 +1671,7 @@ int WatchWindowMessage(UIElement *element, UIMessage message, int di, void *dp) 
 	if (message == UI_MSG_PAINT) {
 		UIPainter *painter = (UIPainter *) dp;
 
-		int last = w->rows.Length() + (w->mode == WATCH_NORMAL) - 1;
-		for (int i = (painter->clip.t - element->bounds.t) / rowHeight; i <= last; i++) {
+		for (int i = (painter->clip.t - element->bounds.t) / rowHeight; i <= WatchLastRow(w); i++) {
 			UIRectangle row = element->bounds;
 			row.t += i * rowHeight, row.b = row.t + rowHeight;
 
@@ -1688,13 +1690,18 @@ int WatchWindowMessage(UIElement *element, UIMessage message, int di, void *dp) 
 				Watch *watch = w->rows[i];
 				char buffer[256];
 
-				if ((!watch->value || watch->updateIndex != w->updateIndex) && !watch->open && !programRunning) {
-					free(watch->value);
-					watch->updateIndex = w->updateIndex;
-					WatchEvaluate("gf_valueof", watch);
-					watch->value = strdup(evaluateResult);
-					char *end = strchr(watch->value, '\n');
-					if (end) *end = 0;
+				if ((!watch->value || watch->updateIndex != w->updateIndex) && !watch->open) {
+					if (!programRunning) {
+						free(watch->value);
+						watch->updateIndex = w->updateIndex;
+						WatchEvaluate("gf_valueof", watch);
+						watch->value = strdup(evaluateResult);
+						char *end = strchr(watch->value, '\n');
+						if (end) *end = 0;
+					} else {
+						free(watch->value);
+						watch->value = strdup("..");
+					}
 				}
 
 				char keyIndex[64];
@@ -1722,7 +1729,7 @@ int WatchWindowMessage(UIElement *element, UIMessage message, int di, void *dp) 
 			}
 		}
 	} else if (message == UI_MSG_GET_HEIGHT) {
-		return (w->rows.Length() + 1) * rowHeight;
+		return (WatchLastRow(w) + 1) * rowHeight;
 	} else if (message == UI_MSG_LEFT_DOWN) {
 		w->selectedRow = (element->window->cursorY - element->bounds.t) / rowHeight;
 
@@ -1772,7 +1779,7 @@ int WatchWindowMessage(UIElement *element, UIMessage message, int di, void *dp) 
 				DebuggerSend(buffer, true, false);
 			}, w);
 
-			UIMenuAddItem(menu, 0, "Add entry for address\tCtrl+E", -1, CommandWatchAddEntryForAddress, w);
+			UIMenuAddItem(menu, 0, "Add entry for address\tCtrl+E", -1, CommandWatchAddEntryForAddress, w->mode == WATCH_NORMAL ? w : (WatchWindow *) InterfaceWindowSwitchToAndFocus("Watch"));
 			UIMenuAddItem(menu, 0, "View source at address\tCtrl+G", -1, CommandWatchViewSourceAtAddress, w);
 			UIMenuAddItem(menu, 0, "Save as...", -1, CommandWatchSaveAs, w);
 
@@ -1788,7 +1795,7 @@ int WatchWindowMessage(UIElement *element, UIMessage message, int di, void *dp) 
 			w->rows[w->selectedRow]->format = (m->textBytes && isalpha(m->text[0])) ? m->text[0] : 0;
 			w->rows[w->selectedRow]->updateIndex--;
 			w->waitingForFormatCharacter = false;
-		} else if (w->selectedRow != w->rows.Length() && !w->textbox
+		} else if (w->mode == WATCH_NORMAL && w->selectedRow != w->rows.Length() && !w->textbox
 				&& (m->code == UI_KEYCODE_ENTER || m->code == UI_KEYCODE_BACKSPACE || (m->code == UI_KEYCODE_LEFT && !w->rows[w->selectedRow]->open))
 				&& !w->rows[w->selectedRow]->parent) {
 			WatchCreateTextboxForRow(w, true);
@@ -1799,7 +1806,7 @@ int WatchWindowMessage(UIElement *element, UIMessage message, int di, void *dp) 
 			w->waitingForFormatCharacter = true;
 		} else if (m->textBytes && m->text[0] == '`') {
 			result = 0;
-		} else if (m->textBytes && m->code != UI_KEYCODE_TAB && !w->textbox && !element->window->ctrl && !element->window->alt
+		} else if (w->mode == WATCH_NORMAL && m->textBytes && m->code != UI_KEYCODE_TAB && !w->textbox && !element->window->ctrl && !element->window->alt
 				&& (w->selectedRow == w->rows.Length() || !w->rows[w->selectedRow]->parent)) {
 			WatchCreateTextboxForRow(w, false);
 			UIElementMessage(&w->textbox->e, message, di, dp);
@@ -1828,7 +1835,7 @@ int WatchWindowMessage(UIElement *element, UIMessage message, int di, void *dp) 
 		} else if (m->code == UI_KEYCODE_HOME) {
 			w->selectedRow = 0;
 		} else if (m->code == UI_KEYCODE_END) {
-			w->selectedRow = w->rows.Length();
+			w->selectedRow = WatchLastRow(w);
 		} else if (m->code == UI_KEYCODE_RIGHT && !w->textbox
 				&& w->selectedRow != w->rows.Length() && w->rows[w->selectedRow]->hasFields
 				&& !w->rows[w->selectedRow]->open) {
@@ -1870,8 +1877,8 @@ int WatchWindowMessage(UIElement *element, UIMessage message, int di, void *dp) 
 
 	if (w->selectedRow < 0) {
 		w->selectedRow = 0;
-	} else if (w->selectedRow > w->rows.Length()) {
-		w->selectedRow = w->rows.Length();
+	} else if (w->selectedRow > WatchLastRow(w)) {
+		w->selectedRow = WatchLastRow(w);
 	}
 
 	return result;
@@ -1895,6 +1902,7 @@ UIElement *WatchWindowCreate(UIElement *parent) {
 	w->element = UIElementCreate(sizeof(UIElement), &panel->e, UI_ELEMENT_H_FILL | UI_ELEMENT_TAB_STOP, WatchWindowMessage, "Watch");
 	w->element->cp = w;
 	w->mode = WATCH_NORMAL;
+	w->extraRows = 1;
 	if (!watchWindowToRestore) watchWindowToRestore = w;
 
 	return &panel->e;
@@ -1927,8 +1935,7 @@ void WatchWindowUpdate(const char *, UIElement *element) {
 			char *buffer = strdup(evaluateResult);
 			char *s = buffer;
 			char *end;
-			Array<char *> expressions;
-			memset(&expressions, 0, sizeof expressions);
+			Array<char *> expressions = {};
 
 			while ((end = strchr(s, '\n')) != NULL) {
 				*end = '\0';
@@ -1938,20 +1945,22 @@ void WatchWindowUpdate(const char *, UIElement *element) {
 			}
 
 			if (expressions.Length() > 0) {
-				for (int watchIndex=0; watchIndex < w->baseExpressions.Length(); watchIndex++) {
+				for (int watchIndex = 0; watchIndex < w->baseExpressions.Length(); watchIndex++) {
 					Watch *watch = w->baseExpressions[watchIndex];
 					bool matched = false;
-					for (int exprIndex=0; exprIndex < expressions.Length(); exprIndex++) {
-						char *expression = expressions[exprIndex];
+
+					for (int expressionIndex = 0; expressionIndex < expressions.Length(); expressionIndex++) {
+						char *expression = expressions[expressionIndex];
 						if (0 == strcmp(watch->key, expression)) {
-							expressions.Delete(exprIndex);
+							expressions.Delete(expressionIndex);
 							matched = true;
 							break;
 						}
 					}
+
 					if (!matched) {
 						bool found = false;
-						for (int rowIndex=0; rowIndex < w->rows.Length(); rowIndex++) {
+						for (int rowIndex = 0; rowIndex < w->rows.Length(); rowIndex++) {
 							if (w->rows[rowIndex] == watch) {
 								w->selectedRow = rowIndex;
 								WatchDeleteExpression(w);
@@ -1964,9 +1973,9 @@ void WatchWindowUpdate(const char *, UIElement *element) {
 					}
 				}
 
-				// add remaining (new) varianbles
-				for (int exprIndex=0; exprIndex < expressions.Length(); exprIndex++) {
-					char *expression = strdup(expressions[exprIndex]);
+				// Add the remaining (new) variables.
+				for (int expressionIndex = 0; expressionIndex < expressions.Length(); expressionIndex++) {
+					char *expression = strdup(expressions[expressionIndex]);
 					w->selectedRow = w->rows.Length();
 					WatchAddExpression(w, expression);
 				}
