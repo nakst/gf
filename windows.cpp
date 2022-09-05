@@ -17,8 +17,6 @@ int inspectModeRestoreLine;
 UIRectangle displayCurrentLineBounds;
 const char *disassemblyCommand = "disas /s";
 
-bool watchWindowExists = false;
-
 bool DisplaySetPosition(const char *file, int line, bool useGDBToGetFullPath) {
 	if (showingDisassembly) {
 		return false;
@@ -1568,9 +1566,11 @@ void CommandWatchAddEntryForAddress(void *cp) {
 	Watch *watch = w->rows[w->selectedRow];
 	if (!WatchGetAddress(watch)) return;
 
-	if (w->mode != WATCH_NORMAL) InterfaceWindowSwitchToAndFocus("Watch");
-	w = WatchGetFocused();
-	assert(w != NULL);
+	if (w->mode != WATCH_NORMAL) {
+		InterfaceWindowSwitchToAndFocus("Watch");
+		w = WatchGetFocused();
+		assert(w != NULL);
+	}
 
 	char address[64];
 	StringFormat(address, sizeof(address), "%s", evaluateResult);
@@ -1786,7 +1786,10 @@ int WatchWindowMessage(UIElement *element, UIMessage message, int di, void *dp) 
 				DebuggerSend(buffer, true, false);
 			}, w);
 
-			if (watchWindowExists) UIMenuAddItem(menu, 0, "Add entry for address\tCtrl+E", -1, CommandWatchAddEntryForAddress, w);
+			if (firstWatchWindow) {
+				UIMenuAddItem(menu, 0, "Add entry for address\tCtrl+E", -1, CommandWatchAddEntryForAddress, w);
+			}
+			
 			UIMenuAddItem(menu, 0, "View source at address\tCtrl+G", -1, CommandWatchViewSourceAtAddress, w);
 			UIMenuAddItem(menu, 0, "Save as...", -1, CommandWatchSaveAs, w);
 
@@ -1910,10 +1913,7 @@ UIElement *WatchWindowCreate(UIElement *parent) {
 	w->element->cp = w;
 	w->mode = WATCH_NORMAL;
 	w->extraRows = 1;
-	if (!watchWindowToRestore) watchWindowToRestore = w;
-
-	watchWindowExists = true;
-
+	if (!firstWatchWindow) firstWatchWindow = w;
 	return &panel->e;
 }
 
@@ -1925,7 +1925,6 @@ UIElement *LocalsWindowCreate(UIElement *parent) {
 	w->element = UIElementCreate(sizeof(UIElement), &panel->e, UI_ELEMENT_H_FILL | UI_ELEMENT_TAB_STOP, WatchWindowMessage, "Locals");
 	w->element->cp = w;
 	w->mode = WATCH_LOCALS;
-
 	return &panel->e;
 }
 
