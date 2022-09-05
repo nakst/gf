@@ -158,7 +158,7 @@ int fontSizeCode = 13;
 int fontSizeInterface = 11;
 float uiScale = 1;
 bool restoreWatchWindow;
-struct WatchWindow *watchWindowToRestore;
+struct WatchWindow *firstWatchWindow;
 bool maximize;
 
 // Current file and line:
@@ -1667,13 +1667,13 @@ int main(int argc, char **argv) {
 	UIMessageLoop();
 	DebuggerClose();
 
-	if (restoreWatchWindow && watchWindowToRestore) {
+	if (restoreWatchWindow && firstWatchWindow) {
 		StringFormat(globalConfigPath, sizeof(globalConfigPath), "%s/.config/gf2_watch.txt", getenv("HOME"));
 		FILE *f = fopen(globalConfigPath, "wb");
 
 		if (f) {
-			for (int i = 0; i < watchWindowToRestore->baseExpressions.Length(); i++) {
-				fprintf(f, "%s\n", watchWindowToRestore->baseExpressions[i]->key);
+			for (int i = 0; i < firstWatchWindow->baseExpressions.Length(); i++) {
+				fprintf(f, "%s\n", firstWatchWindow->baseExpressions[i]->key);
 			}
 		} else {
 			fprintf(stderr, "Warning: Could not save the contents of the watch window; '%s' was not accessible.\n", globalConfigPath);
