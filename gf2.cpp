@@ -152,7 +152,7 @@ bool executableAskDirectory = true;
 Array<InterfaceWindow> interfaceWindows;
 Array<InterfaceCommand> interfaceCommands;
 Array<InterfaceDataViewer> interfaceDataViewers;
-char *layoutString = (char *) "v(75,h(80,Source,v(50,t(Exe,Breakpoints,Commands,Struct),t(Stack,Files,Thread))),h(65,Console,t(Watch,Registers,Data)))";
+char *layoutString = (char *) "v(75,h(80,Source,v(50,t(Exe,Breakpoints,Commands,Struct),t(Stack,Files,Thread))),h(65,Console,t(Watch,Locals,Registers,Data)))";
 const char *fontPath;
 int fontSizeCode = 13;
 int fontSizeInterface = 11;
@@ -284,6 +284,21 @@ def gf_fields(expression):
     hook_string = _gf_hook_string(basic_type)
     try: gf_hooks[hook_string](value, None)
     except: __gf_fields_recurse(basic_type)
+
+def gf_locals():
+    try:
+        frame = gdb.selected_frame()
+        block = frame.block()
+    except:
+        return
+    names = set()
+    while block and not (block.is_global or block.is_static):
+        for symbol in block:
+            if (symbol.is_argument or symbol.is_variable or symbol.is_constant):
+                names.add(symbol.name)
+        block = block.superblock
+    for name in names:
+        print(name)
 
 end
 )";
@@ -1261,6 +1276,7 @@ void InterfaceAddBuiltinWindowsAndCommands() {
 	interfaceWindows.Add({ "Breakpoints", BreakpointsWindowCreate, BreakpointsWindowUpdate });
 	interfaceWindows.Add({ "Registers", RegistersWindowCreate, RegistersWindowUpdate });
 	interfaceWindows.Add({ "Watch", WatchWindowCreate, WatchWindowUpdate, WatchWindowFocus });
+	interfaceWindows.Add({ "Locals", LocalsWindowCreate, WatchWindowUpdate, WatchWindowFocus });
 	interfaceWindows.Add({ "Commands", CommandsWindowCreate, nullptr });
 	interfaceWindows.Add({ "Data", DataWindowCreate, nullptr });
 	interfaceWindows.Add({ "Struct", StructWindowCreate, nullptr });
