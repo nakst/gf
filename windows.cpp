@@ -1220,7 +1220,6 @@ void WatchAddExpression(WatchWindow *w, char *string = nullptr) {
 		memcpy(watch->key, w->textbox->string, w->textbox->bytes);
 	}
 
-	w->selectedRow = w->rows.Length();
 	WatchDeleteExpression(w); // Deletes textbox.
 	w->rows.Insert(watch, w->selectedRow);
 	w->baseExpressions.Add(watch);
