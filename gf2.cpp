@@ -41,15 +41,16 @@ struct Array {
 	T *array;
 	size_t length, allocated;
 
-	void Insert(T item, uintptr_t index) {
-		if (length == allocated) {
-			allocated = length * 2 + 1;
+	void InsertMany(T *newItems, uintptr_t index, size_t newCount) {
+		if (length + newCount > allocated) {
+			allocated *= 2;
+			if (length + newCount > allocated) allocated = length + newCount;
 			array = (T *) realloc(array, allocated * sizeof(T));
 		}
 
-		length++;
-		memmove(array + index + 1, array + index, (length - index - 1) * sizeof(T));
-		array[index] = item;
+		length += newCount;
+		memmove(array + index + newCount, array + index, (length - index - newCount) * sizeof(T));
+		memcpy(array + index, newItems, newCount * sizeof(T));
 	}
 
 	void Delete(uintptr_t index, size_t count = 1) { 
@@ -57,6 +58,7 @@ struct Array {
 		length -= count;
 	}
 
+	void Insert(T item, uintptr_t index) { InsertMany(&item, index, 1); }
 	void Add(T item) { Insert(item, length); }
 	void Free() { free(array); array = nullptr; length = allocated = 0; }
 	int Length() { return length; }

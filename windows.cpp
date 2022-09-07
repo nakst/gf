@@ -1180,17 +1180,6 @@ void WatchAddFields(WatchWindow *w, Watch *watch) {
 	}
 }
 
-void WatchInsertFieldRows(WatchWindow *w, Watch *watch, int *position) {
-	for (int i = 0; i < watch->fields.Length(); i++) {
-		w->rows.Insert(watch->fields[i], *position);
-		*position = *position + 1;
-
-		if (watch->fields[i]->open) {
-			WatchInsertFieldRows(w, watch->fields[i], position);
-		}
-	}
-}
-
 void WatchEnsureRowVisible(WatchWindow *w, int index) {
 	if (w->selectedRow < 0) w->selectedRow = 0;
 	else if (w->selectedRow > w->rows.Length()) w->selectedRow = w->rows.Length();
@@ -1202,6 +1191,21 @@ void WatchEnsureRowVisible(WatchWindow *w, int index) {
 	else if (start <= scroll->position) scroll->position = start;
 	else unchanged = true;
 	if (!unchanged) UIElementRefresh(w->element->parent);
+}
+
+void WatchInsertFieldRows2(WatchWindow *w, Watch *watch, Array<Watch *> *array) {
+	for (int i = 0; i < watch->fields.Length(); i++) {
+		array->Add(watch->fields[i]);
+		if (watch->fields[i]->open) WatchInsertFieldRows2(w, watch->fields[i], array);
+	}
+}
+
+void WatchInsertFieldRows(WatchWindow *w, Watch *watch, int position, bool ensureLastVisible) {
+	Array<Watch *> array = {};
+	WatchInsertFieldRows2(w, watch, &array);
+	w->rows.InsertMany(&array[0], position, array.Length());
+	if (ensureLastVisible) WatchEnsureRowVisible(w, position + array.Length() - 1);
+	array.Free();
 }
 
 void WatchAddExpression(WatchWindow *w, char *string = nullptr) {
@@ -1851,9 +1855,7 @@ int WatchWindowMessage(UIElement *element, UIMessage message, int di, void *dp) 
 			Watch *watch = w->rows[w->selectedRow];
 			watch->open = true;
 			WatchAddFields(w, watch);
-			int position = w->selectedRow + 1;
-			WatchInsertFieldRows(w, watch, &position);
-			WatchEnsureRowVisible(w, position - 1);
+			WatchInsertFieldRows(w, watch, w->selectedRow + 1, true);
 		} else if (m->code == UI_KEYCODE_LEFT && !w->textbox
 				&& w->selectedRow != w->rows.Length() && w->rows[w->selectedRow]->hasFields
 				&& w->rows[w->selectedRow]->open) {
@@ -2044,8 +2046,7 @@ void WatchWindowUpdate(const char *, UIElement *element) {
 			WatchDeleteExpression(w, true);
 			watch->open = true;
 			WatchAddFields(w, watch);
-			int position = index + 1;
-			WatchInsertFieldRows(w, watch, &position);
+			WatchInsertFieldRows(w, watch, index + 1, false);
 		}
 	}
 
