@@ -61,6 +61,13 @@ You can direct all output from GDB to be sent to the "Log" window, if you have o
 log_all_output=1
 ```
 
+You can disable the confirmation dialogs for the kill (F3) and connect (F4) commands.
+
+```ini
+confirm_command_kill=0
+confirm_command_connect=0
+```
+
 ### Custom keyboard shortcuts
 
 Keyboard shortcuts are placed in the `[shortcuts]` section. For example,

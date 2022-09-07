@@ -162,6 +162,7 @@ float uiScale = 1;
 bool restoreWatchWindow;
 struct WatchWindow *firstWatchWindow;
 bool maximize;
+bool confirmCommandConnect = true, confirmCommandKill = true;
 
 // Current file and line:
 
@@ -939,6 +940,10 @@ bool CommandParseInternal(const char *command, bool synchronous) {
 		}
 	} else if (0 == strcmp(command, "gf-inspect-line")) {
 		CommandInspectLine(nullptr);
+	} else if (0 == strcmp(command, "target remote :1234") && confirmCommandConnect
+			&& 0 == strcmp("Cancel", UIDialogShow(windowMain, 0, "Connect to remote target?\n%f%B%C", "Connect", "Cancel"))) {
+	} else if (0 == strcmp(command, "kill") && confirmCommandKill
+			&& 0 == strcmp("Cancel", UIDialogShow(windowMain, 0, "Kill debugging target?\n%f%B%C", "Kill", "Cancel"))) {
 	} else {
 		DebuggerSend(command, true, synchronous);
 		return true;
@@ -1220,6 +1225,10 @@ void SettingsLoad(bool earlyPass) {
 						fprintf(stderr, "Warning: gdb.log_all_output was enabled, "
 								"but your layout does not have a 'Log' window.\n");
 					}
+				} else if (0 == strcmp(state.key, "confirm_command_kill")) {
+					confirmCommandKill = atoi(state.value);
+				} else if (0 == strcmp(state.key, "confirm_command_connect")) {
+					confirmCommandConnect = atoi(state.value);
 				}
 			} else if (0 == strcmp(state.section, "commands") && earlyPass && state.keyBytes && state.valueBytes) {
 				presetCommands.Add(state);
