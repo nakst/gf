@@ -5839,12 +5839,12 @@ void *_UIHeapReAlloc(void *pointer, size_t size) {
 	}
 }
 
-void _UIClipboardWriteText(UIWindow *window, char *string) {
-	if (OpenClipboard(window->window)) {
+void _UIClipboardWriteText(UIWindow *window, char *text) {
+	if (OpenClipboard(window->hwnd)) {
 		EmptyClipboard();
-		HGLOBAL memory = GlobalAlloc(GMEM_MOVEABLE | GMEM_ZEROINIT, _UIStringLength(string) + 1);
+		HGLOBAL memory = GlobalAlloc(GMEM_MOVEABLE | GMEM_ZEROINIT, _UIStringLength(text) + 1);
 		char *copy = (char *) GlobalLock(memory);
-		for (uintptr_t i = 0; string[i]; i++) copy[i] = string[i];
+		for (uintptr_t i = 0; text[i]; i++) copy[i] = text[i];
 		GlobalUnlock(copy);
 		SetClipboardData(CF_TEXT, memory);
 		CloseClipboard();
@@ -5852,7 +5852,7 @@ void _UIClipboardWriteText(UIWindow *window, char *string) {
 }
 
 char *_UIClipboardReadTextStart(UIWindow *window, size_t *bytes) {
-	if (!OpenClipboard(window->window)) {
+	if (!OpenClipboard(window->hwnd)) {
 		return NULL;
 	}
 	
@@ -5890,7 +5890,6 @@ char *_UIClipboardReadTextStart(UIWindow *window, size_t *bytes) {
 }
 
 void _UIClipboardReadTextEnd(UIWindow *window, char *text) {
-	(void) window;
 	UI_FREE(text);
 }
 
