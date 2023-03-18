@@ -1612,7 +1612,8 @@ int main(int argc, char **argv) {
 #endif
 	
 	if (argc == 2 && (0 == strcmp(argv[1], "-?") || 0 == strcmp(argv[1], "-h") || 0 == strcmp(argv[1], "--help"))) {
-		fprintf(stderr, "Read the README.md for help.\n");
+		fprintf(stderr, "Usage: %s [GDB ARGS]\n\n"
+			        "GDB ARGS: Pass any gdb arguments here, they will be forwarded to gdb.\n\nFor more information, view the README.md.\n", argv[0]);
 		return 0;
 	}
 
