@@ -1613,7 +1613,7 @@ int main(int argc, char **argv) {
 	
 	if (argc == 2 && (0 == strcmp(argv[1], "-?") || 0 == strcmp(argv[1], "-h") || 0 == strcmp(argv[1], "--help"))) {
 		fprintf(stderr, "Usage: %s [GDB ARGS]\n\n"
-			        "GDB ARGS: Pass any gdb arguments here, they will be forwarded to gdb.\n\nFor more information, view the README.md.\n", argv[0]);
+			        "GDB ARGS: Pass any gdb arguments here, they will be forwarded to gdb.\n\nFor more information, view the README.md (https://github.com/nakst/gf/blob/master/README.md).\n", argv[0]);
 		return 0;
 	}
 
