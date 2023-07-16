@@ -1673,6 +1673,21 @@ void CommandWatchSaveAs(void *cp) {
 	fclose(f);
 }
 
+void CommandWatchCopyValueToClipboard(void *cp) {
+	WatchWindow *w = (WatchWindow *) cp ?: WatchGetFocused();
+	if (!w) return;
+	if (w->mode == WATCH_NORMAL && w->selectedRow == w->rows.Length()) return;
+
+	Watch *watch = w->rows[w->selectedRow];
+
+	WatchEvaluate("gf_valueof", watch);
+	char *value = strdup(evaluateResult);
+	char *end = strchr(value, '\n');
+	if (end) *end = 0;
+
+	_UIClipboardWriteText(w->element->window, value);
+}
+
 int WatchWindowMessage(UIElement *element, UIMessage message, int di, void *dp) {
 	WatchWindow *w = (WatchWindow *) element->cp;
 	int rowHeight = (int) (UI_SIZE_TEXTBOX_HEIGHT * element->window->scale);
@@ -1776,8 +1791,10 @@ int WatchWindowMessage(UIElement *element, UIMessage message, int di, void *dp) 
 				}, w);
 			}
 
-			UIMenuAddItem(menu, 0, "Log writes to address...", -1, [] (void *cp) { 
-				WatchChangeLoggerCreate((WatchWindow *) cp); 
+			UIMenuAddItem(menu, 0, "Copy value to clipboard\tCtrl+C", -1, CommandWatchCopyValueToClipboard, w);
+
+			UIMenuAddItem(menu, 0, "Log writes to address...", -1, [] (void *cp) {
+				WatchChangeLoggerCreate((WatchWindow *) cp);
 			}, w);
 
 			UIMenuAddItem(menu, 0, "Break on writes to address", -1, [] (void *cp) { 
