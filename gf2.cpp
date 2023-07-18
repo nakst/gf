@@ -1337,7 +1337,7 @@ void InterfaceAddBuiltinWindowsAndCommands() {
 			{ .invoke = CommandAddWatch } });
 	interfaceCommands.Add({ .label = "Inspect line", 
 			{ .code = XK_grave, .invoke = CommandInspectLine } });
-	interfaceCommands.Add({ .label = nullptr, 
+	interfaceCommands.Add({ .label = nullptr,
 			{ .code = UI_KEYCODE_LETTER('E'), .ctrl = true, .invoke = CommandWatchAddEntryForAddress } });
 	interfaceCommands.Add({ .label = nullptr, 
 			{ .code = UI_KEYCODE_LETTER('G'), .ctrl = true, .invoke = CommandWatchViewSourceAtAddress } });
