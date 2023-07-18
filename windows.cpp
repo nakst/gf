@@ -1894,6 +1894,9 @@ int WatchWindowMessage(UIElement *element, UIMessage message, int di, void *dp) 
 					break;
 				}
 			}
+		} else if (m->code == UI_KEYCODE_LETTER('C') && !w->textbox
+				&& !element->window->shift && !element->window->alt && element->window->ctrl) {
+			CommandWatchCopyValueToClipboard(w);
 		} else {
 			result = 0;
 		}
