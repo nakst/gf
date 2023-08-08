@@ -1203,7 +1203,7 @@ void WatchInsertFieldRows2(WatchWindow *w, Watch *watch, Array<Watch *> *array) 
 void WatchInsertFieldRows(WatchWindow *w, Watch *watch, int position, bool ensureLastVisible) {
 	Array<Watch *> array = {};
 	WatchInsertFieldRows2(w, watch, &array);
-	w->rows.InsertMany(&array[0], position, array.Length());
+	w->rows.InsertMany(array.array, position, array.Length());
 	if (ensureLastVisible) WatchEnsureRowVisible(w, position + array.Length() - 1);
 	array.Free();
 }
