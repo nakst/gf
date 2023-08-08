@@ -274,7 +274,7 @@ def __gf_fields_recurse(type):
             if field[1].is_base_class: __gf_fields_recurse(field[1].type)
             else: print(field[0])
     elif type.code == gdb.TYPE_CODE_ARRAY:
-        print('(array)',type.range()[1]+1)
+        print('(array) %d' % (type.range()[1]+1))
 
 def _gf_fields_recurse(value):
     basic_type = _gf_basic_type(value)
