@@ -508,7 +508,13 @@ char *evaluateResult;
 bool evaluateMode;
 char **gdbArgv;
 int gdbArgc;
-const char *gdbPath = "gdb";
+
+#if defined(__OpenBSD__)
+	const char *gdbPath = "egdb";
+#else
+	const char *gdbPath = "gdb";
+#endif
+
 bool firstUpdate = true;
 void *sendAllGDBOutputToLogWindowContext;
 
@@ -517,7 +523,7 @@ void *DebuggerThread(void *) {
 	pipe(outputPipe);
 	pipe(inputPipe);
 
-#if defined(__FreeBSD__)
+#if defined(__FreeBSD__) || defined(__OpenBSD__)
 	gdbPID = fork();
 	
 	if(gdbPID == 0) {
