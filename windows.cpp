@@ -1840,6 +1840,10 @@ int WatchWindowMessage(UIElement *element, UIMessage message, int di, void *dp) 
 				&& (w->selectedRow == w->rows.Length() || !w->rows[w->selectedRow]->parent)) {
 			WatchCreateTextboxForRow(w, false);
 			UIElementMessage(&w->textbox->e, message, di, dp);
+		} else if (w->mode == WATCH_NORMAL && m->textBytes && m->code == UI_KEYCODE_LETTER('V') && !w->textbox && element->window->ctrl 
+				&& !element->window->alt && !element->window->shift && (w->selectedRow == w->rows.Length() || !w->rows[w->selectedRow]->parent)) {
+			WatchCreateTextboxForRow(w, false);
+			UIElementMessage(&w->textbox->e, message, di, dp);
 		} else if (m->code == UI_KEYCODE_ENTER && w->textbox) {
 			WatchAddExpression(w);
 		} else if (m->code == UI_KEYCODE_ESCAPE) {
