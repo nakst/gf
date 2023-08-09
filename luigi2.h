@@ -618,12 +618,6 @@ typedef struct UISlider {
 	int steps;
 } UISlider;
 
-typedef struct UIColorPicker {
-#define UI_COLOR_PICKER_HAS_OPACITY (1 << 0)
-	UIElement e;
-	float hue, saturation, value, opacity;
-} UIColorPicker;
-
 typedef struct UIMDIClient {
 #define UI_MDI_CLIENT_TRANSPARENT (1 << 0)
 	UIElement e;

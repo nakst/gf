@@ -12,5 +12,5 @@ c++ gf2.cpp -o gf2 -g -O2 \
 	-I/usr/local/include -L/usr/local/lib \
 	-I/usr/X11R6/include -L/usr/X11R6/lib -lX11 \
 	-I/usr/X11R6/include/freetype2 -lfreetype \
-	-DUI_NO_COLOR_PICKER -DUI_FREETYPE \
+	-DUI_FREETYPE \
 	-Wall -Wextra -Wno-unused-parameter -Wno-unused-result -Wno-missing-field-initializers || exit 1

@@ -510,9 +510,9 @@ char **gdbArgv;
 int gdbArgc;
 
 #if defined(__OpenBSD__)
-	const char *gdbPath = "egdb";
+const char *gdbPath = "egdb";
 #else
-	const char *gdbPath = "gdb";
+const char *gdbPath = "gdb";
 #endif
 
 bool firstUpdate = true;

@@ -12,4 +12,4 @@ else printf "\033[0;31mWarning\033[0m: FreeType could not be found. The fallback
 uname -m | grep x86_64 > /dev/null && extra_flags="$extra_flags -DUI_SSE2"
 
 # Build the executable.
-c++ gf2.cpp -o gf2 -g -O2 -L/usr/local/lib -I/usr/local/include -lX11 -pthread -DUI_NO_COLOR_PICKER $extra_flags -Wall -Wextra -Wno-unused-parameter -Wno-unused-result -Wno-missing-field-initializers -Wno-format-truncation || exit 1
+c++ gf2.cpp -o gf2 -g -O2 -L/usr/local/lib -I/usr/local/include -lX11 -pthread $extra_flags -Wall -Wextra -Wno-unused-parameter -Wno-unused-result -Wno-missing-field-initializers -Wno-format-truncation || exit 1
