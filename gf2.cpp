@@ -617,10 +617,6 @@ void DebuggerStartThread() {
 }
 
 void DebuggerSend(const char *string, bool echo, bool synchronous) {
-#ifdef UI_AUTOMATION_TESTS
-	fprintf(stderr, "sending (%d, %d) '%s'\n", echo, synchronous, string);
-#endif
-
 	if (synchronous) {
 		if (programRunning) {
 			kill(gdbPID, SIGINT);
@@ -1414,10 +1410,6 @@ int WindowMessage(UIElement *, UIMessage message, int di, void *dp) {
 		programRunning = false;
 		char *input = (char *) dp;
 
-#ifdef UI_AUTOMATION_TESTS
-		fprintf(stderr, "received '%s'\n", input);
-#endif
-
 		if (firstUpdate) {
 			EvaluateCommand(pythonCode);
 
@@ -1608,15 +1600,7 @@ void InterfaceLayoutCreate(UIElement *parent) {
 	}
 }
 
-#ifdef UI_AUTOMATION_TESTS
-#include "tests.cpp"
-#endif
-
 int main(int argc, char **argv) {
-#ifdef UI_AUTOMATION_TESTS
-	fprintf(stderr, "Running in UI automation test mode.\n");
-#endif
-	
 	if (argc == 2 && (0 == strcmp(argv[1], "-?") || 0 == strcmp(argv[1], "-h") || 0 == strcmp(argv[1], "--help"))) {
 		fprintf(stderr, "Usage: %s [GDB ARGS]\n\n"
 			        "GDB ARGS: Pass any gdb arguments here, they will be forwarded to gdb.\n\nFor more information, view the README.md (https://github.com/nakst/gf/blob/master/README.md).\n", argv[0]);
