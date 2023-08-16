@@ -2577,6 +2577,7 @@ UIElement *LogWindowCreate(UIElement *parent) {
 struct Thread {
 	char frame[127];
 	bool active;
+	int id;
 };
 
 struct ThreadWindow {
@@ -2591,7 +2592,7 @@ int ThreadTableMessage(UIElement *element, UIMessage message, int di, void *dp) 
 		m->isSelected = window->threads[m->index].active;
 
 		if (m->column == 0) {
-			return StringFormat(m->buffer, m->bufferBytes, "%d", m->index + 1);
+			return StringFormat(m->buffer, m->bufferBytes, "%d", window->threads[m->index].id);
 		} else if (m->column == 1) {
 			return StringFormat(m->buffer, m->bufferBytes, "%s", window->threads[m->index].frame);
 		}
@@ -2600,7 +2601,7 @@ int ThreadTableMessage(UIElement *element, UIMessage message, int di, void *dp) 
 
 		if (index != -1) {
 			char buffer[1024];
-			StringFormat(buffer, 1024, "thread %d", index + 1);
+			StringFormat(buffer, 1024, "thread %d", window->threads[index].id);
 			DebuggerSend(buffer, true, false);
 		}
 	}
@@ -2633,6 +2634,7 @@ void ThreadWindowUpdate(const char *, UIElement *_table) {
 		if (!position) break;
 		Thread thread = {};
 		if (position[1] == '*') thread.active = true;
+		thread.id = atoi(position+2);
 		position = strchr(position + 1, '"');
 		if (!position) break;
 		position = strchr(position + 1, '"');
