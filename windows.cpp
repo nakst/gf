@@ -2634,7 +2634,7 @@ void ThreadWindowUpdate(const char *, UIElement *_table) {
 		if (!position) break;
 		Thread thread = {};
 		if (position[1] == '*') thread.active = true;
-		thread.id = atoi(position+2);
+		thread.id = atoi(position + 2);
 		position = strchr(position + 1, '"');
 		if (!position) break;
 		position = strchr(position + 1, '"');
