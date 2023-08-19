@@ -64,11 +64,12 @@ log_all_output=1
 You can disable the confirmation dialogs for the kill (F3) and connect (F4) commands.
 
 ```ini
+[gdb]
 confirm_command_kill=0
 confirm_command_connect=0
 ```
 
-You can limit count of the backtrace stack frames (default 50).
+You can limit the number of stack frames in the stack window (the default is 50).
 
 ```ini
 [gdb]
