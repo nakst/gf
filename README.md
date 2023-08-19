@@ -68,6 +68,13 @@ confirm_command_kill=0
 confirm_command_connect=0
 ```
 
+You can limit count of the backtrace stack frames (default 50).
+
+```ini
+[gdb]
+backtrace_count_limit=50
+```
+
 ### Custom keyboard shortcuts
 
 Keyboard shortcuts are placed in the `[shortcuts]` section. For example,

@@ -163,6 +163,7 @@ bool restoreWatchWindow;
 struct WatchWindow *firstWatchWindow;
 bool maximize;
 bool confirmCommandConnect = true, confirmCommandKill = true;
+int backtraceCountLimit = 50;
 
 // Current file and line:
 
@@ -699,7 +700,9 @@ void *ControlPipeThread(void *) {
 }
 
 void DebuggerGetStack() {
-	EvaluateCommand("bt 50");
+	char buffer[16];
+	StringFormat(buffer, sizeof(buffer), "bt %d", backtraceCountLimit);
+	EvaluateCommand(buffer);
 	stack.Free();
 
 	const char *position = evaluateResult;
@@ -1231,6 +1234,8 @@ void SettingsLoad(bool earlyPass) {
 					confirmCommandKill = atoi(state.value);
 				} else if (0 == strcmp(state.key, "confirm_command_connect")) {
 					confirmCommandConnect = atoi(state.value);
+				} else if (0 == strcmp(state.key, "backtrace_count_limit")) {
+					backtraceCountLimit = atoi(state.value);
 				}
 			} else if (0 == strcmp(state.section, "commands") && earlyPass && state.keyBytes && state.valueBytes) {
 				presetCommands.Add(state);
