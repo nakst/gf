@@ -2155,6 +2155,10 @@ int TableBreakpointsMessage(UIElement *element, UIMessage message, int di, void 
 		} else if (m->column == 1) {
 			if (entry->watchpoint) return StringFormat(m->buffer, m->bufferBytes, "watch %d", entry->watchpoint);
 			else return StringFormat(m->buffer, m->bufferBytes, "%d", entry->line);
+		} else if (m->column == 2) {
+			if (entry->hit > 0) {
+				return StringFormat(m->buffer, m->bufferBytes, "%d", entry->hit);
+			}
 		}
 	} else if (message == UI_MSG_RIGHT_DOWN) {
 		int index = UITableHitTest((UITable *) element, element->window->cursorX, element->window->cursorY);
@@ -2176,7 +2180,7 @@ int TableBreakpointsMessage(UIElement *element, UIMessage message, int di, void 
 }
 
 UIElement *BreakpointsWindowCreate(UIElement *parent) {
-	UITable *table = UITableCreate(parent, 0, "File\tLine");
+	UITable *table = UITableCreate(parent, 0, "File\tLine\tHit");
 	table->e.messageUser = TableBreakpointsMessage;
 	return &table->e;
 }
