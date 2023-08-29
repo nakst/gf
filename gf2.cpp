@@ -779,17 +779,15 @@ void DebuggerGetBreakpoints() {
 		const char *file = strstr(position, " at ");
 		if (file) file += 4;
 
-#define BREAKPOINT_ALREADY_HIT_STR "breakpoint already hit"
-		const char *hit_num_str = strstr(position, BREAKPOINT_ALREADY_HIT_STR);
-		if (hit_num_str) {
-			hit_num_str += sizeof(BREAKPOINT_ALREADY_HIT_STR);
-		}
-
 		Breakpoint breakpoint = {};
 		bool recognised = true;
 
-		if (hit_num_str && hit_num_str < next) {
-			breakpoint.hit = atoi(hit_num_str);
+		const char *hitCountNeedle = "breakpoint already hit";
+		const char *hitCount = strstr(position, hitCountNeedle);
+		if (hitCount) hitCount += strlen(hitCountNeedle);
+
+		if (hitCount && hitCount < next) {
+			breakpoint.hit = atoi(hitCount);
 		}
 
 		if (file && file < next) {
