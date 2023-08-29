@@ -196,6 +196,7 @@ struct Breakpoint {
 	char fileFull[PATH_MAX];
 	int line;
 	int watchpoint;
+	int hit;
 };
 
 Array<Breakpoint> breakpoints;
@@ -778,8 +779,18 @@ void DebuggerGetBreakpoints() {
 		const char *file = strstr(position, " at ");
 		if (file) file += 4;
 
+#define BREAKPOINT_ALREADY_HIT_STR "breakpoint already hit"
+		const char *hit_num_str = strstr(position, BREAKPOINT_ALREADY_HIT_STR);
+		if (hit_num_str) {
+			hit_num_str += sizeof(BREAKPOINT_ALREADY_HIT_STR);
+		}
+
 		Breakpoint breakpoint = {};
 		bool recognised = true;
+
+		if (hit_num_str && hit_num_str < next) {
+			breakpoint.hit = atoi(hit_num_str);
+		}
 
 		if (file && file < next) {
 			const char *end = strchr(file, ':');
