@@ -33,6 +33,7 @@ extern "C" {
 #define MSG_RECEIVED_DATA ((UIMessage) (UI_MSG_USER + 1))
 #define MSG_RECEIVED_CONTROL ((UIMessage) (UI_MSG_USER + 2))
 #define MSG_RECEIVED_LOG ((UIMessage) (UI_MSG_USER + 3))
+#define MSG_RECEIVED_STDOUT ((UIMessage) (UI_MSG_USER + 4))
 
 // Data structures:
 
@@ -142,6 +143,9 @@ FILE *commandLog;
 char emptyString;
 bool programRunning = true;
 const char *vimServerName = "GVIM";
+
+char setPttyCMD[PATH_MAX];
+int pseudoTerminalMasterFD = -1;
 const char *logPipePath;
 const char *controlPipePath;
 Array<INIState> presetCommands;
@@ -557,6 +561,8 @@ void *DebuggerThread(void *) {
 
 	const char *setPrompt = "set prompt (gdb) \n";
 	write(pipeToGDB, setPrompt, strlen(setPrompt));
+
+	write(pipeToGDB, setPttyCMD, strlen(setPttyCMD));
 
 	char *catBuffer = NULL;
 	size_t catBufferUsed = 0;
@@ -1310,6 +1316,7 @@ void InterfaceAddBuiltinWindowsAndCommands() {
 	interfaceWindows.Add({ "Files", FilesWindowCreate, nullptr });
 	interfaceWindows.Add({ "Console", ConsoleWindowCreate, nullptr });
 	interfaceWindows.Add({ "Log", LogWindowCreate, nullptr });
+	interfaceWindows.Add({ "STDOUT", STDOUTWindowCreate, nullptr });
 	interfaceWindows.Add({ "Thread", ThreadWindowCreate, ThreadWindowUpdate });
 	interfaceWindows.Add({ "Exe", ExecutableWindowCreate, nullptr });
 
@@ -1482,6 +1489,8 @@ int WindowMessage(UIElement *, UIMessage message, int di, void *dp) {
 		free(input);
 	} else if (message == MSG_RECEIVED_LOG) {
 		LogReceived(dp);
+	} else if (message == MSG_RECEIVED_STDOUT) {
+		STDOUTReceived(dp);
 	} else if (message == UI_MSG_WINDOW_ACTIVATE) {
 		DisplaySetPosition(currentFileFull, currentLine, false);
 	}

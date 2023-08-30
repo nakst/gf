@@ -2522,6 +2522,78 @@ UIElement *CommandsWindowCreate(UIElement *parent) {
 }
 
 //////////////////////////////////////////////////////
+// STDOUT window:
+//////////////////////////////////////////////////////
+
+void *STDOUTWindowThread(void *context) {
+	if (pseudoTerminalMasterFD < 0) {
+		fprintf(stderr, "Warning: ptty fd invalid\n");
+		return nullptr;
+	}
+
+	struct pollfd p = { .fd = pseudoTerminalMasterFD, .events = POLLIN };
+
+	while (true) {
+		poll(&p, 1, 10000);
+
+		if (p.revents & POLLHUP) {
+			struct timespec t = { .tv_nsec = 10000000 };
+			nanosleep(&t, 0);
+		}
+
+		while (true) {
+			char input[16384];
+			int length = read(pseudoTerminalMasterFD, input, sizeof(input) - 1);
+			if (length <= 0) break;
+			input[length] = 0;
+			void *buffer = malloc(strlen(input) + sizeof(context) + 1);
+			memcpy(buffer, &context, sizeof(context));
+			strcpy((char *) buffer + sizeof(context), input);
+			UIWindowPostMessage(windowMain, MSG_RECEIVED_STDOUT, buffer);
+		}
+	}
+}
+
+void STDOUTReceived(void *buffer) {
+	UICodeInsertContent(*(UICode **) buffer, (char *) buffer + sizeof(void *), -1, false);
+	UIElementRefresh(*(UIElement **) buffer);
+	free(buffer);
+}
+
+UIElement *STDOUTWindowCreate(UIElement *parent) {
+	UICode *code = UICodeCreate(parent, 0);
+
+	char *pseudoTerminalPath;
+	int masterFd = posix_openpt(O_RDWR|O_NOCTTY);
+
+	if (masterFd < 0) {
+		UICodeInsertContent(code, "Warning: cannot open pseudo tty",  -1, false);
+		return &code->e;
+	}
+	if (grantpt(masterFd) < 0) {
+		UICodeInsertContent(code, "Warning: failed to change the mode and ownership of the slave pseudo-terminal",  -1, false);
+		return &code->e;
+	}
+	if (unlockpt(masterFd) < 0) {
+		UICodeInsertContent(code, "Warning: failed to unlock slave pseudo-terminal",  -1, false);
+		return &code->e;
+	}
+
+	pseudoTerminalPath = ptsname(masterFd);
+	if (!pseudoTerminalPath) {
+		UICodeInsertContent(code, "Warning: failed to change the mode and ownership of the slave pseudo-terminal",  -1, false);
+		return &code->e;
+	}
+
+	StringFormat(setPttyCMD, sizeof(setPttyCMD), "tty %s\n", pseudoTerminalPath);
+	pseudoTerminalMasterFD = masterFd;;
+
+	pthread_t thread;
+	pthread_create(&thread, nullptr, STDOUTWindowThread, code);
+	return &code->e;
+}
+
+//////////////////////////////////////////////////////
 // Log window:
 //////////////////////////////////////////////////////
 
