@@ -22,6 +22,7 @@
 #include <fcntl.h>
 #include <poll.h>
 #include <time.h>
+#include <termios.h>
 
 extern "C" {
 #define UI_FONT_PATH
@@ -146,6 +147,9 @@ const char *vimServerName = "GVIM";
 
 char setPttyCMD[PATH_MAX];
 int pseudoTerminalMasterFD = -1;
+int pseudoTerminalSlaveFD = -1;
+int STDOUTEchoTerminalInput = 1;
+
 const char *logPipePath;
 const char *controlPipePath;
 Array<INIState> presetCommands;
@@ -186,6 +190,7 @@ UISwitcher *switcherMain;
 UICode *displayCode;
 UICode *displayOutput;
 UITextbox *textboxInput;
+UITextbox *STDOUTtextboxInput;
 UISpacer *trafficLight;
 
 UIMDIClient *dataWindow;
@@ -1223,6 +1228,11 @@ void SettingsLoad(bool earlyPass) {
 					maximize = atoi(state.value);
 				} else if (0 == strcmp(state.key, "restore_watch_window")) {
 					restoreWatchWindow = atoi(state.value);
+				}
+			} else if (0 == strcmp(state.section, "stdout") && earlyPass) {
+				if (0 == strcmp(state.key, "echo_input")) {
+					STDOUTEchoTerminalInput = atoi(state.value);
+					printf("echo input %d\n", STDOUTEchoTerminalInput);
 				}
 			} else if (0 == strcmp(state.section, "gdb") && !earlyPass) {
 				if (0 == strcmp(state.key, "argument")) {
