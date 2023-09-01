@@ -33,6 +33,12 @@ Please read the rest of this file to learn about using and configuring `gf`. If 
 - Press `/` with a watch expression highlighted to change the format specifier. For example, `/x` switches to hexadecimal view.
 - Press backtick to enter line inspect mode. This mode evaluates all expressions on the current line.
 
+You may want to add the following commands to your `~/.gdbinit` file:
+```
+set breakpoint pending on
+set disassembly-flavor intel
+```
+
 ## Settings
 
 On startup, settings are loaded from `~/.config/gf2_config.ini`, followed by `.project.gf`. This is an INI-style file.
