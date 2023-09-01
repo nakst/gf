@@ -4467,27 +4467,28 @@ void UIDrawGlyph(UIPainter *painter, int x0, int y0, int c, uint32_t color) {
 			if (y0 + y < painter->clip.t) continue;
 			if (y0 + y >= painter->clip.b) break;
 
-			int width = bitmap->width;
-#ifdef UI_FREETYPE_SUBPIXEL
-			width /= 3;
-#endif
+			int width = bitmap->pixel_mode == FT_PIXEL_MODE_LCD ? bitmap->width / 3 : bitmap->width;
 
 			for (int x = 0; x < width; x++) {
 				if (x0 + x < painter->clip.l) continue;
 				if (x0 + x >= painter->clip.r) break;
 
 				uint32_t *destination = painter->bits + (x0 + x) + (y0 + y) * painter->width;
-				uint32_t original = *destination;
+				uint32_t original = *destination, ra, ga, ba;
 
-#ifdef UI_FREETYPE_SUBPIXEL
-				uint32_t ra = ((uint8_t *) bitmap->buffer)[x * 3 + y * bitmap->pitch + 0];
-				uint32_t ga = ((uint8_t *) bitmap->buffer)[x * 3 + y * bitmap->pitch + 1];
-				uint32_t ba = ((uint8_t *) bitmap->buffer)[x * 3 + y * bitmap->pitch + 2];
-				ra += (ga - ra) / 2, ba += (ga - ba) / 2;
-#else
-				uint32_t ra = ((uint8_t *) bitmap->buffer)[x + y * bitmap->pitch];
-				uint32_t ga = ra, ba = ra;
-#endif
+				if (bitmap->pixel_mode == FT_PIXEL_MODE_LCD) {
+					ra = ((uint8_t *) bitmap->buffer)[x * 3 + y * bitmap->pitch + 0];
+					ga = ((uint8_t *) bitmap->buffer)[x * 3 + y * bitmap->pitch + 1];
+					ba = ((uint8_t *) bitmap->buffer)[x * 3 + y * bitmap->pitch + 2];
+					ra += (ga - ra) / 2, ba += (ga - ba) / 2; // TODO Gamma correct blending!
+				} else if (bitmap->pixel_mode == FT_PIXEL_MODE_MONO) {
+					ra = (((uint8_t *) bitmap->buffer)[(x >> 3) + y * bitmap->pitch] & (0x80 >> (x & 7))) ? 0xFF : 0;
+					ga = ra, ba = ra;
+				} else if (bitmap->pixel_mode == FT_PIXEL_MODE_GRAY) {
+					ra = ((uint8_t *) bitmap->buffer)[x + y * bitmap->pitch];
+					ga = ra, ba = ra;
+				}
+
 				uint32_t r2 = (255 - ra) * ((original & 0x000000FF) >> 0);
 				uint32_t g2 = (255 - ga) * ((original & 0x0000FF00) >> 8);
 				uint32_t b2 = (255 - ba) * ((original & 0x00FF0000) >> 16);
@@ -4532,7 +4533,22 @@ UIFont *UIFontCreate(const char *cPath, uint32_t size) {
 #ifdef UI_FREETYPE
 	if (cPath) {
 		if (!FT_New_Face(ui.ft, cPath, 0, &font->font)) {
-			FT_Set_Char_Size(font->font, 0, size * 64, 100, 100);
+			if (FT_HAS_FIXED_SIZES(font->font) && font->font->num_fixed_sizes) {
+				// Look for the smallest strike that's at least `size`.
+				int j = 0;
+
+				for (int i = 0; i < font->font->num_fixed_sizes; i++) {
+					if (font->font->available_sizes[i].height >= size 
+							&& font->font->available_sizes[i].y_ppem < font->font->available_sizes[j].y_ppem) {
+						j = i;
+					}
+				}
+
+				FT_Set_Pixel_Sizes(font->font, font->font->available_sizes[j].x_ppem / 64, font->font->available_sizes[j].y_ppem / 64);
+			} else {
+				FT_Set_Char_Size(font->font, 0, size * 64, 100, 100);
+			}
+
 			FT_Load_Char(font->font, 'a', FT_LOAD_DEFAULT);
 			font->glyphWidth = font->font->glyph->advance.x / 64;
 			font->glyphHeight = (font->font->size->metrics.ascender - font->font->size->metrics.descender) / 64;
