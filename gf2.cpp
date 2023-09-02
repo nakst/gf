@@ -802,6 +802,14 @@ void DebuggerGetBreakpoints() {
 
 		if (recognised) {
 			realpath(breakpoint.file, breakpoint.fileFull);
+
+			for (int i = 0; i < breakpoints.Length(); i++) {
+				if (strcmp(breakpoints[i].fileFull, breakpoint.fileFull) == 0 &&
+					breakpoints[i].line == breakpoint.line) {
+					goto doNext;
+				}
+			}
+
 			breakpoints.Add(breakpoint);
 		} else {
 			if (!strstr(position, "watchpoint")) goto doNext;
