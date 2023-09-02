@@ -805,7 +805,7 @@ void DebuggerGetBreakpoints() {
 
 			for (int i = 0; i < breakpoints.Length(); i++) {
 				if (strcmp(breakpoints[i].fileFull, breakpoint.fileFull) == 0 &&
-					breakpoints[i].line == breakpoint.line) {
+						breakpoints[i].line == breakpoint.line) {
 					goto doNext;
 				}
 			}
