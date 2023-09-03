@@ -17,10 +17,22 @@ git clone https://github.com/nakst/gf.git
 And compile the application.
 
 ```bash
+# linux
 ./build.sh
+
+# freebsd
+./build_freebsd.sh
+
+# netbsd
+./build_netbsd.sh
+
+# openbsd
+./build_openbsd.sh
 ```
 
 Please read the rest of this file to learn about using and configuring `gf`. If you're new to GDB, see [this article](https://handmade.network/forums/articles/t/2883-gdb).
+
+If you want to make a debug build of `gf`, use a command like `g++ gf2.cpp -g -lX11 -pthread`.
 
 ## Tips
 
