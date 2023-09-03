@@ -2522,6 +2522,126 @@ UIElement *CommandsWindowCreate(UIElement *parent) {
 }
 
 //////////////////////////////////////////////////////
+// STDOUT window:
+//////////////////////////////////////////////////////
+
+void *STDOUTWindowThread(void *context) {
+	if (pseudoTerminalMasterFD < 0) {
+		fprintf(stderr, "Warning: ptty fd invalid\n");
+		return nullptr;
+	}
+
+	struct pollfd p = { .fd = pseudoTerminalMasterFD, .events = POLLIN };
+
+	while (true) {
+		poll(&p, 1, 10000);
+
+		if (p.revents & POLLHUP) {
+			struct timespec t = { .tv_nsec = 10000000 };
+			nanosleep(&t, 0);
+		}
+
+		while (true) {
+			char input[16384];
+			int length = read(pseudoTerminalMasterFD, input, sizeof(input) - 1);
+			if (length <= 0) break;
+			input[length] = 0;
+			void *buffer = malloc(strlen(input) + sizeof(context) + 1);
+			memcpy(buffer, &context, sizeof(context));
+			strcpy((char *) buffer + sizeof(context), input);
+			UIWindowPostMessage(windowMain, MSG_RECEIVED_STDOUT, buffer);
+		}
+	}
+}
+
+void STDOUTReceived(void *buffer) {
+	UICodeInsertContent(*(UICode **) buffer, (char *) buffer + sizeof(void *), -1, false);
+	UIElementRefresh(*(UIElement **) buffer);
+	free(buffer);
+}
+
+int STDOUTTextboxInputMessage(UIElement *element, UIMessage message, int di, void *dp) {
+	UITextbox *textbox = (UITextbox *) element;
+
+	if (message == UI_MSG_KEY_TYPED) {
+		UIKeyTyped *m = (UIKeyTyped *) dp;
+
+		if (m->code == UI_KEYCODE_ENTER && !element->window->shift) {
+			if (pseudoTerminalMasterFD < 0) {
+				return 0;
+			}
+
+			char buffer[1024];
+			int bufferSize = StringFormat(buffer, 1024, "%.*s\n", (int) textbox->bytes, textbox->string);
+
+			/* NOTE(Oleksandr): I think correct approch would've been to send this data to STDOUT thread and poll for POLLOUT even,
+			 * but I'm not sure how to notify this thead that data is ready, maybe will change this in next iteration */
+			write(pseudoTerminalMasterFD, buffer, bufferSize);
+
+			UITextboxClear(textbox, false);
+			UIElementRefresh(&textbox->e);
+
+			return 1;
+		}
+	}
+
+	return 0;
+}
+
+UIElement *STDOUTWindowCreate(UIElement *parent) {
+
+	UIPanel *panelMain = UIPanelCreate(parent, UI_PANEL_EXPAND);
+	UICode *code = UICodeCreate(&panelMain->e, UI_CODE_NO_MARGIN | UI_ELEMENT_V_FILL);
+
+	UIPanel *panelInput = UIPanelCreate(&panelMain->e, UI_PANEL_HORIZONTAL | UI_PANEL_EXPAND | UI_PANEL_COLOR_1);
+	panelInput->border = UI_RECT_1(5);
+	panelInput->gap = 5;
+
+
+	STDOUTtextboxInput = UITextboxCreate(&panelInput->e, UI_ELEMENT_H_FILL);
+	STDOUTtextboxInput->e.messageUser = STDOUTTextboxInputMessage;
+	UIElementFocus(&STDOUTtextboxInput->e);
+
+	int masterFd = posix_openpt(O_RDWR|O_NOCTTY);
+
+	if (masterFd < 0) {
+		UICodeInsertContent(code, "Warning: cannot open pseudo tty",  -1, false);
+		return &panelMain->e;
+	}
+	if (grantpt(masterFd) < 0) {
+		UICodeInsertContent(code, "Warning: failed to change the mode and ownership of the slave pseudo-terminal",  -1, false);
+		return &panelMain->e;
+	}
+	if (unlockpt(masterFd) < 0) {
+		UICodeInsertContent(code, "Warning: failed to unlock slave pseudo-terminal",  -1, false);
+		return &panelMain->e;
+	}
+
+	char * pseudoTerminalPath = ptsname(masterFd);
+	if (!pseudoTerminalPath) {
+		UICodeInsertContent(code, "Warning: failed to get ptty path",  -1, false);
+		return &panelMain->e;
+	}
+
+	StringFormat(setPttyCMD, sizeof(setPttyCMD), "tty %s\n", pseudoTerminalPath);
+	pseudoTerminalMasterFD = masterFd;
+
+	if (STDOUTEchoTerminalInput)
+	{
+		struct termios tty_attrs;
+		tcgetattr(pseudoTerminalMasterFD, &tty_attrs);
+		tty_attrs.c_lflag &= ~ECHO;
+		tcsetattr(pseudoTerminalMasterFD, TCSANOW, &tty_attrs);
+	}
+
+	pthread_t thread;
+	pthread_create(&thread, nullptr, STDOUTWindowThread, code);
+
+
+	return &panelMain->e;
+}
+
+//////////////////////////////////////////////////////
 // Log window:
 //////////////////////////////////////////////////////
 
