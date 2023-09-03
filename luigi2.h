@@ -4487,6 +4487,8 @@ void UIDrawGlyph(UIPainter *painter, int x0, int y0, int c, uint32_t color) {
 				} else if (bitmap->pixel_mode == FT_PIXEL_MODE_GRAY) {
 					ra = ((uint8_t *) bitmap->buffer)[x + y * bitmap->pitch];
 					ga = ra, ba = ra;
+				} else {
+					ra = ga = ba = 0;
 				}
 
 				uint32_t r2 = (255 - ra) * ((original & 0x000000FF) >> 0);
@@ -4538,7 +4540,7 @@ UIFont *UIFontCreate(const char *cPath, uint32_t size) {
 				int j = 0;
 
 				for (int i = 0; i < font->font->num_fixed_sizes; i++) {
-					if (font->font->available_sizes[i].height >= size 
+					if ((uint32_t) font->font->available_sizes[i].height >= size 
 							&& font->font->available_sizes[i].y_ppem < font->font->available_sizes[j].y_ppem) {
 						j = i;
 					}

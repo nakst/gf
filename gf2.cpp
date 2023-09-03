@@ -1345,6 +1345,12 @@ void InterfaceAddBuiltinWindowsAndCommands() {
 			{ .code = UI_KEYCODE_FKEY(8), .shift = true, .invoke = CommandSendToGDB, .cp = (void *) "gf-step-into-outer" } });
 	interfaceCommands.Add({ .label = "Step out\tShift+F11", 
 			{ .code = UI_KEYCODE_FKEY(11), .shift = true, .invoke = CommandSendToGDB, .cp = (void *) "finish" } });
+	interfaceCommands.Add({ .label = "Reverse continue\tCtrl+Shift+F5", 
+			{ .code = UI_KEYCODE_FKEY(5), .ctrl = true, .shift = true, .invoke = CommandSendToGDB, .cp = (void *) "reverse-continue" } });
+	interfaceCommands.Add({ .label = "Reverse step over\tCtrl+Shift+F10", 
+			{ .code = UI_KEYCODE_FKEY(10), .ctrl = true, .shift = true, .invoke = CommandSendToGDB, .cp = (void *) "reverse-next" } });
+	interfaceCommands.Add({ .label = "Reverse step in\tCtrl+Shift+F11", 
+			{ .code = UI_KEYCODE_FKEY(11), .ctrl = true, .shift = true, .invoke = CommandSendToGDB, .cp = (void *) "reverse-step" } });
 	interfaceCommands.Add({ .label = "Pause\tF8", 
 			{ .code = UI_KEYCODE_FKEY(8), .invoke = CommandPause } });
 	interfaceCommands.Add({ .label = "Toggle breakpoint\tF9", 
@@ -1624,8 +1630,9 @@ void InterfaceLayoutCreate(UIElement *parent) {
 
 int main(int argc, char **argv) {
 	if (argc == 2 && (0 == strcmp(argv[1], "-?") || 0 == strcmp(argv[1], "-h") || 0 == strcmp(argv[1], "--help"))) {
-		fprintf(stderr, "Usage: %s [GDB ARGS]\n\n"
-			        "GDB ARGS: Pass any gdb arguments here, they will be forwarded to gdb.\n\nFor more information, view the README.md (https://github.com/nakst/gf/blob/master/README.md).\n", argv[0]);
+		fprintf(stderr, "Usage: %s [GDB args]\n\n"
+			        "GDB args: Pass any GDB arguments here, they will be forwarded to GDB.\n\n"
+				"For more information, view the README at https://github.com/nakst/gf/blob/master/README.md.\n", argv[0]);
 		return 0;
 	}
 
@@ -1637,6 +1644,12 @@ int main(int argc, char **argv) {
 	gdbArgv[0] = (char *) "gdb";
 	memcpy(gdbArgv + 1, argv + 1, sizeof(argv) * argc);
 	gdbArgc = argc;
+
+	if (argc >= 2 && 0 == strcmp(argv[1], "--rr-replay")) {
+		gdbArgv[0] = (char *) "rr";
+		gdbArgv[1] = (char *) "replay";
+		gdbPath = "rr";
+	}
 
 	getcwd(localConfigDirectory, sizeof(localConfigDirectory));
 	StringFormat(globalConfigPath, sizeof(globalConfigPath), "%s/.config/gf2_config.ini", getenv("HOME"));
