@@ -44,6 +44,7 @@ If you want to make a debug build of `gf`, use a command like `g++ gf2.cpp -g -l
 - Press Tab while entering a watch expression to auto-complete it.
 - Press `/` with a watch expression highlighted to change the format specifier. For example, `/x` switches to hexadecimal view.
 - Press backtick to enter line inspect mode. This mode evaluates all expressions on the current line.
+- Use `gf2 --rr-replay` for replaying a trace recorded by [rr](https://rr-project.org/). Use Ctrl+Shift+(F5/F10/F11) for reverse continue and step.
 
 You may want to add the following commands to your `~/.gdbinit` file:
 ```
