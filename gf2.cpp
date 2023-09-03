@@ -1699,6 +1699,7 @@ int main(int argc, char **argv) {
 			for (int i = 0; i < firstWatchWindow->baseExpressions.Length(); i++) {
 				fprintf(f, "%s\n", firstWatchWindow->baseExpressions[i]->key);
 			}
+			
 		        fclose(f);
 		} else {
 			fprintf(stderr, "Warning: Could not save the contents of the watch window; '%s' was not accessible.\n", globalConfigPath);
