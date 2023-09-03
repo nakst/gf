@@ -30,10 +30,6 @@ extern "C" {
 #include "luigi2.h"
 }
 
-#define MSG_RECEIVED_DATA ((UIMessage) (UI_MSG_USER + 1))
-#define MSG_RECEIVED_CONTROL ((UIMessage) (UI_MSG_USER + 2))
-#define MSG_RECEIVED_LOG ((UIMessage) (UI_MSG_USER + 3))
-
 // Data structures:
 
 template <class T>
@@ -126,6 +122,7 @@ struct InterfaceWindow {
 	void (*focus)(UIElement *element);
 	UIElement *element;
 	bool queuedUpdate, alwaysUpdate;
+	void (*config)(const char *key, const char *value);
 };
 
 struct InterfaceDataViewer {
@@ -136,6 +133,11 @@ struct InterfaceDataViewer {
 struct INIState {
 	char *buffer, *section, *key, *value;
 	size_t bytes, sectionBytes, keyBytes, valueBytes;
+};
+
+struct ReceiveMessageType {
+	UIMessage message;
+	void (*callback)(char *input);
 };
 
 FILE *commandLog;
@@ -154,6 +156,7 @@ bool executableAskDirectory = true;
 Array<InterfaceWindow> interfaceWindows;
 Array<InterfaceCommand> interfaceCommands;
 Array<InterfaceDataViewer> interfaceDataViewers;
+Array<ReceiveMessageType> receiveMessageTypes;
 char *layoutString = (char *) "v(75,h(80,Source,v(50,t(Exe,Breakpoints,Commands,Struct),t(Stack,Files,Thread))),h(65,Console,t(Watch,Locals,Registers,Data)))";
 const char *fontPath;
 int fontSizeCode = 13;
@@ -164,6 +167,7 @@ struct WatchWindow *firstWatchWindow;
 bool maximize;
 bool confirmCommandConnect = true, confirmCommandKill = true;
 int backtraceCountLimit = 50;
+UIMessage msgReceivedData, msgReceivedLog, msgReceivedControl, msgReceivedNext = (UIMessage) (UI_MSG_USER + 1);
 
 // Current file and line:
 
@@ -497,6 +501,12 @@ bool SourceFindOuterFunctionCall(char **start, char **end) {
 	return found;
 }
 
+UIMessage ReceiveMessageRegister(void (*callback)(char *input)) {
+	receiveMessageTypes.Add({ .message = msgReceivedNext, .callback = callback });
+	msgReceivedNext = (UIMessage) (msgReceivedNext + 1);
+	return receiveMessageTypes.Last().message;
+}
+
 //////////////////////////////////////////////////////
 // Debugger interaction:
 //////////////////////////////////////////////////////
@@ -517,6 +527,7 @@ const char *gdbPath = "egdb";
 const char *gdbPath = "gdb";
 #endif
 
+char initialGDBCommand[8192] = "set prompt (gdb) \n";
 bool firstUpdate = true;
 void *sendAllGDBOutputToLogWindowContext;
 
@@ -555,8 +566,7 @@ void *DebuggerThread(void *) {
 
 	pipeToGDB = inputPipe[1];
 
-	const char *setPrompt = "set prompt (gdb) \n";
-	write(pipeToGDB, setPrompt, strlen(setPrompt));
+	write(pipeToGDB, initialGDBCommand, strlen(initialGDBCommand));
 
 	char *catBuffer = NULL;
 	size_t catBufferUsed = 0;
@@ -572,7 +582,7 @@ void *DebuggerThread(void *) {
 			void *message = malloc(count + sizeof(sendAllGDBOutputToLogWindowContext) + 1);
 			memcpy(message, &sendAllGDBOutputToLogWindowContext, sizeof(sendAllGDBOutputToLogWindowContext));
 			strcpy((char *) message + sizeof(sendAllGDBOutputToLogWindowContext), buffer);
-			UIWindowPostMessage(windowMain, MSG_RECEIVED_LOG, message);
+			UIWindowPostMessage(windowMain, msgReceivedLog, message);
 		}
 
 		size_t neededSpace = catBufferUsed + count + 1;
@@ -599,7 +609,7 @@ void *DebuggerThread(void *) {
 			pthread_cond_signal(&evaluateEvent);
 			pthread_mutex_unlock(&evaluateMutex);
 		} else {
-			UIWindowPostMessage(windowMain, MSG_RECEIVED_DATA, catBuffer);
+			UIWindowPostMessage(windowMain, msgReceivedData, catBuffer);
 		}
 
 		catBuffer = NULL;
@@ -693,7 +703,7 @@ void *ControlPipeThread(void *) {
 		FILE *file = fopen(controlPipePath, "rb");
 		char input[256];
 		input[fread(input, 1, sizeof(input) - 1, file)] = 0;
-		UIWindowPostMessage(windowMain, MSG_RECEIVED_CONTROL, strdup(input));
+		UIWindowPostMessage(windowMain, msgReceivedControl, strdup(input));
 		fclose(file);
 	}
 
@@ -1281,6 +1291,14 @@ void SettingsLoad(bool earlyPass) {
 				} else if (0 == strcmp(state.key, "ask_directory")) {
 					executableAskDirectory = atoi(state.value);
 				}
+			} else if (earlyPass && *state.section && *state.key && *state.value) {
+				for (int i = 0; i < interfaceWindows.Length(); i++) {
+					if (0 == strcmp(state.section, interfaceWindows[i].name)
+							&& interfaceWindows[i].config) {
+						interfaceWindows[i].config(state.key, state.value);
+						break;
+					}
+				}
 			}
 		}
 	}
@@ -1303,6 +1321,75 @@ void SettingsLoad(bool earlyPass) {
 //////////////////////////////////////////////////////
 // Interface and main:
 //////////////////////////////////////////////////////
+
+bool ElementHidden(UIElement *element) {
+	while (element) {
+		if (element->flags & UI_ELEMENT_HIDE) {
+			return true;
+		} else {
+			element = element->parent;
+		}
+	}
+
+	return false;
+}
+
+void MsgReceivedData(char *input) {
+	programRunning = false;
+
+	if (firstUpdate) {
+		EvaluateCommand(pythonCode);
+
+		char path[PATH_MAX];
+		StringFormat(path, sizeof(path), "%s/.config/gf2_watch.txt", getenv("HOME"));
+		char *data = LoadFile(path, NULL);
+
+		while (data && restoreWatchWindow) {
+			char *end = strchr(data, '\n');
+			if (!end) break;
+			*end = 0;
+			WatchAddExpression2(data);
+			data = end + 1;
+		}
+
+		firstUpdate = false;
+	}
+
+	if (WatchLoggerUpdate(input)) return;
+	if (showingDisassembly) DisassemblyUpdateLine();
+
+	DebuggerGetStack();
+	DebuggerGetBreakpoints();
+
+	for (int i = 0; i < interfaceWindows.Length(); i++) {
+		InterfaceWindow *window = &interfaceWindows[i];
+		if (!window->update || !window->element) continue;
+		if (!window->alwaysUpdate && ElementHidden(window->element)) window->queuedUpdate = true;
+		else window->update(input, window->element);
+	}
+
+	DataViewersUpdateAll();
+
+	if (displayOutput) {
+		UICodeInsertContent(displayOutput, input, -1, false);
+		UIElementRefresh(&displayOutput->e);
+	}
+
+	if (trafficLight) UIElementRepaint(&trafficLight->e, nullptr);
+}
+
+void MsgReceivedControl(char *input) {
+	char *end = strchr(input, '\n');
+	if (end) *end = 0;
+
+	if (input[0] == 'f' && input[1] == ' ') {
+		DisplaySetPosition(input + 2, 1, false);
+	} else if (input[0] == 'l' && input[1] == ' ') {
+		DisplaySetPosition(nullptr, atoi(input + 2), false);
+	} else if (input[0] == 'c' && input[1] == ' ') {
+		CommandParseInternal(input + 2, false);
+	}
+}
 
 __attribute__((constructor)) 
 void InterfaceAddBuiltinWindowsAndCommands() {
@@ -1375,6 +1462,10 @@ void InterfaceAddBuiltinWindowsAndCommands() {
 			{ .code = UI_KEYCODE_LETTER('B'), .ctrl = true, .invoke = CommandToggleFillDataTab } });
 	interfaceCommands.Add({ .label = "Donate", 
 			{ .invoke = CommandDonate } });
+
+	msgReceivedData = ReceiveMessageRegister(MsgReceivedData);
+	msgReceivedControl = ReceiveMessageRegister(MsgReceivedControl);
+	msgReceivedLog = ReceiveMessageRegister(LogReceived);
 }
 
 void InterfaceShowMenu(void *self) {
@@ -1421,83 +1512,16 @@ UIElement *InterfaceWindowSwitchToAndFocus(const char *name) {
 	return nullptr;
 }
 
-bool ElementHidden(UIElement *element) {
-	while (element) {
-		if (element->flags & UI_ELEMENT_HIDE) {
-			return true;
-		} else {
-			element = element->parent;
-		}
-	}
-
-	return false;
-}
-
 int WindowMessage(UIElement *, UIMessage message, int di, void *dp) {
-	if (message == MSG_RECEIVED_DATA) {
-		programRunning = false;
-		char *input = (char *) dp;
-
-		if (firstUpdate) {
-			EvaluateCommand(pythonCode);
-
-			char path[PATH_MAX];
-			StringFormat(path, sizeof(path), "%s/.config/gf2_watch.txt", getenv("HOME"));
-			char *data = LoadFile(path, NULL);
-
-			while (data && restoreWatchWindow) {
-				char *end = strchr(data, '\n');
-				if (!end) break;
-				*end = 0;
-				WatchAddExpression2(data);
-				data = end + 1;
-			}
-
-			firstUpdate = false;
-		}
-
-		if (WatchLoggerUpdate(input)) goto skip;
-		if (showingDisassembly) DisassemblyUpdateLine();
-
-		DebuggerGetStack();
-		DebuggerGetBreakpoints();
-
-		for (int i = 0; i < interfaceWindows.Length(); i++) {
-			InterfaceWindow *window = &interfaceWindows[i];
-			if (!window->update || !window->element) continue;
-			if (!window->alwaysUpdate && ElementHidden(window->element)) window->queuedUpdate = true;
-			else window->update(input, window->element);
-		}
-
-		DataViewersUpdateAll();
-
-		if (displayOutput) {
-			UICodeInsertContent(displayOutput, input, -1, false);
-			UIElementRefresh(&displayOutput->e);
-		}
-
-		if (trafficLight) UIElementRepaint(&trafficLight->e, nullptr);
-
-		skip:;
-		free(input);
-	} else if (message == MSG_RECEIVED_CONTROL) {
-		char *input = (char *) dp;
-		char *end = strchr(input, '\n');
-		if (end) *end = 0;
-
-		if (input[0] == 'f' && input[1] == ' ') {
-			DisplaySetPosition(input + 2, 1, false);
-		} else if (input[0] == 'l' && input[1] == ' ') {
-			DisplaySetPosition(nullptr, atoi(input + 2), false);
-		} else if (input[0] == 'c' && input[1] == ' ') {
-			CommandParseInternal(input + 2, false);
-		}
-
-		free(input);
-	} else if (message == MSG_RECEIVED_LOG) {
-		LogReceived(dp);
-	} else if (message == UI_MSG_WINDOW_ACTIVATE) {
+	if (message == UI_MSG_WINDOW_ACTIVATE) {
 		DisplaySetPosition(currentFileFull, currentLine, false);
+	} else {
+		for (int i = 0; i < receiveMessageTypes.Length(); i++) {
+			if (receiveMessageTypes[i].message == message) {
+				receiveMessageTypes[i].callback((char *) dp);
+				break;
+			}
+		}
 	}
 
 	return 0;

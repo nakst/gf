@@ -2556,15 +2556,14 @@ void *LogWindowThread(void *context) {
 			void *buffer = malloc(strlen(input) + sizeof(context) + 1);
 			memcpy(buffer, &context, sizeof(context));
 			strcpy((char *) buffer + sizeof(context), input);
-			UIWindowPostMessage(windowMain, MSG_RECEIVED_LOG, buffer);
+			UIWindowPostMessage(windowMain, msgReceivedLog, buffer);
 		}
 	}
 }
 
-void LogReceived(void *buffer) {
-	UICodeInsertContent(*(UICode **) buffer, (char *) buffer + sizeof(void *), -1, false);
+void LogReceived(char *buffer) {
+	UICodeInsertContent(*(UICode **) buffer, buffer + sizeof(void *), -1, false);
 	UIElementRefresh(*(UIElement **) buffer);
-	free(buffer);
 }
 
 UIElement *LogWindowCreate(UIElement *parent) {
