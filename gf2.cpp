@@ -17,7 +17,6 @@
 #include <stdio.h>
 #include <ctype.h>
 #include <sys/stat.h>
-#include <sys/syslimits.h>
 #include <stdarg.h>
 #include <dirent.h>
 #include <fcntl.h>
@@ -25,6 +24,7 @@
 #include <time.h>
 
 #ifdef __APPLE__
+#include <sys/syslimits.h>
 #define UI_COCOA
 #else
 #define UI_LINUX
