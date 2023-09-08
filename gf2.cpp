@@ -17,15 +17,21 @@
 #include <stdio.h>
 #include <ctype.h>
 #include <sys/stat.h>
+#include <sys/syslimits.h>
 #include <stdarg.h>
 #include <dirent.h>
 #include <fcntl.h>
 #include <poll.h>
 #include <time.h>
 
+#ifdef __APPLE__
+#define UI_COCOA
+#else
+#define UI_LINUX
+#endif
+
 extern "C" {
 #define UI_FONT_PATH
-#define UI_LINUX
 #define UI_IMPLEMENTATION
 #include "luigi2.h"
 }
@@ -536,7 +542,7 @@ void *DebuggerThread(void *) {
 	pipe(outputPipe);
 	pipe(inputPipe);
 
-#if defined(__FreeBSD__) || defined(__OpenBSD__) || defined(__NetBSD__)
+#if defined(__FreeBSD__) || defined(__OpenBSD__) || defined(__NetBSD__) || defined(__APPLE__)
 	gdbPID = fork();
 	
 	if(gdbPID == 0) {
@@ -1453,7 +1459,7 @@ void InterfaceAddBuiltinWindowsAndCommands() {
 	interfaceCommands.Add({ .label = "Add watch", 
 			{ .invoke = CommandAddWatch } });
 	interfaceCommands.Add({ .label = "Inspect line", 
-			{ .code = XK_grave, .invoke = CommandInspectLine } });
+			{ .code = UI_KEYCODE_BACKTICK, .invoke = CommandInspectLine } });
 	interfaceCommands.Add({ .label = nullptr,
 			{ .code = UI_KEYCODE_LETTER('E'), .ctrl = true, .invoke = CommandWatchAddEntryForAddress } });
 	interfaceCommands.Add({ .label = nullptr, 
@@ -1652,12 +1658,12 @@ void InterfaceLayoutCreate(UIElement *parent) {
 	}
 }
 
-int main(int argc, char **argv) {
+int GfMain(int argc, char **argv) {
 	if (argc == 2 && (0 == strcmp(argv[1], "-?") || 0 == strcmp(argv[1], "-h") || 0 == strcmp(argv[1], "--help"))) {
 		fprintf(stderr, "Usage: %s [GDB args]\n\n"
 			        "GDB args: Pass any GDB arguments here, they will be forwarded to GDB.\n\n"
 				"For more information, view the README at https://github.com/nakst/gf/blob/master/README.md.\n", argv[0]);
-		return 0;
+		return 1;
 	}
 
 	struct sigaction sigintHandler = {};
@@ -1725,6 +1731,18 @@ int main(int argc, char **argv) {
 	pthread_mutex_init(&evaluateMutex, nullptr);
 	DebuggerStartThread();
 	CommandSyncWithGvim(nullptr);
+	return 0;
+}
+
+#ifdef UI_COCOA
+int main(int argc, char **argv) {
+	return UICocoaMain(argc, argv, GfMain);
+}
+#else
+int main(int argc, char **argv) {
+	int code = GfMain(argc, argv);
+	if (code) return code;
+
 	UIMessageLoop();
 	DebuggerClose();
 
@@ -1745,3 +1763,4 @@ int main(int argc, char **argv) {
 
 	return 0;
 }
+#endif

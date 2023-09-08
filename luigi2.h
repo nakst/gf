@@ -41,7 +41,13 @@
 #define UI_MEMMOVE _UIMemmove
 #endif
 
-#if defined(UI_LINUX)
+#ifdef UI_COCOA
+#import <Foundation/Foundation.h>
+#import <Cocoa/Cocoa.h>
+#import <Carbon/Carbon.h>
+#endif
+
+#if defined(UI_LINUX) || defined(UI_COCOA)
 #include <stdlib.h>
 #include <string.h>
 #include <assert.h>
@@ -388,6 +394,7 @@ extern const int UI_KEYCODE_TAB;
 extern const int UI_KEYCODE_UP;
 extern const int UI_KEYCODE_INSERT;
 extern const int UI_KEYCODE_0;
+extern const int UI_KEYCODE_BACKTICK;
 
 #define UI_KEYCODE_LETTER(x) (UI_KEYCODE_A + (x) - 'A')
 #define UI_KEYCODE_DIGIT(x) (UI_KEYCODE_0 + (x) - '0')
@@ -486,6 +493,11 @@ typedef struct UIWindow {
 	EsWindow *window;
 	EsElement *canvas;
 	int cursor;
+#endif
+
+#ifdef UI_COCOA
+	NSWindow *window;
+	void *view;
 #endif
 } UIWindow;
 
@@ -919,7 +931,7 @@ bool _UIMessageLoopSingle(int *result);
 void _UIInspectorRefresh();
 void _UIUpdate();
 
-#ifdef UI_LINUX
+#if defined(UI_LINUX) || defined(UI_COCOA)
 UI_CLOCK_T _UIClock() {
 	struct timespec spec;
 	clock_gettime(CLOCK_REALTIME, &spec);
@@ -2685,7 +2697,7 @@ int _UICodeMessage(UIElement *element, UIMessage message, int di, void *dp) {
 			int x = UIDrawStringHighlighted(painter, lineBounds, code->content + code->lines[i].offset, code->lines[i].bytes, code->tabSize);
 			int y = (lineBounds.t + lineBounds.b - UIMeasureStringHeight()) / 2;
 
-			UICodeDecorateLine m = { 0 };
+			UICodeDecorateLine m;
 			m.x = x, m.y = y, m.bounds = lineBounds, m.index = i + 1, m.painter = painter;
 			UIElementMessage(element, UI_MSG_CODE_DECORATE_LINE, 0, &m);
 
@@ -3804,7 +3816,7 @@ bool _UIMenusClose() {
 	return anyClosed;
 }
 
-#ifndef UI_ESSENCE
+#if !defined(UI_ESSENCE) && !defined(UI_COCOA)
 int _UIMenuItemMessage(UIElement *element, UIMessage message, int di, void *dp) {
 	if (message == UI_MSG_CLICKED) {
 		_UIMenusClose();
@@ -4867,6 +4879,7 @@ const int UI_KEYCODE_TAB = XK_Tab;
 const int UI_KEYCODE_UP = XK_Up;
 const int UI_KEYCODE_INSERT = XK_Insert;
 const int UI_KEYCODE_0 = XK_0;
+const int UI_KEYCODE_BACKTICK = XK_grave;
 
 int _UIWindowMessage(UIElement *element, UIMessage message, int di, void *dp) {
 	if (message == UI_MSG_DEALLOCATE) {
@@ -6123,6 +6136,261 @@ char *_UIClipboardReadTextStart(UIWindow *window, size_t *bytes) {
 
 void _UIClipboardReadTextEnd(UIWindow *window, char *text) {
 	EsHeapFree(text);
+}
+
+#endif
+
+#ifdef UI_COCOA
+
+// TODO Standard keyboard shortcuts (Command+Q, Command+W).
+
+const int UI_KEYCODE_A = -100; // TODO Keyboard layout support.
+const int UI_KEYCODE_F1 = -70;
+const int UI_KEYCODE_0 = -50;
+const int UI_KEYCODE_INSERT = -30;
+
+const int UI_KEYCODE_BACKSPACE = kVK_Delete;
+const int UI_KEYCODE_DELETE = kVK_ForwardDelete;
+const int UI_KEYCODE_DOWN = kVK_DownArrow;
+const int UI_KEYCODE_END = kVK_End;
+const int UI_KEYCODE_ENTER = kVK_Return;
+const int UI_KEYCODE_ESCAPE = kVK_Escape;
+const int UI_KEYCODE_HOME = kVK_Home;
+const int UI_KEYCODE_LEFT = kVK_LeftArrow;
+const int UI_KEYCODE_RIGHT = kVK_RightArrow;
+const int UI_KEYCODE_SPACE = kVK_Space;
+const int UI_KEYCODE_TAB = kVK_Tab;
+const int UI_KEYCODE_UP = kVK_UpArrow;
+const int UI_KEYCODE_BACKTICK = kVK_ANSI_Grave; // TODO Keyboard layout support.
+
+int (*_cocoaAppMain)(int, char **);
+int _cocoaArgc;
+char **_cocoaArgv;
+
+struct PostedMessage {
+	UIMessage message; 
+	void *dp;
+};
+
+@interface ApplicationDelegate : NSObject<NSApplicationDelegate>
+@end
+
+@interface WindowDelegate : NSObject<NSWindowDelegate>
+@property (nonatomic) UIWindow *uiWindow;
+@end
+
+@interface MainView : NSView
+- (void)handlePostedMessage:(id)message;
+- (void)eventCommon:(NSEvent *)event;
+@property (nonatomic) UIWindow *uiWindow;
+@end
+
+@implementation ApplicationDelegate
+- (void)applicationWillFinishLaunching:(NSNotification *)notification {
+	int code = _cocoaAppMain(_cocoaArgc, _cocoaArgv);
+	if (code) exit(code);
+}
+@end
+
+@implementation WindowDelegate
+- (void)windowDidResize:(NSNotification *)notification {
+	_uiWindow->width = ((MainView *) _uiWindow->view).frame.size.width;
+	_uiWindow->height = ((MainView *) _uiWindow->view).frame.size.height;
+	_uiWindow->bits = (uint32_t *) UI_REALLOC(_uiWindow->bits, _uiWindow->width * _uiWindow->height * 4);
+	_uiWindow->e.bounds = UI_RECT_2S(_uiWindow->width, _uiWindow->height);
+	_uiWindow->e.clip = UI_RECT_2S(_uiWindow->width, _uiWindow->height);
+	UIElementRelayout(&_uiWindow->e);
+	_UIUpdate();
+}
+@end
+
+@implementation MainView
+- (void)handlePostedMessage:(id)_message {
+	PostedMessage *message = (PostedMessage *) _message;
+	_UIWindowInputEvent(_uiWindow, message->message, 0, message->dp);
+	UI_FREE(message);
+}
+
+- (void)drawRect:(NSRect)dirtyRect {
+	const unsigned char *data = (const unsigned char *) _uiWindow->bits;
+	NSDrawBitmap(NSMakeRect(0, 0, _uiWindow->width, _uiWindow->height), _uiWindow->width, _uiWindow->height, 
+			8 /* bits per channel */, 4 /* channels per pixel */, 
+			32 /* bits per pixel */, 4 * _uiWindow->width /* bytes per row */, NO /* planar */, YES /* has alpha */, 
+			NSDeviceRGBColorSpace /* color space */, &data /* data */);
+}
+
+- (void)eventCommon:(NSEvent *)event {
+	NSPoint cursor = [self convertPoint:[event locationInWindow] fromView:nil];
+	_uiWindow->cursorX = cursor.x, _uiWindow->cursorY = _uiWindow->height - cursor.y - 1;
+	_uiWindow->ctrl = event.modifierFlags & NSEventModifierFlagCommand;
+	_uiWindow->shift = event.modifierFlags & NSEventModifierFlagShift;
+	_uiWindow->alt = event.modifierFlags & NSEventModifierFlagOption;
+}
+
+- (void)mouseMoved:(NSEvent *)event {
+	[self eventCommon:event];
+	_UIWindowInputEvent(_uiWindow, UI_MSG_MOUSE_MOVE, 0, 0);
+}
+
+- (void)mouseDragged:(NSEvent *)event { [self mouseMoved:event]; }
+- (void)rightMouseDragged:(NSEvent *)event { [self mouseMoved:event]; }
+- (void)otherMouseDragged:(NSEvent *)event { [self mouseMoved:event]; }
+
+- (void)mouseDown:(NSEvent *)event {
+	[self eventCommon:event];
+	_UIWindowInputEvent(_uiWindow, UI_MSG_LEFT_DOWN, 0, 0);
+}
+
+- (void)mouseUp:(NSEvent *)event {
+	[self eventCommon:event];
+	_UIWindowInputEvent(_uiWindow, UI_MSG_LEFT_UP, 0, 0);
+}
+
+- (void)rightMouseDown:(NSEvent *)event {
+	[self eventCommon:event];
+	_UIWindowInputEvent(_uiWindow, UI_MSG_RIGHT_DOWN, 0, 0);
+}
+
+- (void)rightMouseUp:(NSEvent *)event {
+	[self eventCommon:event];
+	_UIWindowInputEvent(_uiWindow, UI_MSG_RIGHT_UP, 0, 0);
+}
+
+- (void)otherMouseDown:(NSEvent *)event {
+	[self eventCommon:event];
+	_UIWindowInputEvent(_uiWindow, UI_MSG_MIDDLE_DOWN, 0, 0);
+}
+
+- (void)otherMouseUp:(NSEvent *)event {
+	[self eventCommon:event];
+	_UIWindowInputEvent(_uiWindow, UI_MSG_MIDDLE_UP, 0, 0);
+}
+
+// TODO Scroll wheel.
+// TODO Animations.
+// TODO Drag and drop.
+// TODO Keyboard input.
+// TODO Window focus and unfocus.
+// TODO Mouse leave.
+
+@end
+
+int _UIWindowMessage(UIElement *element, UIMessage message, int di, void *dp) {
+	if (message == UI_MSG_DEALLOCATE) {
+		UIWindow *window = (UIWindow *) element;
+		_UIWindowDestroyCommon(window);
+		// TODO Destroy the window.
+	}
+
+	return _UIWindowMessageCommon(element, message, di, dp);
+}
+
+UIWindow *UIWindowCreate(UIWindow *owner, uint32_t flags, const char *cTitle, int _width, int _height) {
+	_UIMenusClose();
+	UIWindow *window = (UIWindow *) UIElementCreate(sizeof(UIWindow), NULL, flags | UI_ELEMENT_WINDOW, _UIWindowMessage, "Window");
+	_UIWindowAdd(window);
+	if (owner) window->scale = owner->scale;
+
+	NSRect frame = NSMakeRect(0, 0, _width ?: 800, _height ?: 600);
+	NSWindowStyleMask styleMask = NSWindowStyleMaskMiniaturizable | NSWindowStyleMaskClosable | NSWindowStyleMaskResizable | NSWindowStyleMaskTitled;
+	NSWindow *nsWindow = [[NSWindow alloc] initWithContentRect:frame styleMask:styleMask backing:NSBackingStoreBuffered defer:NO];
+	[nsWindow center];
+	[nsWindow setTitle:@(cTitle ?: "untitled")];
+	[nsWindow makeKeyAndOrderFront:nil];
+	WindowDelegate *delegate = [WindowDelegate alloc];
+	[delegate setUiWindow:window];
+	nsWindow.delegate = delegate;
+	MainView *view = [MainView alloc];
+	window->window = nsWindow;
+	window->view = view;
+	window->width = frame.size.width;
+	window->height = frame.size.height;
+	window->bits = (uint32_t *) UI_REALLOC(window->bits, window->width * window->height * 4);
+	window->e.bounds = UI_RECT_2S(window->width, window->height);
+	window->e.clip = UI_RECT_2S(window->width, window->height);
+	[view setUiWindow:window];
+	[view initWithFrame:frame];
+	nsWindow.contentView = view;
+	[view addTrackingArea:[[NSTrackingArea alloc] initWithRect:frame options:NSTrackingMouseMoved|NSTrackingActiveInKeyWindow|NSTrackingInVisibleRect owner:view userInfo:nil]];
+
+	// TODO UI_WINDOW_MAXIMIZE.
+
+	return window;
+}
+
+void _UIClipboardWriteText(UIWindow *window, char *text) {
+	// TODO Clipboard support.
+}
+
+char *_UIClipboardReadTextStart(UIWindow *window, size_t *bytes) {
+	// TODO Clipboard support.
+	return NULL;
+}
+
+void _UIClipboardReadTextEnd(UIWindow *window, char *text) {
+	UI_FREE(text);
+}
+
+void UIInitialise() {
+	_UIInitialiseCommon();
+}
+
+void _UIWindowSetCursor(UIWindow *window, int cursor) {
+	// TODO Cursor support.
+}
+
+void _UIWindowEndPaint(UIWindow *window, UIPainter *painter) {
+	for (int y = painter->clip.t; y < painter->clip.b; y++) {
+		for (int x = painter->clip.l; x < painter->clip.r; x++) {
+			uint32_t *p = &painter->bits[y * painter->width + x];
+			*p = 0xFF000000 | (*p & 0xFF00) | ((*p & 0xFF0000) >> 16) | ((*p & 0xFF) << 16);
+		}
+	}
+
+	[(MainView *)window->view setNeedsDisplayInRect:((MainView *)window->view).frame];
+}
+
+void _UIWindowGetScreenPosition(UIWindow *window, int *x, int *y) {
+	NSPoint point = [window->window convertPointToScreen:NSMakePoint(0, 0)];
+	*x = point.x, *y = point.y;
+}
+
+UIMenu *UIMenuCreate(UIElement *parent, uint32_t flags) {
+	// TODO Menu support.
+	return NULL;
+}
+
+void UIMenuAddItem(UIMenu *menu, uint32_t flags, const char *label, ptrdiff_t labelBytes, void (*invoke)(void *cp), void *cp) {
+	// TODO Menu support.
+}
+
+void UIMenuShow(UIMenu *menu) {
+	// TODO Menu support.
+}
+
+void UIWindowPack(UIWindow *window, int _width) {
+	int width = _width ? _width : UIElementMessage(window->e.children[0], UI_MSG_GET_WIDTH, 0, 0);
+	int height = UIElementMessage(window->e.children[0], UI_MSG_GET_HEIGHT, width, 0);
+	[window->window setContentSize:NSMakeSize(width, height)];
+}
+
+bool _UIMessageLoopSingle(int *result) {
+	// TODO Modal dialog support.
+	return false;
+}
+
+void UIWindowPostMessage(UIWindow *window, UIMessage _message, void *dp) {
+	PostedMessage *message = (PostedMessage *) UI_MALLOC(sizeof(PostedMessage));
+	message->message = _message;
+	message->dp = dp;
+	[(MainView*)window->view performSelectorOnMainThread:@selector(handlePostedMessage:) withObject:(id)message waitUntilDone:NO];
+}
+
+int UICocoaMain(int argc, char **argv, int (*appMain)(int, char **)) {
+	_cocoaArgc = argc, _cocoaArgv = argv, _cocoaAppMain = appMain;
+	NSApplication *application = [NSApplication sharedApplication];
+	application.delegate = [[ApplicationDelegate alloc] init];
+	return NSApplicationMain(argc, (const char **) argv);
 }
 
 #endif

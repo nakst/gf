@@ -52,11 +52,11 @@ bool DisplaySetPosition(const char *file, int line, bool useGDBToGetFullPath) {
 
 		struct stat buf;
 
-		if (!stat(file, &buf) && buf.st_mtim.tv_sec != currentFileReadTime) {
+		if (!stat(file, &buf) && buf.st_mtime != currentFileReadTime) {
 			reloadFile = true;
 		}
 
-		currentFileReadTime = buf.st_mtim.tv_sec;
+		currentFileReadTime = buf.st_mtime;
 	}
 
 	bool changed = false;
