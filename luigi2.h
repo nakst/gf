@@ -4063,12 +4063,12 @@ void UIElementMove(UIElement *element, UIRectangle bounds, bool layout) {
 	if (layout) {
 		UIElementMessage(element, UI_MSG_LAYOUT, 0, 0);
 	} else if (element->flags & UI_ELEMENT_RELAYOUT_DESCENDENT) {
+		element->flags &= ~UI_ELEMENT_RELAYOUT_DESCENDENT;
 		for (uint32_t i = 0; i < element->childCount; i++) {
 			UIElementMove(element->children[i], element->children[i]->bounds, false);
 		}
 	}
 
-	element->flags &= ~UI_ELEMENT_RELAYOUT_DESCENDENT;
 }
 
 void _UIElementPaint(UIElement *element, UIPainter *painter) {
