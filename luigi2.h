@@ -2594,9 +2594,9 @@ int UIDrawStringHighlighted(UIPainter *painter, UIRectangle lineBounds, const ch
 		if (lexState == 0) {
 			if (c == '#') {
 				lexState = 5;
-			} else if (c == '/' && *string == '/') {
+			} else if (bytes && c == '/' && *string == '/') {
 				lexState = 1;
-			} else if (c == '/' && *string == '*') {
+			} else if (bytes && c == '/' && *string == '*') {
 				lexState = 1, inComment = true;
 			} else if (c == '"') {
 				lexState = 2;
