@@ -1150,6 +1150,7 @@ void WatchAddFields(WatchWindow *w, Watch *watch) {
 		}
 
 		for (int i = 0; i < count; i++) {
+			fields[i].format = watch->format;
 			fields[i].parent = watch;
 			fields[i].arrayIndex = i;
 			watch->fields.Add(&fields[i]);
@@ -1824,6 +1825,14 @@ int WatchWindowMessage(UIElement *element, UIMessage message, int di, void *dp) 
 		if (w->waitingForFormatCharacter) {
 			w->rows[w->selectedRow]->format = (m->textBytes && isalpha(m->text[0])) ? m->text[0] : 0;
 			w->rows[w->selectedRow]->updateIndex--;
+
+			if (w->rows[w->selectedRow]->isArray) {
+				for (int i = 0; i < w->rows[w->selectedRow]->fields.Length(); i++) {
+					w->rows[w->selectedRow]->fields[i]->format = w->rows[w->selectedRow]->format;
+					w->rows[w->selectedRow]->fields[i]->updateIndex--;
+				}
+			}
+
 			w->waitingForFormatCharacter = false;
 		} else if (w->mode == WATCH_NORMAL && w->selectedRow != w->rows.Length() && !w->textbox
 				&& (m->code == UI_KEYCODE_ENTER || m->code == UI_KEYCODE_BACKSPACE || (m->code == UI_KEYCODE_LEFT && !w->rows[w->selectedRow]->open))
