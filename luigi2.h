@@ -4057,7 +4057,6 @@ void UIElementMove(UIElement *element, UIRectangle bounds, bool layout) {
 
 	if (element->flags & UI_ELEMENT_RELAYOUT) {
 		layout = true;
-		element->flags &= ~UI_ELEMENT_RELAYOUT;
 	}
 
 	if (layout) {
@@ -4068,7 +4067,7 @@ void UIElementMove(UIElement *element, UIRectangle bounds, bool layout) {
 		}
 	}
 
-	element->flags &= ~UI_ELEMENT_RELAYOUT_DESCENDENT;
+	element->flags &= ~(UI_ELEMENT_RELAYOUT_DESCENDENT | UI_ELEMENT_RELAYOUT);
 }
 
 void _UIElementPaint(UIElement *element, UIPainter *painter) {

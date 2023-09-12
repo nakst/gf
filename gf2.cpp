@@ -1543,6 +1543,7 @@ int InterfaceTabPaneMessage(UIElement *element, UIMessage message, int di, void 
 			if (window->element && (~window->element->flags & UI_ELEMENT_HIDE) && window->queuedUpdate) {
 				window->queuedUpdate = false;
 				window->update("", window->element);
+				UIElementMove(window->element, window->element->bounds, false);
 			}
 		}
 
