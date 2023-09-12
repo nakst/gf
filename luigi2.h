@@ -62,7 +62,7 @@
 #define UI_CLOCK _UIClock
 #define UI_CLOCKS_PER_SECOND 1000
 #define UI_CLOCK_T clock_t
-#define UI_MEMMOVE memmove
+#define UI_MEMMOVE(d, s, n) do { size_t _n = n; if (_n) { memmove(d, s, _n); } } while (0)
 #endif
 
 #if defined(UI_ESSENCE)
