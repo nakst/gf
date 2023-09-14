@@ -380,7 +380,7 @@ void SourceWindowUpdate(const char *data, UIElement *element) {
 	if (changedSourceLine && stackSelected < stack.Length() && strcmp(stack[stackSelected].location, previousLocation)) {
 		DisplaySetPositionFromStack();
 	}
-	
+
 	if (changedSourceLine && currentLine < displayCode->lineCount && currentLine > 0) {
 		// If there is an auto-print expression from the previous line, evaluate it.
 
@@ -501,7 +501,7 @@ void InspectCurrentLine() {
 			StringFormat(buffer, sizeof(buffer), "%.*s", i - j + 1, string + j);
 
 			if (0 == strcmp(buffer, "true") || 0 == strcmp(buffer, "false") || 0 == strcmp(buffer, "if") || 0 == strcmp(buffer, "for")
-					|| 0 == strcmp(buffer, "else") || 0 == strcmp(buffer, "while") || 0 == strcmp(buffer, "int") 
+					|| 0 == strcmp(buffer, "else") || 0 == strcmp(buffer, "while") || 0 == strcmp(buffer, "int")
 					|| 0 == strcmp(buffer, "char") || 0 == strcmp(buffer, "switch") || 0 == strcmp(buffer, "float")) {
 				continue;
 			}
@@ -659,7 +659,7 @@ int BitmapViewerWindowMessage(UIElement *element, UIMessage message, int di, voi
 		int fit = ((BitmapViewer *) element->cp)->parsedHeight + 40;
 		return fit > 100 ? fit : 100;
 	}
-	
+
 	return 0;
 }
 
@@ -726,7 +726,7 @@ int BitmapViewerDisplayMessage(UIElement *element, UIMessage message, int di, vo
 	if (message == UI_MSG_RIGHT_UP) {
 		UIMenu *menu = UIMenuCreate(&element->window->e, UI_MENU_NO_SCROLL);
 
-		UIMenuAddItem(menu, 0, "Save to file...", -1, [] (void *cp) { 
+		UIMenuAddItem(menu, 0, "Save to file...", -1, [] (void *cp) {
 			static char *path = NULL;
 			const char *result = UIDialogShow(windowMain, 0, "Save to file       \nPath:\n%t\n%f%B%C", &path, "Save", "Cancel");
 			if (strcmp(result, "Save")) return;
@@ -799,7 +799,7 @@ void BitmapViewerUpdate(const char *pointerString, const char *widthString, cons
 void BitmapAddDialog(void *) {
 	static char *pointer = nullptr, *width = nullptr, *height = nullptr, *stride = nullptr;
 
-	const char *result = UIDialogShow(windowMain, 0, 
+	const char *result = UIDialogShow(windowMain, 0,
 			"Add bitmap\n\n%l\n\nPointer to bits: (32bpp, RR GG BB AA)\n%t\nWidth:\n%t\nHeight:\n%t\nStride: (optional)\n%t\n\n%l\n\n%f%B%C",
 			&pointer, &width, &height, &stride, "Add", "Cancel");
 
@@ -1403,7 +1403,7 @@ void WatchChangeLoggerCreate(WatchWindow *w) {
 	}
 
 	char *expressionsToEvaluate = nullptr;
-	const char *result = UIDialogShow(windowMain, 0, "-- Watch logger settings --\nExpressions to evaluate (separate with semicolons):\n%t\n\n%l\n\n%f%B%C", 
+	const char *result = UIDialogShow(windowMain, 0, "-- Watch logger settings --\nExpressions to evaluate (separate with semicolons):\n%t\n\n%l\n\n%f%B%C",
 			&expressionsToEvaluate, "Start", "Cancel");
 
 	if (0 == strcmp(result, "Cancel")) {
@@ -1431,7 +1431,7 @@ void WatchChangeLoggerCreate(WatchWindow *w) {
 
 	uintptr_t position = 0;
 	position += StringFormat(logger->columns + position, sizeof(logger->columns) - position, "New value\tWhere");
-	
+
 	if (expressionsToEvaluate) {
 		uintptr_t start = 0;
 
@@ -1739,11 +1739,11 @@ int WatchWindowMessage(UIElement *element, UIMessage message, int di, void *dp) 
 				if (focused && w->waitingForFormatCharacter) {
 					StringFormat(buffer, sizeof(buffer), "Enter format character: (e.g. 'x' for hex)");
 				} else {
-					StringFormat(buffer, sizeof(buffer), "%.*s%s%s%s%s", 
+					StringFormat(buffer, sizeof(buffer), "%.*s%s%s%s%s",
 							watch->depth * 3, "                                           ",
-							watch->open ? "v " : watch->hasFields ? "> " : "", 
-							watch->key ?: keyIndex, 
-							watch->open ? "" : " = ", 
+							watch->open ? "v " : watch->hasFields ? "> " : "",
+							watch->key ?: keyIndex,
+							watch->open ? "" : " = ",
 							watch->open ? "" : watch->value);
 				}
 
@@ -1780,13 +1780,13 @@ int WatchWindowMessage(UIElement *element, UIMessage message, int di, void *dp) 
 			UIMenu *menu = UIMenuCreate(&element->window->e, UI_MENU_NO_SCROLL);
 
 			if (w->mode == WATCH_NORMAL && !w->rows[index]->parent) {
-				UIMenuAddItem(menu, 0, "Edit expression", -1, [] (void *cp) { 
-					WatchCreateTextboxForRow((WatchWindow *) cp, true); 
+				UIMenuAddItem(menu, 0, "Edit expression", -1, [] (void *cp) {
+					WatchCreateTextboxForRow((WatchWindow *) cp, true);
 				}, w);
 
-				UIMenuAddItem(menu, 0, "Delete", -1, [] (void *cp) { 
+				UIMenuAddItem(menu, 0, "Delete", -1, [] (void *cp) {
 					WatchWindow *w = (WatchWindow *) cp;
-					WatchDeleteExpression(w); 
+					WatchDeleteExpression(w);
 					UIElementRefresh(w->element->parent);
 					UIElementRefresh(w->element);
 				}, w);
@@ -1798,7 +1798,7 @@ int WatchWindowMessage(UIElement *element, UIMessage message, int di, void *dp) 
 				WatchChangeLoggerCreate((WatchWindow *) cp);
 			}, w);
 
-			UIMenuAddItem(menu, 0, "Break on writes to address", -1, [] (void *cp) { 
+			UIMenuAddItem(menu, 0, "Break on writes to address", -1, [] (void *cp) {
 				WatchWindow *w = (WatchWindow *) cp;
 				if (w->selectedRow == w->rows.Length()) return;
 				if (!WatchGetAddress(w->rows[w->selectedRow])) return;
@@ -1810,7 +1810,7 @@ int WatchWindowMessage(UIElement *element, UIMessage message, int di, void *dp) 
 			if (firstWatchWindow) {
 				UIMenuAddItem(menu, 0, "Add entry for address\tCtrl+E", -1, CommandWatchAddEntryForAddress, w);
 			}
-			
+
 			UIMenuAddItem(menu, 0, "View source at address\tCtrl+G", -1, CommandWatchViewSourceAtAddress, w);
 			UIMenuAddItem(menu, 0, "Save as...", -1, CommandWatchSaveAs, w);
 
@@ -1849,7 +1849,7 @@ int WatchWindowMessage(UIElement *element, UIMessage message, int di, void *dp) 
 				&& (w->selectedRow == w->rows.Length() || !w->rows[w->selectedRow]->parent)) {
 			WatchCreateTextboxForRow(w, false);
 			UIElementMessage(&w->textbox->e, message, di, dp);
-		} else if (w->mode == WATCH_NORMAL && m->textBytes && m->code == UI_KEYCODE_LETTER('V') && !w->textbox && element->window->ctrl 
+		} else if (w->mode == WATCH_NORMAL && m->textBytes && m->code == UI_KEYCODE_LETTER('V') && !w->textbox && element->window->ctrl
 				&& !element->window->alt && !element->window->shift && (w->selectedRow == w->rows.Length() || !w->rows[w->selectedRow]->parent)) {
 			WatchCreateTextboxForRow(w, false);
 			UIElementMessage(&w->textbox->e, message, di, dp);
@@ -1899,7 +1899,7 @@ int WatchWindowMessage(UIElement *element, UIMessage message, int di, void *dp) 
 
 			w->rows.Delete(w->selectedRow + 1, end - w->selectedRow - 1);
 			w->rows[w->selectedRow]->open = false;
-		} else if (m->code == UI_KEYCODE_LEFT && !w->textbox 
+		} else if (m->code == UI_KEYCODE_LEFT && !w->textbox
 				&& w->selectedRow != w->rows.Length() && !w->rows[w->selectedRow]->open) {
 			for (int i = 0; i < w->rows.Length(); i++) {
 				if (w->rows[w->selectedRow]->parent == w->rows[i]) {
@@ -2225,7 +2225,7 @@ void CommandToggleFillDataTab(void *) {
 	if (!dataTab) return;
 	static UIElement *oldParent, *oldBefore;
 	buttonFillWindow->e.flags ^= UI_BUTTON_CHECKED;
-	
+
 	if (switcherMain->active == &dataTab->e) {
 		UISwitcherSwitchTo(switcherMain, switcherMain->e.children[0]);
 		UIElementChangeParent(&dataTab->e, oldParent, oldBefore);
@@ -2244,7 +2244,7 @@ UIElement *DataWindowCreate(UIElement *parent) {
 	buttonFillWindow->invoke = CommandToggleFillDataTab;
 
 	for (int i = 0; i < interfaceDataViewers.Length(); i++) {
-		UIButtonCreate(&panel5->e, UI_BUTTON_SMALL, interfaceDataViewers[i].addButtonLabel, -1)->invoke 
+		UIButtonCreate(&panel5->e, UI_BUTTON_SMALL, interfaceDataViewers[i].addButtonLabel, -1)->invoke
 			= interfaceDataViewers[i].addButtonCallback;
 	}
 
@@ -2342,7 +2342,7 @@ int FilesButtonMessage(UIElement *element, UIMessage message, int di, void *dp) 
 		UIPainter *painter = (UIPainter *) dp;
 		int i = (element == element->window->pressed) + (element == element->window->hovered);
 		if (i) UIDrawBlock(painter, element->bounds, i == 2 ? ui.theme.buttonPressed : ui.theme.buttonHovered);
-		UIDrawString(painter, UIRectangleAdd(element->bounds, UI_RECT_4(UI_SIZE_BUTTON_PADDING, 0, 0, 0)), button->label, button->labelBytes, 
+		UIDrawString(painter, UIRectangleAdd(element->bounds, UI_RECT_4(UI_SIZE_BUTTON_PADDING, 0, 0, 0)), button->label, button->labelBytes,
 				button->e.flags & UI_BUTTON_CHECKED ? ui.theme.codeNumber : ui.theme.codeDefault, UI_ALIGN_LEFT, NULL);
 		return 1;
 	}
@@ -2535,16 +2535,16 @@ UIElement *CommandsWindowCreate(UIElement *parent) {
 //////////////////////////////////////////////////////
 
 void *LogWindowThread(void *context) {
-	if (!logPipePath) { 
-		fprintf(stderr, "Warning: The log pipe path has not been set in the configuration file!\n"); 
-		return nullptr; 
+	if (!logPipePath) {
+		fprintf(stderr, "Warning: The log pipe path has not been set in the configuration file!\n");
+		return nullptr;
 	}
 
 	int file = open(logPipePath, O_RDONLY | O_NONBLOCK);
 
-	if (file == -1) { 
-		fprintf(stderr, "Warning: Could not open the log pipe!\n"); 
-		return nullptr; 
+	if (file == -1) {
+		fprintf(stderr, "Warning: Could not open the log pipe!\n");
+		return nullptr;
 	}
 
 	struct pollfd p = { .fd = file, .events = POLLIN };
@@ -2653,7 +2653,7 @@ void ThreadWindowUpdate(const char *, UIElement *_table) {
 		if (!position) break;
 		position++;
 		char *end = strchr(position, '\n');
-		if (end - position >= (ptrdiff_t) sizeof(thread.frame)) 
+		if (end - position >= (ptrdiff_t) sizeof(thread.frame))
 			end = position + sizeof(thread.frame) - 1;
 		memcpy(thread.frame, position, end - position);
 		thread.frame[end - position] = 0;
@@ -2719,7 +2719,7 @@ void ExecutableWindowSaveButton(void *_window) {
 	}
 
 	f = fopen(localConfigPath, "wb");
-	fprintf(f, "[executable]\npath=%.*s\narguments=%.*s\nask_directory=%c\n", 
+	fprintf(f, "[executable]\npath=%.*s\narguments=%.*s\nask_directory=%c\n",
 			(int) window->path->bytes, window->path->string,
 			(int) window->arguments->bytes, window->arguments->string,
 			window->askDirectory->check == UI_CHECK_CHECKED ? '1' : '0');
