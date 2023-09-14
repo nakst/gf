@@ -202,11 +202,13 @@ UIFont *fontCode;
 // Breakpoints:
 
 struct Breakpoint {
+	int number;
 	char file[PATH_MAX];
 	char fileFull[PATH_MAX];
 	int line;
 	int watchpoint;
 	int hit;
+	bool enabled;
 };
 
 Array<Breakpoint> breakpoints;
@@ -785,6 +787,14 @@ void DebuggerGetBreakpoints() {
 
 		const char *next = position;
 
+		int number = atoi(position);
+
+		bool enabled = true;
+		const char *state_position = strstr(next + 1, " y ");
+
+		if (state_position && state_position < strchr(next + 1, '\n')) enabled = true;
+		else enabled = false;
+
 		while (true) {
 			next = strchr(next + 1, '\n');
 			if (!next || isdigit(next[1])) break;
@@ -796,6 +806,9 @@ void DebuggerGetBreakpoints() {
 		if (file) file += 4;
 
 		Breakpoint breakpoint = {};
+		breakpoint.number = number;
+		breakpoint.enabled = enabled;
+
 		bool recognised = true;
 
 		const char *hitCountNeedle = "breakpoint already hit";
@@ -829,7 +842,7 @@ void DebuggerGetBreakpoints() {
 			breakpoints.Add(breakpoint);
 		} else {
 			if (!strstr(position, "watchpoint")) goto doNext;
-			const char *address = strstr(position, " y  ");
+			const char *address = strstr(position, enabled ? " y  ":" n  ");
 			if (!address) goto doNext;
 			address += 2;
 			while (*address == ' ') address++;
@@ -1000,6 +1013,22 @@ void CommandDeleteBreakpoint(void *_index) {
 	char buffer[1024];
 	if (breakpoint->watchpoint) StringFormat(buffer, 1024, "delete %d", breakpoint->watchpoint);
 	else StringFormat(buffer, 1024, "clear %s:%d", breakpoint->file, breakpoint->line);
+	DebuggerSend(buffer, true, false);
+}
+
+void CommandDisableBreakpoint(void *_index) {
+	int index = (int) (intptr_t) _index;
+	Breakpoint *breakpoint = &breakpoints[index];
+	char buffer[1024];
+	StringFormat(buffer, 1024, "disable %d", breakpoint->number);
+	DebuggerSend(buffer, true, false);
+}
+
+void CommandEnableBreakpoint(void *_index) {
+	int index = (int) (intptr_t) _index;
+	Breakpoint *breakpoint = &breakpoints[index];
+	char buffer[1024];
+	StringFormat(buffer, 1024, "enable %d", breakpoint->number);
 	DebuggerSend(buffer, true, false);
 }
 

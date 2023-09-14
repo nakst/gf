@@ -289,10 +289,27 @@ int DisplayCodeMessage(UIElement *element, UIMessage message, int di, void *dp) 
 				DebuggerSend(buffer, true, false);
 			}
 		}
+	} else if (message == UI_MSG_RIGHT_DOWN && !showingDisassembly) {
+		int result = UICodeHitTest((UICode *) element, element->window->cursorX, element->window->cursorY);
+
+		for (int i = 0; i < breakpoints.Length(); i++) {
+			if (breakpoints[i].line == -result && 0 == strcmp(breakpoints[i].fileFull, currentFileFull)) {
+				UIMenu *menu = UIMenuCreate(&element->window->e, UI_MENU_NO_SCROLL);
+
+				UIMenuAddItem(menu, 0, "Delete", -1, CommandDeleteBreakpoint, (void *) (intptr_t) i);
+				if (breakpoints[i].enabled) {
+					UIMenuAddItem(menu, 0, "Disable breakpoint", -1, CommandDisableBreakpoint, (void *) (intptr_t) i);
+				} else {
+					UIMenuAddItem(menu, 0, "Enable breakpoint", -1, CommandEnableBreakpoint, (void *) (intptr_t) i);
+				}
+				UIMenuShow(menu);
+			}
+		}
 	} else if (message == UI_MSG_CODE_GET_MARGIN_COLOR && !showingDisassembly) {
 		for (int i = 0; i < breakpoints.Length(); i++) {
 			if (breakpoints[i].line == di && 0 == strcmp(breakpoints[i].fileFull, currentFileFull)) {
-				return 0xFF0000;
+				if (breakpoints[i].enabled) return 0xFF0000;
+				else return 0x520404;
 			}
 		}
 	} else if (message == UI_MSG_PAINT) {
@@ -2165,6 +2182,9 @@ int TableBreakpointsMessage(UIElement *element, UIMessage message, int di, void 
 			if (entry->watchpoint) return StringFormat(m->buffer, m->bufferBytes, "watch %d", entry->watchpoint);
 			else return StringFormat(m->buffer, m->bufferBytes, "%d", entry->line);
 		} else if (m->column == 2) {
+			if (entry->enabled) return StringFormat(m->buffer, m->bufferBytes, "yes");
+			else return StringFormat(m->buffer, m->bufferBytes, "no");
+		} else if (m->column == 3) {
 			if (entry->hit > 0) {
 				return StringFormat(m->buffer, m->bufferBytes, "%d", entry->hit);
 			}
@@ -2175,6 +2195,20 @@ int TableBreakpointsMessage(UIElement *element, UIMessage message, int di, void 
 		if (index != -1) {
 			UIMenu *menu = UIMenuCreate(&element->window->e, UI_MENU_NO_SCROLL);
 			UIMenuAddItem(menu, 0, "Delete", -1, CommandDeleteBreakpoint, (void *) (intptr_t) index);
+
+			if (breakpoints[index].enabled) {
+				if (breakpoints[index].watchpoint) {
+					UIMenuAddItem(menu, 0, "Disable watchpoint", -1, CommandDisableBreakpoint, (void *) (intptr_t) index);
+				} else {
+					UIMenuAddItem(menu, 0, "Disable breakpoint", -1, CommandDisableBreakpoint, (void *) (intptr_t) index);
+				}
+			} else {
+				if (breakpoints[index].watchpoint) {
+					UIMenuAddItem(menu, 0, "Enable watchpoint", -1, CommandEnableBreakpoint, (void *) (intptr_t) index);
+				} else {
+					UIMenuAddItem(menu, 0, "Enable breakpoint", -1, CommandEnableBreakpoint, (void *) (intptr_t) index);
+				}
+			}
 			UIMenuShow(menu);
 		}
 	} else if (message == UI_MSG_LEFT_DOWN) {
@@ -2189,7 +2223,7 @@ int TableBreakpointsMessage(UIElement *element, UIMessage message, int di, void 
 }
 
 UIElement *BreakpointsWindowCreate(UIElement *parent) {
-	UITable *table = UITableCreate(parent, 0, "File\tLine\tHit");
+	UITable *table = UITableCreate(parent, 0, "File\tLine\tEnabled\tHit");
 	table->e.messageUser = TableBreakpointsMessage;
 	return &table->e;
 }
