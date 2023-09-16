@@ -789,11 +789,8 @@ void DebuggerGetBreakpoints() {
 
 		int number = atoi(position);
 
-		bool enabled = true;
-		const char *state_position = strstr(next + 1, " y ");
-
-		if (state_position && state_position < strchr(next + 1, '\n')) enabled = true;
-		else enabled = false;
+		const char *enabledString = strstr(next + 1, " y ");
+		bool enabled = enabledString && enabledString < strchr(next + 1, '\n');
 
 		while (true) {
 			next = strchr(next + 1, '\n');
@@ -842,7 +839,7 @@ void DebuggerGetBreakpoints() {
 			breakpoints.Add(breakpoint);
 		} else {
 			if (!strstr(position, "watchpoint")) goto doNext;
-			const char *address = strstr(position, enabled ? " y  ":" n  ");
+			const char *address = strstr(position, enabled ? " y  " : " n  ");
 			if (!address) goto doNext;
 			address += 2;
 			while (*address == ' ') address++;
