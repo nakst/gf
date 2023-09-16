@@ -212,6 +212,7 @@ struct Breakpoint {
 };
 
 Array<Breakpoint> breakpoints;
+Array<int> selectedBreakpoints;
 
 // Stack:
 
@@ -1027,6 +1028,24 @@ void CommandEnableBreakpoint(void *_index) {
 	char buffer[1024];
 	StringFormat(buffer, 1024, "enable %d", breakpoint->number);
 	DebuggerSend(buffer, true, false);
+}
+
+void CommandDeleteSelectedBreakpoints(void *_cp) {
+	for (int i = 0; i < selectedBreakpoints.Length(); i++) {
+		CommandDeleteBreakpoint((void *) (intptr_t)selectedBreakpoints[i]);
+	}
+}
+
+void CommandDisableSelectedBreakpoints(void *_cp) {
+	for (int i = 0; i < selectedBreakpoints.Length(); i++) {
+		CommandDisableBreakpoint((void *) (intptr_t)selectedBreakpoints[i]);
+	}
+}
+
+void CommandEnableSelectedBreakpoints(void *_cp) {
+	for (int i = 0; i < selectedBreakpoints.Length(); i++) {
+		CommandEnableBreakpoint((void *) (intptr_t)selectedBreakpoints[i]);
+	}
 }
 
 void CommandPause(void *) {

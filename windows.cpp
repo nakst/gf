@@ -2169,6 +2169,15 @@ void StackWindowUpdate(const char *, UIElement *_table) {
 int TableBreakpointsMessage(UIElement *element, UIMessage message, int di, void *dp) {
 	if (message == UI_MSG_TABLE_GET_ITEM) {
 		UITableGetItem *m = (UITableGetItem *) dp;
+
+		m->isSelected = false;
+		for (int i = 0; i < selectedBreakpoints.Length(); i++) {
+			if (m->index == selectedBreakpoints[i]) {
+				m->isSelected = true;
+				break;
+			}
+		}
+
 		Breakpoint *entry = &breakpoints[m->index];
 
 		if (m->column == 0) {
@@ -2186,19 +2195,70 @@ int TableBreakpointsMessage(UIElement *element, UIMessage message, int di, void 
 	} else if (message == UI_MSG_RIGHT_DOWN) {
 		int index = UITableHitTest((UITable *) element, element->window->cursorX, element->window->cursorY);
 
+		if (selectedBreakpoints.Length() <= 1) {
+			selectedBreakpoints.Free();
+			selectedBreakpoints.Add(index);
+		} else {
+			bool breakpointIsSelected = false;
+			for (int i = 0; i < selectedBreakpoints.Length(); i++) {
+				if (selectedBreakpoints[i] == index) {
+					breakpointIsSelected = true;
+					break;
+				}
+			}
+
+			if (!breakpointIsSelected) {
+				selectedBreakpoints.Free();
+				selectedBreakpoints.Add(index);
+			}
+		}
+
 		if (index != -1) {
 			UIMenu *menu = UIMenuCreate(&element->window->e, UI_MENU_NO_SCROLL);
-			UIMenuAddItem(menu, 0, "Delete", -1, CommandDeleteBreakpoint, (void *) (intptr_t) index);
-			UIMenuAddItem(menu, 0, breakpoints[index].enabled ? "Disable" : "Enable", -1,
-					breakpoints[index].enabled ? CommandDisableBreakpoint : CommandEnableBreakpoint, (void *) (intptr_t) index);
+
+			if (selectedBreakpoints.Length() > 1) {
+				bool atLeastOneBreakpointDisabled = false;
+
+				for (int i = 0; i < selectedBreakpoints.Length(); i++) {
+					if (!breakpoints[selectedBreakpoints[i]].enabled) {
+						atLeastOneBreakpointDisabled = true;
+						break;
+					}
+				}
+
+				UIMenuAddItem(menu, 0, "Delete", -1, CommandDeleteSelectedBreakpoints, NULL);
+				UIMenuAddItem(menu, 0, atLeastOneBreakpointDisabled ? "Enable" : "Disable", -1,
+						atLeastOneBreakpointDisabled ? CommandEnableSelectedBreakpoints : CommandDisableSelectedBreakpoints, NULL);
+			} else {
+				UIMenuAddItem(menu, 0, "Delete", -1, CommandDeleteBreakpoint, (void *) (intptr_t) index);
+				UIMenuAddItem(menu, 0, breakpoints[index].enabled ? "Disable" : "Enable", -1,
+						breakpoints[index].enabled ? CommandDisableBreakpoint : CommandEnableBreakpoint, (void *) (intptr_t) index);
+			}
+
 			UIMenuShow(menu);
 		}
 	} else if (message == UI_MSG_LEFT_DOWN) {
 		int index = UITableHitTest((UITable *) element, element->window->cursorX, element->window->cursorY);
 
-		if (index != -1 && !breakpoints[index].watchpoint) {
-			DisplaySetPosition(breakpoints[index].file, breakpoints[index].line, false);
-		}
+		if (index != -1) {
+			if (element->window->ctrl) {
+				bool breakpointIsSelected = false;
+				int i;
+				for (i = 0; i < selectedBreakpoints.Length(); i++) {
+					if (selectedBreakpoints[i] == index) {
+						breakpointIsSelected = true;
+						break;
+					}
+				}
+				breakpointIsSelected ? selectedBreakpoints.Delete(i) : selectedBreakpoints.Add(index);
+			} else {
+				selectedBreakpoints.Free();
+				selectedBreakpoints.Add(index);
+
+				if (!breakpoints[index].watchpoint)
+					DisplaySetPosition(breakpoints[index].file, breakpoints[index].line, false);
+			}
+		} else selectedBreakpoints.Free();
 	}
 
 	return 0;
