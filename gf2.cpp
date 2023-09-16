@@ -220,6 +220,7 @@ struct Breakpoint {
 	int watchpoint;
 	int hit;
 	bool enabled;
+	char condition[1024];
 };
 
 Array<Breakpoint> breakpoints;
@@ -819,6 +820,13 @@ void DebuggerGetBreakpoints() {
 
 		bool recognised = true;
 
+		const char *condition = strstr(position, "stop only if ");
+		if (condition && condition < next) {
+			const char *end = strchr(condition, '\n');
+			condition += 13;
+			StringFormat(breakpoint.condition, sizeof(breakpoint.condition), "%.*s", (int) (end - condition), condition);
+		}
+
 		const char *hitCountNeedle = "breakpoint already hit";
 		const char *hitCount = strstr(position, hitCountNeedle);
 		if (hitCount) hitCount += strlen(hitCountNeedle);
@@ -842,7 +850,11 @@ void DebuggerGetBreakpoints() {
 
 			for (int i = 0; i < breakpoints.Length(); i++) {
 				if (strcmp(breakpoints[i].fileFull, breakpoint.fileFull) == 0 &&
+						strcmp(breakpoints[i].condition, breakpoint.condition) == 0 &&
 						breakpoints[i].line == breakpoint.line) {
+					char buffer[1024];
+					StringFormat(buffer, 1024, "delete %d", breakpoint.number);
+					DebuggerSend(buffer, true, false);
 					goto doNext;
 				}
 			}
@@ -1019,8 +1031,7 @@ void CommandDeleteBreakpoint(void *_index) {
 	int index = (int) (intptr_t) _index;
 	Breakpoint *breakpoint = &breakpoints[index];
 	char buffer[1024];
-	if (breakpoint->watchpoint) StringFormat(buffer, 1024, "delete %d", breakpoint->watchpoint);
-	else StringFormat(buffer, 1024, "clear %s:%d", breakpoint->file, breakpoint->line);
+	StringFormat(buffer, 1024, "delete %d", breakpoint->number);
 	DebuggerSend(buffer, true, false);
 }
 
