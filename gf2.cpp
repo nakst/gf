@@ -55,8 +55,8 @@ struct Array {
 		memcpy(array + index, newItems, newCount * sizeof(T));
 	}
 
-	void Delete(uintptr_t index, size_t count = 1) { 
-		memmove(array + index, array + index + count, (length - index - count) * sizeof(T)); 
+	void Delete(uintptr_t index, size_t count = 1) {
+		memmove(array + index, array + index + count, (length - index - count) * sizeof(T));
 		length -= count;
 	}
 
@@ -202,11 +202,13 @@ UIFont *fontCode;
 // Breakpoints:
 
 struct Breakpoint {
+	int number;
 	char file[PATH_MAX];
 	char fileFull[PATH_MAX];
 	int line;
 	int watchpoint;
 	int hit;
+	bool enabled;
 };
 
 Array<Breakpoint> breakpoints;
@@ -380,8 +382,8 @@ bool INIParse(INIState *s) {
 	while (s->bytes) {
 		char c = *s->buffer;
 
-		if (c == ' ' || c == '\n' || c == '\r') { 
-			s->buffer++, s->bytes--; 
+		if (c == ' ' || c == '\n' || c == '\r') {
+			s->buffer++, s->bytes--;
 			continue;
 		} else if (c == ';') {
 			s->valueBytes = 0;
@@ -490,7 +492,7 @@ bool SourceFindOuterFunctionCall(char **start, char **end) {
 
 	// Look backwards for the start of the function name.
 	// TODO Support function pointers.
-	
+
 	while (offset > 0) {
 		char c = displayCode->content[offset];
 
@@ -544,7 +546,7 @@ void *DebuggerThread(void *) {
 
 #if defined(__FreeBSD__) || defined(__OpenBSD__) || defined(__NetBSD__) || defined(__APPLE__)
 	gdbPID = fork();
-	
+
 	if(gdbPID == 0) {
 		setsid();
 		dup2(inputPipe[0],  0);
@@ -785,6 +787,14 @@ void DebuggerGetBreakpoints() {
 
 		const char *next = position;
 
+		int number = atoi(position);
+
+		bool enabled = true;
+		const char *state_position = strstr(next + 1, " y ");
+
+		if (state_position && state_position < strchr(next + 1, '\n')) enabled = true;
+		else enabled = false;
+
 		while (true) {
 			next = strchr(next + 1, '\n');
 			if (!next || isdigit(next[1])) break;
@@ -796,6 +806,9 @@ void DebuggerGetBreakpoints() {
 		if (file) file += 4;
 
 		Breakpoint breakpoint = {};
+		breakpoint.number = number;
+		breakpoint.enabled = enabled;
+
 		bool recognised = true;
 
 		const char *hitCountNeedle = "breakpoint already hit";
@@ -829,7 +842,7 @@ void DebuggerGetBreakpoints() {
 			breakpoints.Add(breakpoint);
 		} else {
 			if (!strstr(position, "watchpoint")) goto doNext;
-			const char *address = strstr(position, " y  ");
+			const char *address = strstr(position, enabled ? " y  ":" n  ");
 			if (!address) goto doNext;
 			address += 2;
 			while (*address == ' ') address++;
@@ -1000,6 +1013,22 @@ void CommandDeleteBreakpoint(void *_index) {
 	char buffer[1024];
 	if (breakpoint->watchpoint) StringFormat(buffer, 1024, "delete %d", breakpoint->watchpoint);
 	else StringFormat(buffer, 1024, "clear %s:%d", breakpoint->file, breakpoint->line);
+	DebuggerSend(buffer, true, false);
+}
+
+void CommandDisableBreakpoint(void *_index) {
+	int index = (int) (intptr_t) _index;
+	Breakpoint *breakpoint = &breakpoints[index];
+	char buffer[1024];
+	StringFormat(buffer, 1024, "disable %d", breakpoint->number);
+	DebuggerSend(buffer, true, false);
+}
+
+void CommandEnableBreakpoint(void *_index) {
+	int index = (int) (intptr_t) _index;
+	Breakpoint *breakpoint = &breakpoints[index];
+	char buffer[1024];
+	StringFormat(buffer, 1024, "enable %d", breakpoint->number);
 	DebuggerSend(buffer, true, false);
 }
 
@@ -1397,7 +1426,7 @@ void MsgReceivedControl(char *input) {
 	}
 }
 
-__attribute__((constructor)) 
+__attribute__((constructor))
 void InterfaceAddBuiltinWindowsAndCommands() {
 	interfaceWindows.Add({ "Stack", StackWindowCreate, StackWindowUpdate });
 	interfaceWindows.Add({ "Source", SourceWindowCreate, SourceWindowUpdate });
@@ -1416,57 +1445,57 @@ void InterfaceAddBuiltinWindowsAndCommands() {
 
 	interfaceDataViewers.Add({ "Add bitmap...", BitmapAddDialog });
 
-	interfaceCommands.Add({ .label = "Run\tShift+F5", 
+	interfaceCommands.Add({ .label = "Run\tShift+F5",
 			{ .code = UI_KEYCODE_FKEY(5), .shift = true, .invoke = CommandSendToGDB, .cp = (void *) "r" } });
-	interfaceCommands.Add({ .label = "Run paused\tCtrl+F5", 
+	interfaceCommands.Add({ .label = "Run paused\tCtrl+F5",
 			{ .code = UI_KEYCODE_FKEY(5), .ctrl = true, .invoke = CommandSendToGDB, .cp = (void *) "start" } });
-	interfaceCommands.Add({ .label = "Kill\tF3", 
+	interfaceCommands.Add({ .label = "Kill\tF3",
 			{ .code = UI_KEYCODE_FKEY(3), .invoke = CommandSendToGDB, .cp = (void *) "kill" } });
-	interfaceCommands.Add({ .label = "Restart GDB\tCtrl+R", 
+	interfaceCommands.Add({ .label = "Restart GDB\tCtrl+R",
 			{ .code = UI_KEYCODE_LETTER('R'), .ctrl = true, .invoke = CommandSendToGDB, .cp = (void *) "gf-restart-gdb" } });
-	interfaceCommands.Add({ .label = "Connect\tF4", 
+	interfaceCommands.Add({ .label = "Connect\tF4",
 			{ .code = UI_KEYCODE_FKEY(4), .invoke = CommandSendToGDB, .cp = (void *) "target remote :1234" } });
-	interfaceCommands.Add({ .label = "Continue\tF5", 
+	interfaceCommands.Add({ .label = "Continue\tF5",
 			{ .code = UI_KEYCODE_FKEY(5), .invoke = CommandSendToGDB, .cp = (void *) "c" } });
-	interfaceCommands.Add({ .label = "Step over\tF10", 
+	interfaceCommands.Add({ .label = "Step over\tF10",
 			{ .code = UI_KEYCODE_FKEY(10), .invoke = CommandSendToGDB, .cp = (void *) "gf-next" } });
-	interfaceCommands.Add({ .label = "Step out of block\tShift+F10", 
+	interfaceCommands.Add({ .label = "Step out of block\tShift+F10",
 			{ .code = UI_KEYCODE_FKEY(10), .shift = true, .invoke = CommandSendToGDB, .cp = (void *) "gf-step-out-of-block" } });
-	interfaceCommands.Add({ .label = "Step in\tF11", 
+	interfaceCommands.Add({ .label = "Step in\tF11",
 			{ .code = UI_KEYCODE_FKEY(11), .invoke = CommandSendToGDB, .cp = (void *) "gf-step" } });
-	interfaceCommands.Add({ .label = "Step into outer\tShift+F8", 
+	interfaceCommands.Add({ .label = "Step into outer\tShift+F8",
 			{ .code = UI_KEYCODE_FKEY(8), .shift = true, .invoke = CommandSendToGDB, .cp = (void *) "gf-step-into-outer" } });
-	interfaceCommands.Add({ .label = "Step out\tShift+F11", 
+	interfaceCommands.Add({ .label = "Step out\tShift+F11",
 			{ .code = UI_KEYCODE_FKEY(11), .shift = true, .invoke = CommandSendToGDB, .cp = (void *) "finish" } });
-	interfaceCommands.Add({ .label = "Reverse continue\tCtrl+Shift+F5", 
+	interfaceCommands.Add({ .label = "Reverse continue\tCtrl+Shift+F5",
 			{ .code = UI_KEYCODE_FKEY(5), .ctrl = true, .shift = true, .invoke = CommandSendToGDB, .cp = (void *) "reverse-continue" } });
-	interfaceCommands.Add({ .label = "Reverse step over\tCtrl+Shift+F10", 
+	interfaceCommands.Add({ .label = "Reverse step over\tCtrl+Shift+F10",
 			{ .code = UI_KEYCODE_FKEY(10), .ctrl = true, .shift = true, .invoke = CommandSendToGDB, .cp = (void *) "reverse-next" } });
-	interfaceCommands.Add({ .label = "Reverse step in\tCtrl+Shift+F11", 
+	interfaceCommands.Add({ .label = "Reverse step in\tCtrl+Shift+F11",
 			{ .code = UI_KEYCODE_FKEY(11), .ctrl = true, .shift = true, .invoke = CommandSendToGDB, .cp = (void *) "reverse-step" } });
-	interfaceCommands.Add({ .label = "Pause\tF8", 
+	interfaceCommands.Add({ .label = "Pause\tF8",
 			{ .code = UI_KEYCODE_FKEY(8), .invoke = CommandPause } });
-	interfaceCommands.Add({ .label = "Toggle breakpoint\tF9", 
+	interfaceCommands.Add({ .label = "Toggle breakpoint\tF9",
 			{ .code = UI_KEYCODE_FKEY(9), .invoke = CommandToggleBreakpoint } });
-	interfaceCommands.Add({ .label = "Sync with gvim\tF2", 
+	interfaceCommands.Add({ .label = "Sync with gvim\tF2",
 			{ .code = UI_KEYCODE_FKEY(2), .invoke = CommandSyncWithGvim } });
-	interfaceCommands.Add({ .label = "Ask GDB for PWD\tCtrl+Shift+P", 
+	interfaceCommands.Add({ .label = "Ask GDB for PWD\tCtrl+Shift+P",
 			{ .code = UI_KEYCODE_LETTER('P'), .ctrl = true, .shift = true, .invoke = CommandSendToGDB, .cp = (void *) "gf-get-pwd" } });
-	interfaceCommands.Add({ .label = "Toggle disassembly\tCtrl+D", 
+	interfaceCommands.Add({ .label = "Toggle disassembly\tCtrl+D",
 			{ .code = UI_KEYCODE_LETTER('D'), .ctrl = true, .invoke = CommandToggleDisassembly } });
-	interfaceCommands.Add({ .label = "Set disassembly mode\tCtrl+M", 
+	interfaceCommands.Add({ .label = "Set disassembly mode\tCtrl+M",
 			{ .code = UI_KEYCODE_LETTER('M'), .ctrl = true, .invoke = CommandSetDisassemblyMode } });
-	interfaceCommands.Add({ .label = "Add watch", 
+	interfaceCommands.Add({ .label = "Add watch",
 			{ .invoke = CommandAddWatch } });
-	interfaceCommands.Add({ .label = "Inspect line", 
+	interfaceCommands.Add({ .label = "Inspect line",
 			{ .code = UI_KEYCODE_BACKTICK, .invoke = CommandInspectLine } });
 	interfaceCommands.Add({ .label = nullptr,
 			{ .code = UI_KEYCODE_LETTER('E'), .ctrl = true, .invoke = CommandWatchAddEntryForAddress } });
-	interfaceCommands.Add({ .label = nullptr, 
+	interfaceCommands.Add({ .label = nullptr,
 			{ .code = UI_KEYCODE_LETTER('G'), .ctrl = true, .invoke = CommandWatchViewSourceAtAddress } });
-	interfaceCommands.Add({ .label = nullptr, 
+	interfaceCommands.Add({ .label = nullptr,
 			{ .code = UI_KEYCODE_LETTER('B'), .ctrl = true, .invoke = CommandToggleFillDataTab } });
-	interfaceCommands.Add({ .label = "Donate", 
+	interfaceCommands.Add({ .label = "Donate",
 			{ .invoke = CommandDonate } });
 
 	msgReceivedData = ReceiveMessageRegister(MsgReceivedData);
@@ -1645,7 +1674,7 @@ void InterfaceLayoutCreate(UIElement *parent) {
 		for (int i = 0; i < interfaceWindows.Length(); i++) {
 			InterfaceWindow *w = &interfaceWindows[i];
 
-			if (0 == strcmp(token, w->name)) { 
+			if (0 == strcmp(token, w->name)) {
 				w->element = w->create(parent);
 				found = true;
 				break;
@@ -1755,7 +1784,7 @@ int main(int argc, char **argv) {
 			for (int i = 0; i < firstWatchWindow->baseExpressions.Length(); i++) {
 				fprintf(f, "%s\n", firstWatchWindow->baseExpressions[i]->key);
 			}
-			
+
 		        fclose(f);
 		} else {
 			fprintf(stderr, "Warning: Could not save the contents of the watch window; '%s' was not accessible.\n", globalConfigPath);
