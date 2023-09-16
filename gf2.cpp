@@ -1274,7 +1274,7 @@ void SettingsLoad(bool earlyPass) {
 					gdbArgv = (char **) realloc(gdbArgv, sizeof(char *) * (gdbArgc + 1));
 					gdbArgv[gdbArgc - 1] = state.value;
 					gdbArgv[gdbArgc] = nullptr;
-                } else if (0 == strcmp(state.key, "arguments")) {
+				} else if (0 == strcmp(state.key, "arguments")) {
 					char buffer[2048];
 
 					for (size_t i = 0; i < state.valueBytes; i++) {
@@ -1282,29 +1282,29 @@ void SettingsLoad(bool earlyPass) {
 							continue;
 						}
 
-						size_t argBegin = 0;
-						size_t argEnd = 0;
+						size_t argumentStart = 0;
+						size_t argumentEnd = 0;
 
 						if (state.value[i] == '\"') {
 							i++;
-							argBegin = i;
+							argumentStart = i;
 							for (; i < state.valueBytes && state.value[i] != '\"'; i++);
-							argEnd = i;
+							argumentEnd = i;
 							i++;
 						} else if (state.value[i] == '\'') {
 							i++;
-							argBegin = i;
+							argumentStart = i;
 							for (; i < state.valueBytes && state.value[i] != '\''; i++);
-							argEnd = i;
+							argumentEnd = i;
 							i++;
 						} else {
-							argBegin = i;
+							argumentStart = i;
 							i++;
 							for (; i < state.valueBytes && (state.value[i] != '\'' && state.value[i] != '\"' && !isspace(state.value[i])); i++);
-							argEnd = i;
+							argumentEnd = i;
 						}
 
-						StringFormat(buffer, sizeof(buffer), "%.*s", argEnd - argBegin, &state.value[argBegin]);
+						StringFormat(buffer, sizeof(buffer), "%.*s", argumentEnd - argumentStart, &state.value[argumentStart]);
 
 						gdbArgc++;
 						gdbArgv = (char **) realloc(gdbArgv, sizeof(char *) * (gdbArgc + 1));
