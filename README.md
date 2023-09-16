@@ -65,6 +65,13 @@ You can pass additional arguments to GDB in the `[gdb]` section. For example,
 argument=-nx
 argument=-ex record
 ```
+"argument" option is obsolete now, please use "arguments"
+
+```ini
+[gdb]
+arguments=-nx
+arguments=-ex record
+```
 
 You can also change the location of the GDB executable. For example,
 

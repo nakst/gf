@@ -1274,6 +1274,43 @@ void SettingsLoad(bool earlyPass) {
 					gdbArgv = (char **) realloc(gdbArgv, sizeof(char *) * (gdbArgc + 1));
 					gdbArgv[gdbArgc - 1] = state.value;
 					gdbArgv[gdbArgc] = nullptr;
+                } else if (0 == strcmp(state.key, "arguments")) {
+					char buffer[2048];
+
+					for (size_t i = 0; i < state.valueBytes; i++) {
+						if (isspace(state.value[i])) {
+							continue;
+						}
+
+						size_t argBegin = 0;
+						size_t argEnd = 0;
+
+						if (state.value[i] == '\"') {
+							i++;
+							argBegin = i;
+							for (; i < state.valueBytes && state.value[i] != '\"'; i++);
+							argEnd = i;
+							i++;
+						} else if (state.value[i] == '\'') {
+							i++;
+							argBegin = i;
+							for (; i < state.valueBytes && state.value[i] != '\''; i++);
+							argEnd = i;
+							i++;
+						} else {
+							argBegin = i;
+							i++;
+							for (; i < state.valueBytes && (state.value[i] != '\'' && state.value[i] != '\"' && !isspace(state.value[i])); i++);
+							argEnd = i;
+						}
+
+						StringFormat(buffer, sizeof(buffer), "%.*s", argEnd - argBegin, &state.value[argBegin]);
+
+						gdbArgc++;
+						gdbArgv = (char **) realloc(gdbArgv, sizeof(char *) * (gdbArgc + 1));
+						gdbArgv[gdbArgc - 1] = strdup(buffer);
+						gdbArgv[gdbArgc] = nullptr;
+					}
 				} else if (0 == strcmp(state.key, "path")) {
 					gdbPath = state.value;
 				} else if (0 == strcmp(state.key, "log_all_output") && atoi(state.value)) {
