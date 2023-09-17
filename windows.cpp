@@ -2241,7 +2241,7 @@ int TableBreakpointsMessage(UIElement *element, UIMessage message, int di, void 
 		int index = UITableHitTest((UITable *) element, element->window->cursorX, element->window->cursorY);
 
 		if (index != -1) {
-			if (element->window->ctrl) {
+			if (element->window->ctrl || element->window->shift) {
 				bool breakpointIsSelected = false;
 				int i;
 				for (i = 0; i < selectedBreakpoints.Length(); i++) {
@@ -2251,6 +2251,20 @@ int TableBreakpointsMessage(UIElement *element, UIMessage message, int di, void 
 					}
 				}
 				breakpointIsSelected ? selectedBreakpoints.Delete(i) : selectedBreakpoints.Add(index);
+
+				if (element->window->shift) {
+					if (selectedBreakpoints.Length() > 1) {
+						int max = selectedBreakpoints[0];
+						int min = selectedBreakpoints[0];
+						for (int i = 1; i < selectedBreakpoints.Length(); i++) {
+							max = max > selectedBreakpoints[i] ? max : selectedBreakpoints[i];
+							min = min < selectedBreakpoints[i] ? min : selectedBreakpoints[i];
+						}
+
+						selectedBreakpoints.Free();
+						for (int i = min; i <= max; i++) selectedBreakpoints.Add(i);
+					}
+				}
 			} else {
 				selectedBreakpoints.Free();
 				selectedBreakpoints.Add(index);
