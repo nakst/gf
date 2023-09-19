@@ -2170,15 +2170,15 @@ int TableBreakpointsMessage(UIElement *element, UIMessage message, int di, void 
 	if (message == UI_MSG_TABLE_GET_ITEM) {
 		UITableGetItem *m = (UITableGetItem *) dp;
 
+		Breakpoint *entry = &breakpoints[m->index];
+
 		m->isSelected = false;
 		for (int i = 0; i < selectedBreakpoints.Length(); i++) {
-			if (m->index == selectedBreakpoints[i]) {
+			if (entry->number == selectedBreakpoints[i]) {
 				m->isSelected = true;
 				break;
 			}
 		}
-
-		Breakpoint *entry = &breakpoints[m->index];
 
 		if (m->column == 0) {
 			return StringFormat(m->buffer, m->bufferBytes, "%s", entry->file);
@@ -2195,13 +2195,15 @@ int TableBreakpointsMessage(UIElement *element, UIMessage message, int di, void 
 	} else if (message == UI_MSG_RIGHT_DOWN) {
 		int index = UITableHitTest((UITable *) element, element->window->cursorX, element->window->cursorY);
 
+		Breakpoint *entry = &breakpoints[index];
+
 		if (selectedBreakpoints.Length() <= 1) {
 			selectedBreakpoints.Free();
-			selectedBreakpoints.Add(index);
+			selectedBreakpoints.Add(entry->number);
 		} else {
 			bool breakpointIsSelected = false;
 			for (int i = 0; i < selectedBreakpoints.Length(); i++) {
-				if (selectedBreakpoints[i] == index) {
+				if (selectedBreakpoints[i] == entry->number) {
 					breakpointIsSelected = true;
 					break;
 				}
@@ -2209,7 +2211,7 @@ int TableBreakpointsMessage(UIElement *element, UIMessage message, int di, void 
 
 			if (!breakpointIsSelected) {
 				selectedBreakpoints.Free();
-				selectedBreakpoints.Add(index);
+				selectedBreakpoints.Add(entry->number);
 			}
 		}
 
@@ -2220,12 +2222,15 @@ int TableBreakpointsMessage(UIElement *element, UIMessage message, int di, void 
 				bool atLeastOneBreakpointDisabled = false;
 
 				for (int i = 0; i < selectedBreakpoints.Length(); i++) {
-					if (!breakpoints[selectedBreakpoints[i]].enabled) {
-						atLeastOneBreakpointDisabled = true;
-						break;
+					for (int j = 0; j < breakpoints.Length(); j++) {
+						if (breakpoints[j].number == selectedBreakpoints[i] && !breakpoints[j].enabled) {
+							atLeastOneBreakpointDisabled = true;
+							goto addMenuItems;
+						}
 					}
 				}
 
+				addMenuItems:
 				UIMenuAddItem(menu, 0, "Delete", -1, CommandDeleteSelectedBreakpoints, NULL);
 				UIMenuAddItem(menu, 0, atLeastOneBreakpointDisabled ? "Enable" : "Disable", -1,
 						atLeastOneBreakpointDisabled ? CommandEnableSelectedBreakpoints : CommandDisableSelectedBreakpoints, NULL);
@@ -2241,36 +2246,38 @@ int TableBreakpointsMessage(UIElement *element, UIMessage message, int di, void 
 		int index = UITableHitTest((UITable *) element, element->window->cursorX, element->window->cursorY);
 
 		if (index != -1) {
+			Breakpoint *entry = &breakpoints[index];
+
 			if (element->window->ctrl || element->window->shift) {
 				bool breakpointIsSelected = false;
 				int i;
 				for (i = 0; i < selectedBreakpoints.Length(); i++) {
-					if (selectedBreakpoints[i] == index) {
+					if (selectedBreakpoints[i] == entry->number) {
 						breakpointIsSelected = true;
 						break;
 					}
 				}
-				breakpointIsSelected ? selectedBreakpoints.Delete(i) : selectedBreakpoints.Add(index);
+				breakpointIsSelected ? selectedBreakpoints.Delete(i) : selectedBreakpoints.Add(entry->number);
 
-				if (element->window->shift) {
-					if (selectedBreakpoints.Length() > 1) {
-						int max = selectedBreakpoints[0];
-						int min = selectedBreakpoints[0];
-						for (int i = 1; i < selectedBreakpoints.Length(); i++) {
-							max = max > selectedBreakpoints[i] ? max : selectedBreakpoints[i];
-							min = min < selectedBreakpoints[i] ? min : selectedBreakpoints[i];
-						}
-
-						selectedBreakpoints.Free();
-						for (int i = min; i <= max; i++) selectedBreakpoints.Add(i);
-					}
-				}
+				// if (element->window->shift) {
+				// 	if (selectedBreakpoints.Length() > 1) {
+				// 		int max = selectedBreakpoints[0];
+				// 		int min = selectedBreakpoints[0];
+				// 		for (int i = 1; i < selectedBreakpoints.Length(); i++) {
+				// 			max = max > selectedBreakpoints[i] ? max : selectedBreakpoints[i];
+				// 			min = min < selectedBreakpoints[i] ? min : selectedBreakpoints[i];
+				// 		}
+				//
+				// 		selectedBreakpoints.Free();
+				// 		for (int i = min; i <= max; i++) selectedBreakpoints.Add(breakpoints[i].number);
+				// 	}
+				// }
 			} else {
 				selectedBreakpoints.Free();
-				selectedBreakpoints.Add(index);
+				selectedBreakpoints.Add(entry->number);
 
-				if (!breakpoints[index].watchpoint)
-					DisplaySetPosition(breakpoints[index].file, breakpoints[index].line, false);
+				if (!entry->watchpoint)
+					DisplaySetPosition(entry->file, entry->line, false);
 			}
 		} else selectedBreakpoints.Free();
 	}

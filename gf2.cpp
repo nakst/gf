@@ -1032,19 +1032,25 @@ void CommandEnableBreakpoint(void *_index) {
 
 void CommandDeleteSelectedBreakpoints(void *_cp) {
 	for (int i = 0; i < selectedBreakpoints.Length(); i++) {
-		CommandDeleteBreakpoint((void *) (intptr_t)selectedBreakpoints[i]);
+		char buffer[1024];
+		StringFormat(buffer, 1024, "delete %d", selectedBreakpoints[i]);
+		DebuggerSend(buffer, true, false);
 	}
 }
 
 void CommandDisableSelectedBreakpoints(void *_cp) {
 	for (int i = 0; i < selectedBreakpoints.Length(); i++) {
-		CommandDisableBreakpoint((void *) (intptr_t)selectedBreakpoints[i]);
+		char buffer[1024];
+		StringFormat(buffer, 1024, "disable %d", selectedBreakpoints[i]);
+		DebuggerSend(buffer, true, false);
 	}
 }
 
 void CommandEnableSelectedBreakpoints(void *_cp) {
 	for (int i = 0; i < selectedBreakpoints.Length(); i++) {
-		CommandEnableBreakpoint((void *) (intptr_t)selectedBreakpoints[i]);
+		char buffer[1024];
+		StringFormat(buffer, 1024, "enable %d", selectedBreakpoints[i]);
+		DebuggerSend(buffer, true, false);
 	}
 }
 
