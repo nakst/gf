@@ -2166,19 +2166,37 @@ void StackWindowUpdate(const char *, UIElement *_table) {
 // Breakpoints window:
 //////////////////////////////////////////////////////
 
+struct BreakpointTableData {
+	Array<int> selected;
+	int anchor;
+};
+
+#define BREAKPOINT_WINDOW_COMMAND_FOR_EACH_SELECTED(function, action) \
+void function(void *_cp) { \
+	BreakpointTableData *data = (BreakpointTableData *) _cp; \
+	for (int i = 0; i < data->selected.Length(); i++) { \
+		for (int j = 0; j < breakpoints.Length(); j++) { \
+			if (breakpoints[j].number == data->selected[i]) { \
+				char buffer[1024]; \
+				StringFormat(buffer, 1024, action " %d", data->selected[i]); \
+				DebuggerSend(buffer, true, false); \
+				break; \
+			} \
+		} \
+	} \
+}
+
+BREAKPOINT_WINDOW_COMMAND_FOR_EACH_SELECTED(CommandDeleteSelectedBreakpoints, "delete");
+BREAKPOINT_WINDOW_COMMAND_FOR_EACH_SELECTED(CommandDisableSelectedBreakpoints, "disable");
+BREAKPOINT_WINDOW_COMMAND_FOR_EACH_SELECTED(CommandEnableSelectedBreakpoints, "enable");
+
 int TableBreakpointsMessage(UIElement *element, UIMessage message, int di, void *dp) {
+	BreakpointTableData *data = (BreakpointTableData *) element->cp;
+
 	if (message == UI_MSG_TABLE_GET_ITEM) {
 		UITableGetItem *m = (UITableGetItem *) dp;
-
 		Breakpoint *entry = &breakpoints[m->index];
-
-		m->isSelected = false;
-		for (int i = 0; i < selectedBreakpoints.Length(); i++) {
-			if (entry->number == selectedBreakpoints[i]) {
-				m->isSelected = true;
-				break;
-			}
-		}
+		m->isSelected = data->selected.Contains(entry->number, nullptr);
 
 		if (m->column == 0) {
 			return StringFormat(m->buffer, m->bufferBytes, "%s", entry->file);
@@ -2197,33 +2215,20 @@ int TableBreakpointsMessage(UIElement *element, UIMessage message, int di, void 
 
 		Breakpoint *entry = &breakpoints[index];
 
-		if (selectedBreakpoints.Length() <= 1) {
-			selectedBreakpoints.Free();
-			selectedBreakpoints.Add(entry->number);
-		} else {
-			bool breakpointIsSelected = false;
-			for (int i = 0; i < selectedBreakpoints.Length(); i++) {
-				if (selectedBreakpoints[i] == entry->number) {
-					breakpointIsSelected = true;
-					break;
-				}
-			}
-
-			if (!breakpointIsSelected) {
-				selectedBreakpoints.Free();
-				selectedBreakpoints.Add(entry->number);
-			}
+		if (data->selected.Length() <= 1 || !data->selected.Contains(entry->number, nullptr)) {
+			if (!element->window->ctrl) data->selected.Free();
+			data->selected.Add(entry->number);
 		}
 
 		if (index != -1) {
 			UIMenu *menu = UIMenuCreate(&element->window->e, UI_MENU_NO_SCROLL);
 
-			if (selectedBreakpoints.Length() > 1) {
+			if (data->selected.Length() > 1) {
 				bool atLeastOneBreakpointDisabled = false;
 
-				for (int i = 0; i < selectedBreakpoints.Length(); i++) {
+				for (int i = 0; i < data->selected.Length(); i++) {
 					for (int j = 0; j < breakpoints.Length(); j++) {
-						if (breakpoints[j].number == selectedBreakpoints[i] && !breakpoints[j].enabled) {
+						if (breakpoints[j].number == data->selected[i] && !breakpoints[j].enabled) {
 							atLeastOneBreakpointDisabled = true;
 							goto addMenuItems;
 						}
@@ -2231,9 +2236,9 @@ int TableBreakpointsMessage(UIElement *element, UIMessage message, int di, void 
 				}
 
 				addMenuItems:
-				UIMenuAddItem(menu, 0, "Delete", -1, CommandDeleteSelectedBreakpoints, NULL);
+				UIMenuAddItem(menu, 0, "Delete", -1, CommandDeleteSelectedBreakpoints, data);
 				UIMenuAddItem(menu, 0, atLeastOneBreakpointDisabled ? "Enable" : "Disable", -1,
-						atLeastOneBreakpointDisabled ? CommandEnableSelectedBreakpoints : CommandDisableSelectedBreakpoints, NULL);
+						atLeastOneBreakpointDisabled ? CommandEnableSelectedBreakpoints : CommandDisableSelectedBreakpoints, data);
 			} else {
 				UIMenuAddItem(menu, 0, "Delete", -1, CommandDeleteBreakpoint, (void *) (intptr_t) index);
 				UIMenuAddItem(menu, 0, breakpoints[index].enabled ? "Disable" : "Enable", -1,
@@ -2248,38 +2253,37 @@ int TableBreakpointsMessage(UIElement *element, UIMessage message, int di, void 
 		if (index != -1) {
 			Breakpoint *entry = &breakpoints[index];
 
-			if (element->window->ctrl || element->window->shift) {
-				bool breakpointIsSelected = false;
-				int i;
-				for (i = 0; i < selectedBreakpoints.Length(); i++) {
-					if (selectedBreakpoints[i] == entry->number) {
-						breakpointIsSelected = true;
-						break;
-					}
-				}
-				breakpointIsSelected ? selectedBreakpoints.Delete(i) : selectedBreakpoints.Add(entry->number);
+			if (!element->window->shift) data->anchor = entry->number;
+			if (!element->window->ctrl)  data->selected.Free();
 
-				// if (element->window->shift) {
-				// 	if (selectedBreakpoints.Length() > 1) {
-				// 		int max = selectedBreakpoints[0];
-				// 		int min = selectedBreakpoints[0];
-				// 		for (int i = 1; i < selectedBreakpoints.Length(); i++) {
-				// 			max = max > selectedBreakpoints[i] ? max : selectedBreakpoints[i];
-				// 			min = min < selectedBreakpoints[i] ? min : selectedBreakpoints[i];
-				// 		}
-				//
-				// 		selectedBreakpoints.Free();
-				// 		for (int i = min; i <= max; i++) selectedBreakpoints.Add(breakpoints[i].number);
-				// 	}
-				// }
-			} else {
-				selectedBreakpoints.Free();
-				selectedBreakpoints.Add(entry->number);
+			uintptr_t from = 0, to = 0;
 
-				if (!entry->watchpoint)
-					DisplaySetPosition(entry->file, entry->line, false);
+			for (int i = 0; i < breakpoints.Length(); i++) {
+				if (breakpoints[i].number == entry->number) { from = i; }
+				if (breakpoints[i].number == data->anchor ) { to   = i; }
 			}
-		} else selectedBreakpoints.Free();
+
+			if (from > to) {
+				uintptr_t temp = from;
+				from = to, to = temp;
+			}
+
+			for (uintptr_t i = from; i <= to; i++) {
+				uintptr_t index;
+
+				if (element->window->ctrl && !element->window->shift && data->selected.Contains(breakpoints[i].number, &index)) {
+					data->selected.Delete(index);
+				} else {
+					data->selected.Add(breakpoints[i].number);
+				}
+			}
+
+			if (!entry->watchpoint && data->selected.Contains(entry->number, nullptr)) {
+				DisplaySetPosition(entry->file, entry->line, false);
+			}
+		} else if (!element->window->ctrl && !element->window->shift) {
+			data->selected.Free();
+		}
 	}
 
 	return 0;
@@ -2287,6 +2291,7 @@ int TableBreakpointsMessage(UIElement *element, UIMessage message, int di, void 
 
 UIElement *BreakpointsWindowCreate(UIElement *parent) {
 	UITable *table = UITableCreate(parent, 0, "File\tLine\tEnabled\tHit");
+	table->e.cp = (BreakpointTableData *) calloc(1, sizeof(BreakpointTableData));
 	table->e.messageUser = TableBreakpointsMessage;
 	return &table->e;
 }

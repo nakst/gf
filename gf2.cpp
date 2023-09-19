@@ -60,6 +60,17 @@ struct Array {
 		length -= count;
 	}
 
+	bool Contains(T item, uintptr_t *index) {
+		for (uintptr_t i = 0; i < length; i++) {
+			if (array[i] == item) {
+				if (index) *index = i;
+				return true;
+			}
+		}
+
+		return false;
+	}
+
 	void Insert(T item, uintptr_t index) { InsertMany(&item, index, 1); }
 	void Add(T item) { Insert(item, length); }
 	void Free() { free(array); array = nullptr; length = allocated = 0; }
@@ -212,7 +223,6 @@ struct Breakpoint {
 };
 
 Array<Breakpoint> breakpoints;
-Array<int> selectedBreakpoints;
 
 // Stack:
 
@@ -1028,30 +1038,6 @@ void CommandEnableBreakpoint(void *_index) {
 	char buffer[1024];
 	StringFormat(buffer, 1024, "enable %d", breakpoint->number);
 	DebuggerSend(buffer, true, false);
-}
-
-void CommandDeleteSelectedBreakpoints(void *_cp) {
-	for (int i = 0; i < selectedBreakpoints.Length(); i++) {
-		char buffer[1024];
-		StringFormat(buffer, 1024, "delete %d", selectedBreakpoints[i]);
-		DebuggerSend(buffer, true, false);
-	}
-}
-
-void CommandDisableSelectedBreakpoints(void *_cp) {
-	for (int i = 0; i < selectedBreakpoints.Length(); i++) {
-		char buffer[1024];
-		StringFormat(buffer, 1024, "disable %d", selectedBreakpoints[i]);
-		DebuggerSend(buffer, true, false);
-	}
-}
-
-void CommandEnableSelectedBreakpoints(void *_cp) {
-	for (int i = 0; i < selectedBreakpoints.Length(); i++) {
-		char buffer[1024];
-		StringFormat(buffer, 1024, "enable %d", selectedBreakpoints[i]);
-		DebuggerSend(buffer, true, false);
-	}
 }
 
 void CommandPause(void *) {
