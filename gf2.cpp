@@ -1540,6 +1540,36 @@ void InterfaceAddBuiltinWindowsAndCommands() {
 			{ .code = UI_KEYCODE_LETTER('G'), .ctrl = true, .invoke = CommandWatchViewSourceAtAddress } });
 	interfaceCommands.Add({ .label = nullptr,
 			{ .code = UI_KEYCODE_LETTER('B'), .ctrl = true, .invoke = CommandToggleFillDataTab } });
+	interfaceCommands.Add({ .label = nullptr,
+			{ .code = UI_KEYCODE_LETTER('P'), .ctrl = true, .shift = false, .invoke = [](void*) {
+				if (commandHistoryIndex < commandHistory.Length()) {
+					UITextboxClear(textboxInput, false);
+					UITextboxReplace(textboxInput, commandHistory[commandHistoryIndex], -1, false);
+					if (commandHistoryIndex < commandHistory.Length() - 1) commandHistoryIndex++;
+					UIElementRefresh(&textboxInput->e);
+				}
+		} } });
+	interfaceCommands.Add({ .label = nullptr,
+			{ .code = UI_KEYCODE_LETTER('N'), .ctrl = true, .shift = false, .invoke = [](void*) {
+				UITextboxClear(textboxInput, false);
+
+				if (commandHistoryIndex > 0) {
+					--commandHistoryIndex;
+					UITextboxReplace(textboxInput, commandHistory[commandHistoryIndex], -1, false);
+				}
+
+				UIElementRefresh(&textboxInput->e);
+		} } });
+	interfaceCommands.Add({ .label = nullptr,
+			{ .code = UI_KEYCODE_LETTER('L'), .ctrl = true, .shift = false, .invoke = [](void*) {
+				UI_FREE(displayOutput->content);
+				UI_FREE(displayOutput->lines);
+				displayOutput->content = NULL;
+				displayOutput->lines = NULL;
+				displayOutput->contentBytes = 0;
+				displayOutput->lineCount = 0;
+				UIElementRefresh(&displayOutput->e);
+		} } });
 	interfaceCommands.Add({ .label = "Donate",
 			{ .invoke = CommandDonate } });
 
