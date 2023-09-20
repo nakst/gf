@@ -2213,14 +2213,14 @@ int TableBreakpointsMessage(UIElement *element, UIMessage message, int di, void 
 	} else if (message == UI_MSG_RIGHT_DOWN) {
 		int index = UITableHitTest((UITable *) element, element->window->cursorX, element->window->cursorY);
 
-		Breakpoint *entry = &breakpoints[index];
-
-		if (data->selected.Length() <= 1 || !data->selected.Contains(entry->number, nullptr)) {
-			if (!element->window->ctrl) data->selected.Free();
-			data->selected.Add(entry->number);
-		}
-
 		if (index != -1) {
+			Breakpoint *entry = &breakpoints[index];
+
+			if (data->selected.Length() <= 1 || !data->selected.Contains(entry->number, nullptr)) {
+				if (!element->window->ctrl) data->selected.Free();
+				data->selected.Add(entry->number);
+			}
+
 			UIMenu *menu = UIMenuCreate(&element->window->e, UI_MENU_NO_SCROLL);
 
 			if (data->selected.Length() > 1) {
