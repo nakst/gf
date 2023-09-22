@@ -1027,29 +1027,18 @@ void CommandSendToGDB(void *_string) {
 	CommandParseInternal((const char *) _string, false);
 }
 
-void CommandDeleteBreakpoint(void *_index) {
-	int index = (int) (intptr_t) _index;
-	Breakpoint *breakpoint = &breakpoints[index];
-	char buffer[1024];
-	StringFormat(buffer, 1024, "delete %d", breakpoint->number);
-	DebuggerSend(buffer, true, false);
+#define BREAKPOINT_COMMAND(function, action) \
+void function(void *_index) { \
+	int index = (int) (intptr_t) _index; \
+	Breakpoint *breakpoint = &breakpoints[index]; \
+	char buffer[1024]; \
+	StringFormat(buffer, 1024, action " %d", breakpoint->number); \
+	DebuggerSend(buffer, true, false); \
 }
 
-void CommandDisableBreakpoint(void *_index) {
-	int index = (int) (intptr_t) _index;
-	Breakpoint *breakpoint = &breakpoints[index];
-	char buffer[1024];
-	StringFormat(buffer, 1024, "disable %d", breakpoint->number);
-	DebuggerSend(buffer, true, false);
-}
-
-void CommandEnableBreakpoint(void *_index) {
-	int index = (int) (intptr_t) _index;
-	Breakpoint *breakpoint = &breakpoints[index];
-	char buffer[1024];
-	StringFormat(buffer, 1024, "enable %d", breakpoint->number);
-	DebuggerSend(buffer, true, false);
-}
+BREAKPOINT_COMMAND(CommandDeleteBreakpoint, "delete");
+BREAKPOINT_COMMAND(CommandDisableBreakpoint, "disable");
+BREAKPOINT_COMMAND(CommandEnableBreakpoint, "enable");
 
 void CommandPause(void *) {
 	kill(gdbPID, SIGINT);
