@@ -10,6 +10,7 @@
 
 // TODO More data visualization tools in the data window.
 
+#include <cstdint>
 #include <pthread.h>
 #include <unistd.h>
 #include <signal.h>
@@ -87,7 +88,7 @@ struct MapShort {
 	struct { K key; V value; } *array;
 	size_t used, capacity;
 
-	uint64_t Hash(uint8_t *key, size_t keyBytes) {
+	static uint64_t Hash(uint8_t *key, size_t keyBytes) {
 		uint64_t hash = 0xCBF29CE484222325;
 		for (uintptr_t i = 0; i < keyBytes; i++) hash = (hash ^ key[i]) * 0x100000001B3;
 		return hash;
@@ -220,7 +221,8 @@ struct Breakpoint {
 	int watchpoint;
 	int hit;
 	bool enabled;
-	char condition[1024];
+	char condition[128];
+	uint64_t hashedCondition;
 };
 
 Array<Breakpoint> breakpoints;
@@ -824,8 +826,11 @@ void DebuggerGetBreakpoints() {
 		if (condition && condition < next) {
 			const char *end = strchr(condition, '\n');
 			condition += 13;
+
 			StringFormat(breakpoint.condition, sizeof(breakpoint.condition), "%.*s", (int) (end - condition), condition);
-		}
+		} else StringFormat(breakpoint.condition, sizeof(breakpoint.condition), "");
+
+		breakpoint.hashedCondition = MapShort<int, int>::Hash((uint8_t*)breakpoint.condition, sizeof(breakpoint.condition));
 
 		const char *hitCountNeedle = "breakpoint already hit";
 		const char *hitCount = strstr(position, hitCountNeedle);
@@ -850,11 +855,11 @@ void DebuggerGetBreakpoints() {
 
 			for (int i = 0; i < breakpoints.Length(); i++) {
 				if (strcmp(breakpoints[i].fileFull, breakpoint.fileFull) == 0 &&
-						strcmp(breakpoints[i].condition, breakpoint.condition) == 0 &&
+						breakpoints[i].hashedCondition == breakpoint.hashedCondition &&
 						breakpoints[i].line == breakpoint.line) {
 					char buffer[1024];
 					StringFormat(buffer, 1024, "delete %d", breakpoint.number);
-					DebuggerSend(buffer, true, false);
+					DebuggerSend(buffer, true, true);
 					goto doNext;
 				}
 			}
