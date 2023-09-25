@@ -827,6 +827,36 @@ void BitmapAddDialog(void *) {
 Array<char *> commandHistory;
 int commandHistoryIndex;
 
+void CommandPreviousCommand(void *) {
+	if (commandHistoryIndex < commandHistory.Length()) {
+		UITextboxClear(textboxInput, false);
+		UITextboxReplace(textboxInput, commandHistory[commandHistoryIndex], -1, false);
+		if (commandHistoryIndex < commandHistory.Length() - 1) commandHistoryIndex++;
+		UIElementRefresh(&textboxInput->e);
+	}
+}
+
+void CommandNextCommand(void *) {
+	UITextboxClear(textboxInput, false);
+
+	if (commandHistoryIndex > 0) {
+		commandHistoryIndex--;
+		UITextboxReplace(textboxInput, commandHistory[commandHistoryIndex], -1, false);
+	}
+
+	UIElementRefresh(&textboxInput->e);
+}
+
+void CommandClearOutput(void *) {
+	UI_FREE(displayOutput->content);
+	UI_FREE(displayOutput->lines);
+	displayOutput->content = NULL;
+	displayOutput->lines = NULL;
+	displayOutput->contentBytes = 0;
+	displayOutput->lineCount = 0;
+	UIElementRefresh(&displayOutput->e);
+}
+
 int TextboxInputMessage(UIElement *element, UIMessage message, int di, void *dp) {
 	UITextbox *textbox = (UITextbox *) element;
 
@@ -877,12 +907,7 @@ int TextboxInputMessage(UIElement *element, UIMessage message, int di, void *dp)
 					DisplaySetPosition(NULL, currentLine - 1, false);
 				}
 			} else {
-				if (commandHistoryIndex < commandHistory.Length()) {
-					UITextboxClear(textbox, false);
-					UITextboxReplace(textbox, commandHistory[commandHistoryIndex], -1, false);
-					if (commandHistoryIndex < commandHistory.Length() - 1) commandHistoryIndex++;
-					UIElementRefresh(&textbox->e);
-				}
+				CommandPreviousCommand(NULL);
 			}
 		} else if (m->code == UI_KEYCODE_DOWN) {
 			if (element->window->shift) {
@@ -890,14 +915,7 @@ int TextboxInputMessage(UIElement *element, UIMessage message, int di, void *dp)
 					DisplaySetPosition(NULL, currentLine + 1, false);
 				}
 			} else {
-				UITextboxClear(textbox, false);
-
-				if (commandHistoryIndex > 0) {
-					--commandHistoryIndex;
-					UITextboxReplace(textbox, commandHistory[commandHistoryIndex], -1, false);
-				}
-
-				UIElementRefresh(&textbox->e);
+				CommandNextCommand(NULL);
 			}
 		}
 	}
