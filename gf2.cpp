@@ -10,7 +10,7 @@
 
 // TODO More data visualization tools in the data window.
 
-#include <cstdint>
+#include <stdint.h>
 #include <pthread.h>
 #include <unistd.h>
 #include <signal.h>
@@ -83,16 +83,16 @@ struct Array {
 	void DeleteSwap(uintptr_t index) { if (index != length - 1) array[index] = Last(); Pop(); }
 };
 
+uint64_t Hash(const uint8_t *key, size_t keyBytes) {
+	uint64_t hash = 0xCBF29CE484222325;
+	for (uintptr_t i = 0; i < keyBytes; i++) hash = (hash ^ key[i]) * 0x100000001B3;
+	return hash;
+}
+
 template <class K, class V>
 struct MapShort {
 	struct { K key; V value; } *array;
 	size_t used, capacity;
-
-	static uint64_t Hash(uint8_t *key, size_t keyBytes) {
-		uint64_t hash = 0xCBF29CE484222325;
-		for (uintptr_t i = 0; i < keyBytes; i++) hash = (hash ^ key[i]) * 0x100000001B3;
-		return hash;
-	}
 
 	V *At(K key, bool createIfNeeded) {
 		if (used + 1 > capacity / 2) {
@@ -222,7 +222,7 @@ struct Breakpoint {
 	int hit;
 	bool enabled;
 	char condition[128];
-	uint64_t hashedCondition;
+	uint64_t conditionHash;
 };
 
 Array<Breakpoint> breakpoints;
@@ -823,14 +823,13 @@ void DebuggerGetBreakpoints() {
 		bool recognised = true;
 
 		const char *condition = strstr(position, "stop only if ");
+
 		if (condition && condition < next) {
 			const char *end = strchr(condition, '\n');
 			condition += 13;
-
 			StringFormat(breakpoint.condition, sizeof(breakpoint.condition), "%.*s", (int) (end - condition), condition);
-		} else StringFormat(breakpoint.condition, sizeof(breakpoint.condition), "");
-
-		breakpoint.hashedCondition = MapShort<int, int>::Hash((uint8_t*)breakpoint.condition, sizeof(breakpoint.condition));
+			breakpoint.conditionHash = Hash((const uint8_t *) condition, end - condition);
+		}
 
 		const char *hitCountNeedle = "breakpoint already hit";
 		const char *hitCount = strstr(position, hitCountNeedle);
@@ -854,9 +853,10 @@ void DebuggerGetBreakpoints() {
 			realpath(breakpoint.file, breakpoint.fileFull);
 
 			for (int i = 0; i < breakpoints.Length(); i++) {
-				if (strcmp(breakpoints[i].fileFull, breakpoint.fileFull) == 0 &&
-						breakpoints[i].hashedCondition == breakpoint.hashedCondition &&
-						breakpoints[i].line == breakpoint.line) {
+				if (strcmp(breakpoints[i].fileFull, breakpoint.fileFull) == 0
+						&& breakpoints[i].conditionHash == breakpoint.conditionHash
+						&& breakpoints[i].line == breakpoint.line) {
+					// Prevent having identical breakpoints on the same line.
 					char buffer[1024];
 					StringFormat(buffer, 1024, "delete %d", breakpoint.number);
 					DebuggerSend(buffer, true, true);

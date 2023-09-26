@@ -267,19 +267,19 @@ void DisplayCodeDrawInspectLineModeOverlay(UIPainter *painter) {
 	UIDrawString(painter, line, instructions, -1, ui.theme.codeNumber, UI_ALIGN_RIGHT, NULL);
 }
 
-#define COMMAND_FOR_EACH_LINE(function, command) \
-void function(void *_line) { \
-    int line = (int) (intptr_t) _line; \
-    for (int i = 0; i < breakpoints.Length(); i++) { \
-        if (breakpoints[i].line == line && 0 == strcmp(breakpoints[i].fileFull, currentFileFull)) { \
-            command((void *) (intptr_t) i); \
-        } \
-    } \
-}
+#define DISPLAY_CODE_COMMAND_FOR_ALL_BREAKPOINTS_ON_LINE(function, command) \
+	void function(void *_line) { \
+		int line = (int) (intptr_t) _line; \
+		for (int i = 0; i < breakpoints.Length(); i++) { \
+			if (breakpoints[i].line == line && 0 == strcmp(breakpoints[i].fileFull, currentFileFull)) { \
+				command((void *) (intptr_t) i); \
+			} \
+		} \
+	}
 
-COMMAND_FOR_EACH_LINE(deleteBreakpoints, CommandDeleteBreakpoint);
-COMMAND_FOR_EACH_LINE(disableBreakpoints, CommandDisableBreakpoint);
-COMMAND_FOR_EACH_LINE(enableBreakpoints, CommandEnableBreakpoint);
+DISPLAY_CODE_COMMAND_FOR_ALL_BREAKPOINTS_ON_LINE(CommandDeleteAllBreakpointsOnLine,  CommandDeleteBreakpoint );
+DISPLAY_CODE_COMMAND_FOR_ALL_BREAKPOINTS_ON_LINE(CommandDisableAllBreakpointsOnLine, CommandDisableBreakpoint);
+DISPLAY_CODE_COMMAND_FOR_ALL_BREAKPOINTS_ON_LINE(CommandEnableAllBreakpointsOnLine,  CommandEnableBreakpoint );
 
 int DisplayCodeMessage(UIElement *element, UIMessage message, int di, void *dp) {
 	if (message == UI_MSG_CLICKED && !showingDisassembly) {
@@ -307,6 +307,7 @@ int DisplayCodeMessage(UIElement *element, UIMessage message, int di, void *dp) 
 		int result = UICodeHitTest((UICode *) element, element->window->cursorX, element->window->cursorY);
 
 		bool atLeastOneBreakpointEnabled = false;
+
 		for (int i = 0; i < breakpoints.Length(); i++) {
 			if (breakpoints[i].line == -result && 0 == strcmp(breakpoints[i].fileFull, currentFileFull) && breakpoints[i].enabled) {
 				atLeastOneBreakpointEnabled = true;
@@ -317,24 +318,26 @@ int DisplayCodeMessage(UIElement *element, UIMessage message, int di, void *dp) 
 		for (int i = 0; i < breakpoints.Length(); i++) {
 			if (breakpoints[i].line == -result && 0 == strcmp(breakpoints[i].fileFull, currentFileFull)) {
 				UIMenu *menu = UIMenuCreate(&element->window->e, UI_MENU_NO_SCROLL);
-				UIMenuAddItem(menu, 0, "Delete", -1, deleteBreakpoints, (void *) (intptr_t)-result);
-
+				UIMenuAddItem(menu, 0, "Delete", -1, CommandDeleteAllBreakpointsOnLine, (void *) (intptr_t)-result);
 				UIMenuAddItem(menu, 0, atLeastOneBreakpointEnabled ? "Disable" : "Enable", -1,
-						atLeastOneBreakpointEnabled ? disableBreakpoints : enableBreakpoints, (void *) (intptr_t) -result);
-
+						atLeastOneBreakpointEnabled ? CommandDisableAllBreakpointsOnLine : CommandEnableAllBreakpointsOnLine, 
+						(void *) (intptr_t) -result);
 				UIMenuShow(menu);
 			}
 		}
 	} else if (message == UI_MSG_CODE_GET_MARGIN_COLOR && !showingDisassembly) {
-		bool breakpointDisabled = false;
+		bool atLeastOneBreakpointDisabled = false;
+
 		for (int i = 0; i < breakpoints.Length(); i++) {
 			if (breakpoints[i].line == di && 0 == strcmp(breakpoints[i].fileFull, currentFileFull)) {
 				if (breakpoints[i].enabled) return 0xFF0000;
-				else breakpointDisabled = true;
+				else atLeastOneBreakpointDisabled = true;
 			}
 		}
-		if (breakpointDisabled) return 0x822454;
 
+		if (atLeastOneBreakpointDisabled) {
+			return 0x822454;
+		}
 	} else if (message == UI_MSG_PAINT) {
 		element->messageClass(element, message, di, dp);
 
