@@ -218,7 +218,7 @@ struct Breakpoint {
 	char file[PATH_MAX];
 	char fileFull[PATH_MAX];
 	int line;
-	int watchpoint;
+	bool watchpoint;
 	int hit;
 	bool enabled;
 	char condition[128];
@@ -874,7 +874,7 @@ void DebuggerGetBreakpoints() {
 			if (isspace(*address)) goto doNext;
 			const char *end = strchr(address, '\n');
 			if (!end) goto doNext;
-			breakpoint.watchpoint = atoi(position + 1);
+			breakpoint.watchpoint = true;
 			snprintf(breakpoint.file, sizeof(breakpoint.file), "%.*s", (int) (end - address), address);
 			breakpoints.Add(breakpoint);
 		}

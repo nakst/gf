@@ -2250,7 +2250,7 @@ int TableBreakpointsMessage(UIElement *element, UIMessage message, int di, void 
 		if (m->column == 0) {
 			return StringFormat(m->buffer, m->bufferBytes, "%s", entry->file);
 		} else if (m->column == 1) {
-			if (entry->watchpoint) return StringFormat(m->buffer, m->bufferBytes, "watch %d", entry->watchpoint);
+			if (entry->watchpoint) return StringFormat(m->buffer, m->bufferBytes, "watch %d", entry->number);
 			else return StringFormat(m->buffer, m->bufferBytes, "%d", entry->line);
 		} else if (m->column == 2) {
 			return StringFormat(m->buffer, m->bufferBytes, "%s", entry->enabled ? "yes" : "no");
