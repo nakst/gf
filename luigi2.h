@@ -2569,7 +2569,7 @@ int UIDrawStringHighlighted(UIPainter *painter, UIRectangle lineBounds, const ch
 	int y = (lineBounds.t + lineBounds.b - UIMeasureStringHeight()) / 2;
 	int ti = 0;
 	int lexState = 0;
-	bool inComment = false, inIdentifier = false, inChar = false, startedString = false;
+	bool inComment = false, inIdentifier = false, inChar = false, startedString = false, startedPreprocessor = false;
 	uint32_t last = 0;
 
 	while (bytes--) {
@@ -2578,11 +2578,16 @@ int UIDrawStringHighlighted(UIPainter *painter, UIRectangle lineBounds, const ch
 		last <<= 8;
 		last |= c;
 
-		if (lexState == 4) {
+		if (lexState == 5) {
+			if (bytes && c == '/' && (*string == '/' || *string == '*')) {
+				lexState = 0;
+			}
+		} else if (lexState == 4) {
 			lexState = 0;
 		} else if (lexState == 1) {
 			if ((last & 0xFF0000) == ('*' << 16) && (last & 0xFF00) == ('/' << 8) && inComment) {
-				lexState = 0, inComment = false;
+				lexState = startedPreprocessor ? 5 : 0;
+				inComment = false;
 			}
 		} else if (lexState == 3) {
 			if (!_UICharIsAlpha(c) && !_UICharIsDigit(c)) {
@@ -2603,6 +2608,7 @@ int UIDrawStringHighlighted(UIPainter *painter, UIRectangle lineBounds, const ch
 		if (lexState == 0) {
 			if (c == '#') {
 				lexState = 5;
+				startedPreprocessor = true;
 			} else if (bytes && c == '/' && *string == '/') {
 				lexState = 1;
 			} else if (bytes && c == '/' && *string == '*') {
