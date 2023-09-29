@@ -2556,6 +2556,15 @@ int UIDrawStringHighlighted(UIPainter *painter, UIRectangle lineBounds, const ch
 	if (bytes == -1) bytes = _UIStringLength(string);
 	if (bytes > 10000) bytes = 10000;
 
+	typedef enum _UICodeTokenType {
+		UI_CODE_TOKEN_TYPE_DEFAULT,
+		UI_CODE_TOKEN_TYPE_COMMENT,
+		UI_CODE_TOKEN_TYPE_STRING,
+		UI_CODE_TOKEN_TYPE_NUMBER,
+		UI_CODE_TOKEN_TYPE_OPERATOR,
+		UI_CODE_TOKEN_TYPE_PREPROCESSOR,
+	} _UICodeTokenType;
+
 	uint32_t colors[] = {
 		ui.theme.codeDefault,
 		ui.theme.codeComment,
@@ -2568,7 +2577,7 @@ int UIDrawStringHighlighted(UIPainter *painter, UIRectangle lineBounds, const ch
 	int x = lineBounds.l;
 	int y = (lineBounds.t + lineBounds.b - UIMeasureStringHeight()) / 2;
 	int ti = 0;
-	int lexState = 0;
+	_UICodeTokenType tokenType = UI_CODE_TOKEN_TYPE_DEFAULT;
 	bool inComment = false, inIdentifier = false, inChar = false, startedString = false, startedPreprocessor = false;
 	uint32_t last = 0;
 
@@ -2578,53 +2587,53 @@ int UIDrawStringHighlighted(UIPainter *painter, UIRectangle lineBounds, const ch
 		last <<= 8;
 		last |= c;
 
-		if (lexState == 5) {
+		if (tokenType == UI_CODE_TOKEN_TYPE_PREPROCESSOR) {
 			if (bytes && c == '/' && (*string == '/' || *string == '*')) {
-				lexState = 0;
+				tokenType = UI_CODE_TOKEN_TYPE_DEFAULT;
 			}
-		} else if (lexState == 4) {
-			lexState = 0;
-		} else if (lexState == 1) {
+		} else if (tokenType == UI_CODE_TOKEN_TYPE_OPERATOR) {
+			tokenType = UI_CODE_TOKEN_TYPE_DEFAULT;
+		} else if (tokenType == UI_CODE_TOKEN_TYPE_COMMENT) {
 			if ((last & 0xFF0000) == ('*' << 16) && (last & 0xFF00) == ('/' << 8) && inComment) {
-				lexState = startedPreprocessor ? 5 : 0;
+				tokenType = startedPreprocessor ? UI_CODE_TOKEN_TYPE_PREPROCESSOR : UI_CODE_TOKEN_TYPE_DEFAULT;
 				inComment = false;
 			}
-		} else if (lexState == 3) {
+		} else if (tokenType == UI_CODE_TOKEN_TYPE_NUMBER) {
 			if (!_UICharIsAlpha(c) && !_UICharIsDigit(c)) {
-				lexState = 0;
+				tokenType = UI_CODE_TOKEN_TYPE_DEFAULT;
 			}
-		} else if (lexState == 2) {
+		} else if (tokenType == UI_CODE_TOKEN_TYPE_STRING) {
 			if (!startedString) {
 				if (!inChar && ((last >> 8) & 0xFF) == '"' && ((last >> 16) & 0xFF) != '\\') {
-					lexState = 0;
+					tokenType = UI_CODE_TOKEN_TYPE_DEFAULT;
 				} else if (inChar && ((last >> 8) & 0xFF) == '\'' && ((last >> 16) & 0xFF) != '\\') {
-					lexState = 0;
+					tokenType = UI_CODE_TOKEN_TYPE_DEFAULT;
 				}
 			}
 
 			startedString = false;
 		}
 
-		if (lexState == 0) {
+		if (tokenType == UI_CODE_TOKEN_TYPE_DEFAULT) {
 			if (c == '#') {
-				lexState = 5;
+				tokenType = UI_CODE_TOKEN_TYPE_PREPROCESSOR;
 				startedPreprocessor = true;
 			} else if (bytes && c == '/' && *string == '/') {
-				lexState = 1;
+				tokenType = UI_CODE_TOKEN_TYPE_COMMENT;
 			} else if (bytes && c == '/' && *string == '*') {
-				lexState = 1, inComment = true;
+				tokenType = UI_CODE_TOKEN_TYPE_COMMENT, inComment = true;
 			} else if (c == '"') {
-				lexState = 2;
+				tokenType = UI_CODE_TOKEN_TYPE_STRING;
 				inChar = false;
 				startedString = true;
 			} else if (c == '\'') {
-				lexState = 2;
+				tokenType = UI_CODE_TOKEN_TYPE_STRING;
 				inChar = true;
 				startedString = true;
 			} else if (_UICharIsDigit(c) && !inIdentifier) {
-				lexState = 3;
+				tokenType = UI_CODE_TOKEN_TYPE_NUMBER;
 			} else if (!_UICharIsAlpha(c) && !_UICharIsDigit(c)) {
-				lexState = 4;
+				tokenType = UI_CODE_TOKEN_TYPE_OPERATOR;
 				inIdentifier = false;
 			} else {
 				inIdentifier = true;
@@ -2635,7 +2644,7 @@ int UIDrawStringHighlighted(UIPainter *painter, UIRectangle lineBounds, const ch
 			x += ui.activeFont->glyphWidth, ti++;
 			while (ti % tabSize) x += ui.activeFont->glyphWidth, ti++;
 		} else {
-			UIDrawGlyph(painter, x, y, c, colors[lexState]);
+			UIDrawGlyph(painter, x, y, c, colors[tokenType]);
 			x += ui.activeFont->glyphWidth, ti++;
 		}
 	}
