@@ -579,8 +579,9 @@ typedef struct UICodeLine {
 
 typedef struct UICode {
 #define UI_CODE_NO_MARGIN (1 << 0)
+#define UI_CODE_H_SCROLL (1 << 1)
 	UIElement e;
-	UIScrollBar *vScroll;
+	UIScrollBar *vScroll, *hScroll;
 	UICodeLine *lines;
 	UIFont *font;
 	int lineCount, focused;
@@ -588,6 +589,7 @@ typedef struct UICode {
 	char *content;
 	size_t contentBytes;
 	int tabSize;
+	int columns;
 } UICode;
 
 typedef struct UIGauge {
@@ -2666,8 +2668,22 @@ int _UICodeMessage(UIElement *element, UIMessage message, int di, void *dp) {
 		scrollBarBounds.l = scrollBarBounds.r - UI_SIZE_SCROLL_BAR * code->e.window->scale;
 		code->vScroll->maximum = code->lineCount * UIMeasureStringHeight();
 		code->vScroll->page = UI_RECT_HEIGHT(element->bounds);
-		UIFontActivate(previousFont);
+
+		if (code->hScroll) {
+			UIRectangle hScrollBarBounds = element->bounds;
+			if (~code->e.flags & UI_CODE_NO_MARGIN) hScrollBarBounds.l += UI_SIZE_CODE_MARGIN + UI_SIZE_CODE_MARGIN_GAP;
+			hScrollBarBounds.r -= UI_SIZE_SCROLL_BAR * code->e.window->scale;
+			hScrollBarBounds.t = hScrollBarBounds.b - UI_SIZE_SCROLL_BAR * code->e.window->scale;
+			code->hScroll->maximum = code->columns * code->font->glyphWidth;
+			code->hScroll->page = UI_RECT_WIDTH(element->bounds) - UI_SIZE_SCROLL_BAR * code->e.window->scale;
+			code->vScroll->page -= UI_SIZE_SCROLL_BAR * code->e.window->scale;
+			scrollBarBounds.b -= UI_SIZE_SCROLL_BAR * code->e.window->scale;
+			if (~code->e.flags & UI_CODE_NO_MARGIN) code->hScroll->page -= UI_SIZE_CODE_MARGIN + UI_SIZE_CODE_MARGIN_GAP;
+			UIElementMove(&code->hScroll->e, hScrollBarBounds, true);
+		}
+
 		UIElementMove(&code->vScroll->e, scrollBarBounds, true);
+		UIFontActivate(previousFont);
 	} else if (message == UI_MSG_PAINT) {
 		UIFont *previousFont = UIFontActivate(code->font);
 
@@ -2718,8 +2734,13 @@ int _UICodeMessage(UIElement *element, UIMessage message, int di, void *dp) {
 				UIDrawBlock(painter, lineBounds, ui.theme.codeFocused);
 			}
 
+			UIRectangle oldClip = painter->clip;
+			painter->clip = UIRectangleIntersection(oldClip, lineBounds);
+			if (code->hScroll) lineBounds.l -= (int64_t) code->hScroll->position;
 			int x = UIDrawStringHighlighted(painter, lineBounds, code->content + code->lines[i].offset, code->lines[i].bytes, code->tabSize);
 			int y = (lineBounds.t + lineBounds.b - UIMeasureStringHeight()) / 2;
+			if (code->hScroll) lineBounds.l += (int64_t) code->hScroll->position;
+			painter->clip = oldClip;
 
 			UICodeDecorateLine m;
 			m.x = x, m.y = y, m.bounds = lineBounds, m.index = i + 1, m.painter = painter;
@@ -2770,6 +2791,7 @@ void UICodeInsertContent(UICode *code, const char *content, ptrdiff_t byteCount,
 		code->lines = NULL;
 		code->contentBytes = 0;
 		code->lineCount = 0;
+		code->columns = 0;
 	}
 
 	code->content = (char *) UI_REALLOC(code->content, code->contentBytes + byteCount);
@@ -2796,6 +2818,7 @@ void UICodeInsertContent(UICode *code, const char *content, ptrdiff_t byteCount,
 			UICodeLine line = { 0 };
 			line.offset = offset + code->contentBytes;
 			line.bytes = i - offset;
+			if (line.bytes > code->columns) code->columns = line.bytes;
 			code->lines[code->lineCount + lineIndex] = line;
 			lineIndex++;
 			offset = i + 1;
@@ -2819,6 +2842,7 @@ UICode *UICodeCreate(UIElement *parent, uint32_t flags) {
 	code->vScroll = UIScrollBarCreate(&code->e, 0);
 	code->focused = -1;
 	code->tabSize = 4;
+	if (flags & UI_CODE_H_SCROLL) code->hScroll = UIScrollBarCreate(&code->e, UI_SCROLL_BAR_HORIZONTAL);
 	return code;
 }
 
