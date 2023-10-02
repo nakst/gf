@@ -598,7 +598,7 @@ typedef struct UIGauge {
 
 typedef struct UITable {
 	UIElement e;
-	UIScrollBar *vScroll;
+	UIScrollBar *vScroll, *hScroll;
 	int itemCount;
 	char *columns;
 	int *columnWidths, columnCount, columnHighlight;
@@ -3022,7 +3022,7 @@ int _UITableMessage(UIElement *element, UIMessage message, int di, void *dp) {
 		UIPainter *painter = (UIPainter *) dp;
 		UIRectangle bounds = element->bounds;
 		bounds.r = table->vScroll->e.bounds.l;
-		UIDrawControl(painter, bounds, UI_DRAW_CONTROL_TABLE_BACKGROUND | UI_DRAW_CONTROL_STATE_FROM_ELEMENT(element), NULL, 0, 0, element->window->scale);
+		UIDrawControl(painter, element->bounds, UI_DRAW_CONTROL_TABLE_BACKGROUND | UI_DRAW_CONTROL_STATE_FROM_ELEMENT(element), NULL, 0, 0, element->window->scale);
 		char buffer[256];
 		UIRectangle row = bounds;
 		int rowHeight = UI_SIZE_TABLE_ROW * element->window->scale;
@@ -3051,7 +3051,7 @@ int _UITableMessage(UIElement *element, UIMessage message, int di, void *dp) {
 			UIDrawControl(painter, row, UI_DRAW_CONTROL_TABLE_ROW | rowFlags, NULL, 0, 0, element->window->scale);
 
 			UIRectangle cell = row;
-			cell.l += UI_SIZE_TABLE_COLUMN_GAP * table->e.window->scale;
+			cell.l += UI_SIZE_TABLE_COLUMN_GAP - (table->hScroll ? (int64_t) table->hScroll->position : 0) * table->e.window->scale;
 
 			for (int j = 0; j < table->columnCount; j++) {
 				if (j) {
@@ -3068,7 +3068,10 @@ int _UITableMessage(UIElement *element, UIMessage message, int di, void *dp) {
 			row.t += rowHeight;
 		}
 
-		painter->clip = oldClip;
+		bounds = element->bounds;
+		painter->clip = UIRectangleIntersection(oldClip, bounds);
+		if (table->hScroll) bounds.l -= (int64_t) table->hScroll->position;
+
 		UIRectangle header = bounds;
 		header.b = header.t + UI_SIZE_TABLE_HEADER * table->e.window->scale;
 		header.l += UI_SIZE_TABLE_COLUMN_GAP * table->e.window->scale;
@@ -3095,11 +3098,42 @@ int _UITableMessage(UIElement *element, UIMessage message, int di, void *dp) {
 			}
 		}
 	} else if (message == UI_MSG_LAYOUT) {
-		UIRectangle scrollBarBounds = element->bounds;
+		int scrollBarSize = UI_SIZE_SCROLL_BAR * table->e.window->scale;
+
 		table->vScroll->maximum = table->itemCount * UI_SIZE_TABLE_ROW * element->window->scale;
-		table->vScroll->page = UI_RECT_HEIGHT(element->bounds) - UI_SIZE_TABLE_HEADER * table->e.window->scale;
-		scrollBarBounds.l = scrollBarBounds.r - (table->vScroll->page < table->vScroll->maximum ? UI_SIZE_SCROLL_BAR : 0) * element->window->scale;
-		UIElementMove(&table->vScroll->e, scrollBarBounds, true);
+
+		table->hScroll->maximum = 0;
+		int position = 0;
+		int index = 0;
+		if (table->columnCount) {
+			while (true) {
+				int end = position;
+				for (; table->columns[end] != '\t' && table->columns[end]; end++);
+
+				table->hScroll->maximum += table->columnWidths[index] + UI_SIZE_TABLE_COLUMN_GAP * table->e.window->scale;
+
+				if (table->columns[end] == '\t') {
+					position = end + 1;
+					index++;
+				} else {
+					break;
+				}
+			}
+		}
+
+		int vSpace = table->vScroll->page = UI_RECT_HEIGHT(element->bounds) - UI_SIZE_TABLE_HEADER;
+		int hSpace = table->hScroll->page = UI_RECT_WIDTH(element->bounds);
+
+		table->vScroll->page = vSpace - (table->hScroll->page < table->hScroll->maximum ? scrollBarSize : 0);
+		table->hScroll->page = hSpace - (table->vScroll->page < table->vScroll->maximum ? scrollBarSize : 0);
+		table->vScroll->page = vSpace - (table->hScroll->page < table->hScroll->maximum ? scrollBarSize : 0);
+
+		UIRectangle vScrollBarBounds = element->bounds, hScrollBarBounds = element->bounds;
+		hScrollBarBounds.r = vScrollBarBounds.l = vScrollBarBounds.r - (table->vScroll->page < table->vScroll->maximum ? scrollBarSize : 0);
+		vScrollBarBounds.b = hScrollBarBounds.t = hScrollBarBounds.b - (table->hScroll->page < table->hScroll->maximum ? scrollBarSize : 0);
+
+		UIElementMove(&table->hScroll->e, hScrollBarBounds, true);
+		UIElementMove(&table->vScroll->e, vScrollBarBounds, true);
 	} else if (message == UI_MSG_MOUSE_MOVE || message == UI_MSG_UPDATE) {
 		UIElementRepaint(element, NULL);
 	} else if (message == UI_MSG_SCROLLED) {
@@ -3117,6 +3151,7 @@ int _UITableMessage(UIElement *element, UIMessage message, int di, void *dp) {
 UITable *UITableCreate(UIElement *parent, uint32_t flags, const char *columns) {
 	UITable *table = (UITable *) UIElementCreate(sizeof(UITable), parent, flags, _UITableMessage, "Table");
 	table->vScroll = UIScrollBarCreate(&table->e, 0);
+	table->hScroll = UIScrollBarCreate(&table->e, UI_SCROLL_BAR_HORIZONTAL);
 	table->columns = UIStringCopy(columns, -1);
 	table->columnHighlight = -1;
 	return table;
