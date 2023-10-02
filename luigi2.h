@@ -579,7 +579,6 @@ typedef struct UICodeLine {
 
 typedef struct UICode {
 #define UI_CODE_NO_MARGIN (1 << 0)
-#define UI_CODE_H_SCROLL (1 << 1)
 	UIElement e;
 	UIScrollBar *vScroll, *hScroll;
 	UICodeLine *lines;
@@ -2672,13 +2671,13 @@ int _UICodeMessage(UIElement *element, UIMessage message, int di, void *dp) {
 
 		if (code->hScroll) {
 			UIRectangle hScrollBarBounds = element->bounds;
-			if (~code->e.flags & UI_CODE_NO_MARGIN) hScrollBarBounds.l += UI_SIZE_CODE_MARGIN + UI_SIZE_CODE_MARGIN_GAP;
-			hScrollBarBounds.r -= UI_SIZE_SCROLL_BAR * code->e.window->scale;
-			hScrollBarBounds.t = hScrollBarBounds.b - UI_SIZE_SCROLL_BAR * code->e.window->scale;
+			hScrollBarBounds.r = code->vScroll->e.bounds.l;
 			code->hScroll->maximum = code->columns * code->font->glyphWidth;
 			code->hScroll->page = UI_RECT_WIDTH(element->bounds) - UI_SIZE_SCROLL_BAR * code->e.window->scale;
 			code->vScroll->page -= UI_SIZE_SCROLL_BAR * code->e.window->scale;
-			scrollBarBounds.b -= UI_SIZE_SCROLL_BAR * code->e.window->scale;
+			scrollBarBounds.b = code->hScroll->e.bounds.t;
+			hScrollBarBounds.t = hScrollBarBounds.b - (code->hScroll->page < code->hScroll->maximum ? UI_SIZE_SCROLL_BAR : 0) * code->e.window->scale;
+
 			if (~code->e.flags & UI_CODE_NO_MARGIN) code->hScroll->page -= UI_SIZE_CODE_MARGIN + UI_SIZE_CODE_MARGIN_GAP;
 			UIElementMove(&code->hScroll->e, hScrollBarBounds, true);
 		}
@@ -2842,9 +2841,9 @@ UICode *UICodeCreate(UIElement *parent, uint32_t flags) {
 	UICode *code = (UICode *) UIElementCreate(sizeof(UICode), parent, flags, _UICodeMessage, "Code");
 	code->font = ui.activeFont;
 	code->vScroll = UIScrollBarCreate(&code->e, 0);
+	code->hScroll = UIScrollBarCreate(&code->e, UI_SCROLL_BAR_HORIZONTAL);
 	code->focused = -1;
 	code->tabSize = 4;
-	if (flags & UI_CODE_H_SCROLL) code->hScroll = UIScrollBarCreate(&code->e, UI_SCROLL_BAR_HORIZONTAL);
 	return code;
 }
 
