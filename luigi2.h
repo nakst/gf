@@ -3024,7 +3024,11 @@ int _UITableMessage(UIElement *element, UIMessage message, int di, void *dp) {
 	if (message == UI_MSG_PAINT) {
 		UIPainter *painter = (UIPainter *) dp;
 		UIRectangle bounds = element->bounds;
-		bounds.r -= UI_SIZE_SCROLL_BAR * element->window->scale;
+
+		if (table->vScroll->page < table->vScroll->maximum) {
+			bounds.r -= UI_SIZE_SCROLL_BAR * element->window->scale;
+		}
+
 		UIDrawControl(painter, bounds, UI_DRAW_CONTROL_TABLE_BACKGROUND | UI_DRAW_CONTROL_STATE_FROM_ELEMENT(element), NULL, 0, 0, element->window->scale);
 		char buffer[256];
 		UIRectangle row = bounds;
@@ -3099,9 +3103,15 @@ int _UITableMessage(UIElement *element, UIMessage message, int di, void *dp) {
 		}
 	} else if (message == UI_MSG_LAYOUT) {
 		UIRectangle scrollBarBounds = element->bounds;
-		scrollBarBounds.l = scrollBarBounds.r - UI_SIZE_SCROLL_BAR * element->window->scale;
 		table->vScroll->maximum = table->itemCount * UI_SIZE_TABLE_ROW * element->window->scale;
 		table->vScroll->page = UI_RECT_HEIGHT(element->bounds) - UI_SIZE_TABLE_HEADER * table->e.window->scale;
+
+		if (table->vScroll->page < table->vScroll->maximum) {
+			scrollBarBounds.l = scrollBarBounds.r - UI_SIZE_SCROLL_BAR * element->window->scale;
+		} else {
+			scrollBarBounds.l = scrollBarBounds.r * element->window->scale;
+		}
+
 		UIElementMove(&table->vScroll->e, scrollBarBounds, true);
 	} else if (message == UI_MSG_MOUSE_MOVE || message == UI_MSG_UPDATE) {
 		UIElementRepaint(element, NULL);
