@@ -2906,3 +2906,102 @@ UIElement *ExecutableWindowCreate(UIElement *parent) {
 	button->invoke = ExecutableWindowSaveButton;
 	return &panel->e;
 }
+
+//////////////////////////////////////////////////////
+// Command search window:
+//////////////////////////////////////////////////////
+
+struct GDBCommand {
+	char *name;
+	char *description;
+	char *descriptionLower;
+};
+
+struct CommandSearchWindow {
+	UICode *display;
+	UITextbox *textbox;
+	Array<GDBCommand> commands;
+};
+
+int TextboxSearchCommandMessage(UIElement *element, UIMessage message, int di, void *dp) {
+	CommandSearchWindow *window = (CommandSearchWindow *) element->cp;
+
+	if (message == UI_MSG_KEY_TYPED) {
+		if (!window->commands.Length()) {
+			EvaluateCommand("help all");
+
+			for (int i = 0; evaluateResult[i]; i++) {
+				if (evaluateResult[i] == ',' && evaluateResult[i + 1] == ' ' && evaluateResult[i + 2] == '\n') {
+					evaluateResult[i + 2] = ' ';
+				}
+			}
+
+			char *position = evaluateResult;
+
+			while (position) {
+				char *next = strchr(position, '\n');
+				if (!next) break;
+				char *dash = strstr(position, "--");
+
+				if (dash && dash < next && dash > position + 1) {
+					GDBCommand command = {};
+					command.name = (char *) calloc(1, dash - 1 - position + 1);
+
+					for (int i = 0, j = 0; i < dash - 1 - position; i++) {
+						if (position[i] != ' ' || position[i + 1] != ' ') {
+							command.name[j++] = position[i];
+						}
+					}
+
+					command.description = (char *) calloc(1, next - (dash + 3) + 1);
+					command.descriptionLower = (char *) calloc(1, next - (dash + 3) + 1);
+					memcpy(command.description, dash + 3, next - (dash + 3));
+
+					for (int i = 0; command.description[i]; i++) {
+						command.descriptionLower[i] = command.description[i] >= 'A' && command.description[i] <= 'Z' 
+							? command.description[i] + 'a' - 'A' : command.description[i];
+					}
+
+					window->commands.Add(command);
+				}
+
+				position = next + 1;
+			}
+		}
+
+		char query[4096];
+		char buffer[4096];
+		bool firstMatch = true;
+
+		StringFormat(query, sizeof(query), "%.*s", (int) window->textbox->bytes, window->textbox->string);
+		for (int i = 0; query[i]; i++) { query[i] = query[i] >= 'A' && query[i] <= 'Z' ? query[i] + 'a' - 'A' : query[i]; }
+
+		for (int i = 0; i < window->commands.Length(); i++) {
+			if (strstr(window->commands[i].descriptionLower, query)) {
+				StringFormat(buffer, sizeof(buffer), "%s: %s", window->commands[i].name, window->commands[i].description);
+				UICodeInsertContent(window->display, buffer, -1, firstMatch);
+				firstMatch = false;
+			}
+		}
+
+		if (firstMatch) {
+			UICodeInsertContent(window->display, "(no matches)", -1, firstMatch);
+		}
+
+		window->display->vScroll->position = 0;
+		UIElementRefresh(&window->display->e);
+	}
+
+	return 0;
+}
+
+UIElement *CommandSearchWindowCreate(UIElement *parent) {
+	CommandSearchWindow *window = (CommandSearchWindow *) calloc(1, sizeof(CommandSearchWindow));
+	UIPanel *panel = UIPanelCreate(parent, UI_PANEL_COLOR_1 | UI_PANEL_EXPAND);
+	window->textbox = UITextboxCreate(&panel->e, 0);
+	window->textbox->e.messageUser = TextboxSearchCommandMessage;
+	window->textbox->e.cp = window;
+	window->display = UICodeCreate(&panel->e, UI_ELEMENT_V_FILL | UI_CODE_NO_MARGIN);
+	UICodeInsertContent(window->display, "Type here to search \nGDB command descriptions.", -1, true);
+	return &panel->e;
+}

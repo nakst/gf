@@ -175,7 +175,7 @@ Array<InterfaceWindow> interfaceWindows;
 Array<InterfaceCommand> interfaceCommands;
 Array<InterfaceDataViewer> interfaceDataViewers;
 Array<ReceiveMessageType> receiveMessageTypes;
-char *layoutString = (char *) "v(75,h(80,Source,v(50,t(Exe,Breakpoints,Commands,Struct),t(Stack,Files,Thread))),h(65,Console,t(Watch,Locals,Registers,Data)))";
+char *layoutString = (char *) "v(75,h(80,Source,v(50,t(Exe,Breakpoints,Commands,Struct),t(Stack,Files,Thread,CmdSearch))),h(65,Console,t(Watch,Locals,Registers,Data)))";
 const char *fontPath;
 int fontSizeCode = 13;
 int fontSizeInterface = 11;
@@ -1492,6 +1492,7 @@ void InterfaceAddBuiltinWindowsAndCommands() {
 	interfaceWindows.Add({ "Log", LogWindowCreate, nullptr });
 	interfaceWindows.Add({ "Thread", ThreadWindowCreate, ThreadWindowUpdate });
 	interfaceWindows.Add({ "Exe", ExecutableWindowCreate, nullptr });
+	interfaceWindows.Add({ "CmdSearch", CommandSearchWindowCreate, nullptr });
 
 	interfaceDataViewers.Add({ "Add bitmap...", BitmapAddDialog });
 
