@@ -2535,7 +2535,7 @@ bool _UICharIsAlphaOrDigitOrUnderscore(char c) {
 int UICodeHitTest(UICode *code, int x, int y) {
 	x -= code->e.bounds.l;
 
-	if (x < 0 || x >= UI_RECT_WIDTH(code->e.bounds) - UI_SIZE_SCROLL_BAR * code->e.window->scale) {
+	if (x < 0 || x >= code->vScroll->e.bounds.l) {
 		return 0;
 	}
 
@@ -2665,9 +2665,10 @@ int _UICodeMessage(UIElement *element, UIMessage message, int di, void *dp) {
 		}
 
 		UIRectangle scrollBarBounds = element->bounds;
-		scrollBarBounds.l = scrollBarBounds.r - UI_SIZE_SCROLL_BAR * code->e.window->scale;
 		code->vScroll->maximum = code->lineCount * UIMeasureStringHeight();
 		code->vScroll->page = UI_RECT_HEIGHT(element->bounds);
+
+		scrollBarBounds.l = scrollBarBounds.r - (code->vScroll->page < code->vScroll->maximum ? UI_SIZE_SCROLL_BAR : 0) * code->e.window->scale;
 
 		if (code->hScroll) {
 			UIRectangle hScrollBarBounds = element->bounds;
@@ -2689,7 +2690,8 @@ int _UICodeMessage(UIElement *element, UIMessage message, int di, void *dp) {
 
 		UIPainter *painter = (UIPainter *) dp;
 		UIRectangle lineBounds = element->bounds;
-		lineBounds.r -= UI_SIZE_SCROLL_BAR * code->e.window->scale;
+
+		lineBounds.r = code->vScroll->e.bounds.l;
 
 		if (~code->e.flags & UI_CODE_NO_MARGIN) {
 			lineBounds.l += UI_SIZE_CODE_MARGIN + UI_SIZE_CODE_MARGIN_GAP;
