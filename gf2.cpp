@@ -1779,7 +1779,7 @@ int GfMain(int argc, char **argv) {
 #ifdef UI_FREETYPE
 	if (!fontPath) {
 		// Ask fontconfig for a monospaced font. If this fails, the fallback font will be used.
-		FILE *f = popen("fc-list | grep `fc-match mono | awk '{ print($1) }'` "
+		FILE *f = popen("fc-list | grep --fixed-strings `fc-match mono | awk '{ print($1) }'` "
 				"| awk 'BEGIN { FS = \":\" } ; { print($1) }'", "r");
 
 		if (f) {
