@@ -2658,32 +2658,29 @@ int _UICodeMessage(UIElement *element, UIMessage message, int di, void *dp) {
 
 	if (message == UI_MSG_LAYOUT) {
 		UIFont *previousFont = UIFontActivate(code->font);
+		int scrollBarSize = UI_SIZE_SCROLL_BAR * code->e.window->scale;
 
 		if (code->moveScrollToFocusNextLayout) {
 			code->vScroll->position = (code->focused + 0.5) * UIMeasureStringHeight() - UI_RECT_HEIGHT(code->e.bounds) / 2;
 		}
 
-		UIRectangle scrollBarBounds = element->bounds;
-		code->vScroll->maximum = code->lineCount * UIMeasureStringHeight();
-		code->vScroll->page = UI_RECT_HEIGHT(element->bounds);
+		code->vScroll->maximum = code->vScroll->page = code->lineCount * UIMeasureStringHeight();
+		code->hScroll->maximum = code->hScroll->page = code->columns * code->font->glyphWidth;
+		int32_t vNC = UI_RECT_HEIGHT(element->bounds);
+		int32_t hNC = UI_RECT_WIDTH(element->bounds) - ((code->e.flags & UI_CODE_NO_MARGIN) ? 0 : UI_SIZE_CODE_MARGIN + UI_SIZE_CODE_MARGIN_GAP);
 
-		scrollBarBounds.l = scrollBarBounds.r - (code->vScroll->page < code->vScroll->maximum ? UI_SIZE_SCROLL_BAR : 0) * code->e.window->scale;
-
-		if (code->hScroll) {
-			UIRectangle hScrollBarBounds = element->bounds;
-			hScrollBarBounds.r = code->vScroll->e.bounds.l;
-			code->hScroll->maximum = code->columns * code->font->glyphWidth;
-			code->hScroll->page = UI_RECT_WIDTH(element->bounds) - UI_SIZE_SCROLL_BAR * code->e.window->scale;
-			code->vScroll->page -= UI_SIZE_SCROLL_BAR * code->e.window->scale;
-			scrollBarBounds.b = code->hScroll->e.bounds.t;
-			hScrollBarBounds.t = hScrollBarBounds.b - (code->hScroll->page < code->hScroll->maximum ? UI_SIZE_SCROLL_BAR : 0) * code->e.window->scale;
-
-			if (~code->e.flags & UI_CODE_NO_MARGIN) code->hScroll->page -= UI_SIZE_CODE_MARGIN + UI_SIZE_CODE_MARGIN_GAP;
-			UIElementMove(&code->hScroll->e, hScrollBarBounds, true);
+		for (int i = 0; i < 3; i++) {
+			code->vScroll->page = vNC - (code->hScroll->page < code->hScroll->maximum ? scrollBarSize : 0);
+			code->hScroll->page = hNC - (code->vScroll->page < code->vScroll->maximum ? scrollBarSize : 0);
 		}
 
-		UIElementMove(&code->vScroll->e, scrollBarBounds, true);
+		UIRectangle vScrollBarBounds = element->bounds, hScrollBarBounds = element->bounds;
+		hScrollBarBounds.r = vScrollBarBounds.l = vScrollBarBounds.r - (code->vScroll->page < code->vScroll->maximum ? scrollBarSize : 0);
+		vScrollBarBounds.b = hScrollBarBounds.t = hScrollBarBounds.b - (code->hScroll->page < code->hScroll->maximum ? scrollBarSize : 0);
+
 		UIFontActivate(previousFont);
+		UIElementMove(&code->vScroll->e, vScrollBarBounds, true);
+		UIElementMove(&code->hScroll->e, hScrollBarBounds, true);
 	} else if (message == UI_MSG_PAINT) {
 		UIFont *previousFont = UIFontActivate(code->font);
 
