@@ -2664,15 +2664,14 @@ int _UICodeMessage(UIElement *element, UIMessage message, int di, void *dp) {
 			code->vScroll->position = (code->focused + 0.5) * UIMeasureStringHeight() - UI_RECT_HEIGHT(code->e.bounds) / 2;
 		}
 
-		code->vScroll->maximum = code->vScroll->page = code->lineCount * UIMeasureStringHeight();
-		code->hScroll->maximum = code->hScroll->page = code->columns * code->font->glyphWidth;
-		int32_t vNC = UI_RECT_HEIGHT(element->bounds);
-		int32_t hNC = UI_RECT_WIDTH(element->bounds) - ((code->e.flags & UI_CODE_NO_MARGIN) ? 0 : UI_SIZE_CODE_MARGIN + UI_SIZE_CODE_MARGIN_GAP);
-
-		for (int i = 0; i < 3; i++) {
-			code->vScroll->page = vNC - (code->hScroll->page < code->hScroll->maximum ? scrollBarSize : 0);
-			code->hScroll->page = hNC - (code->vScroll->page < code->vScroll->maximum ? scrollBarSize : 0);
-		}
+		code->vScroll->maximum = code->lineCount * UIMeasureStringHeight();
+		code->hScroll->maximum = code->columns * code->font->glyphWidth;
+		int vSpace = code->vScroll->page = UI_RECT_HEIGHT(element->bounds);
+		int hSpace = code->hScroll->page = UI_RECT_WIDTH(element->bounds);
+		if (!(code->e.flags & UI_CODE_NO_MARGIN)) hSpace -= UI_SIZE_CODE_MARGIN + UI_SIZE_CODE_MARGIN_GAP;
+		code->vScroll->page = vSpace - (code->hScroll->page < code->hScroll->maximum ? scrollBarSize : 0);
+		code->hScroll->page = hSpace - (code->vScroll->page < code->vScroll->maximum ? scrollBarSize : 0);
+		code->vScroll->page = vSpace - (code->hScroll->page < code->hScroll->maximum ? scrollBarSize : 0);
 
 		UIRectangle vScrollBarBounds = element->bounds, hScrollBarBounds = element->bounds;
 		hScrollBarBounds.r = vScrollBarBounds.l = vScrollBarBounds.r - (code->vScroll->page < code->vScroll->maximum ? scrollBarSize : 0);
