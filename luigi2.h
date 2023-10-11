@@ -573,6 +573,16 @@ typedef struct UIScrollBar {
 	bool inDrag, horizontal;
 } UIScrollBar;
 
+#define _UI_LAYOUT_SCROLL_BAR_PAIR(element) \
+		element->vScroll->page = vSpace - (element->hScroll->page < element->hScroll->maximum ? scrollBarSize : 0); \
+		element->hScroll->page = hSpace - (element->vScroll->page < element->vScroll->maximum ? scrollBarSize : 0); \
+		element->vScroll->page = vSpace - (element->hScroll->page < element->hScroll->maximum ? scrollBarSize : 0); \
+		UIRectangle vScrollBarBounds = element->e.bounds, hScrollBarBounds = element->e.bounds; \
+		hScrollBarBounds.r = vScrollBarBounds.l = vScrollBarBounds.r - (element->vScroll->page < element->vScroll->maximum ? scrollBarSize : 0); \
+		vScrollBarBounds.b = hScrollBarBounds.t = hScrollBarBounds.b - (element->hScroll->page < element->hScroll->maximum ? scrollBarSize : 0); \
+		UIElementMove(&element->vScroll->e, vScrollBarBounds, true); \
+		UIElementMove(&element->hScroll->e, hScrollBarBounds, true);
+
 typedef struct UICodeLine {
 	int offset, bytes;
 } UICodeLine;
@@ -2669,17 +2679,9 @@ int _UICodeMessage(UIElement *element, UIMessage message, int di, void *dp) {
 		int vSpace = code->vScroll->page = UI_RECT_HEIGHT(element->bounds);
 		int hSpace = code->hScroll->page = UI_RECT_WIDTH(element->bounds);
 		if (!(code->e.flags & UI_CODE_NO_MARGIN)) hSpace -= UI_SIZE_CODE_MARGIN + UI_SIZE_CODE_MARGIN_GAP;
-		code->vScroll->page = vSpace - (code->hScroll->page < code->hScroll->maximum ? scrollBarSize : 0);
-		code->hScroll->page = hSpace - (code->vScroll->page < code->vScroll->maximum ? scrollBarSize : 0);
-		code->vScroll->page = vSpace - (code->hScroll->page < code->hScroll->maximum ? scrollBarSize : 0);
-
-		UIRectangle vScrollBarBounds = element->bounds, hScrollBarBounds = element->bounds;
-		hScrollBarBounds.r = vScrollBarBounds.l = vScrollBarBounds.r - (code->vScroll->page < code->vScroll->maximum ? scrollBarSize : 0);
-		vScrollBarBounds.b = hScrollBarBounds.t = hScrollBarBounds.b - (code->hScroll->page < code->hScroll->maximum ? scrollBarSize : 0);
+		_UI_LAYOUT_SCROLL_BAR_PAIR(code);
 
 		UIFontActivate(previousFont);
-		UIElementMove(&code->vScroll->e, vScrollBarBounds, true);
-		UIElementMove(&code->hScroll->e, hScrollBarBounds, true);
 	} else if (message == UI_MSG_PAINT) {
 		UIFont *previousFont = UIFontActivate(code->font);
 
@@ -3051,7 +3053,7 @@ int _UITableMessage(UIElement *element, UIMessage message, int di, void *dp) {
 			UIDrawControl(painter, row, UI_DRAW_CONTROL_TABLE_ROW | rowFlags, NULL, 0, 0, element->window->scale);
 
 			UIRectangle cell = row;
-			cell.l += UI_SIZE_TABLE_COLUMN_GAP - (table->hScroll ? (int64_t) table->hScroll->position : 0) * table->e.window->scale;
+			cell.l += UI_SIZE_TABLE_COLUMN_GAP * table->e.window->scale - (int64_t) table->hScroll->position;
 
 			for (int j = 0; j < table->columnCount; j++) {
 				if (j) {
@@ -3099,41 +3101,15 @@ int _UITableMessage(UIElement *element, UIMessage message, int di, void *dp) {
 		}
 	} else if (message == UI_MSG_LAYOUT) {
 		int scrollBarSize = UI_SIZE_SCROLL_BAR * table->e.window->scale;
+		int columnGap = UI_SIZE_TABLE_COLUMN_GAP * table->e.window->scale;
 
 		table->vScroll->maximum = table->itemCount * UI_SIZE_TABLE_ROW * element->window->scale;
-
-		table->hScroll->maximum = 0;
-		int position = 0;
-		int index = 0;
-		if (table->columnCount) {
-			while (true) {
-				int end = position;
-				for (; table->columns[end] != '\t' && table->columns[end]; end++);
-
-				table->hScroll->maximum += table->columnWidths[index] + UI_SIZE_TABLE_COLUMN_GAP * table->e.window->scale;
-
-				if (table->columns[end] == '\t') {
-					position = end + 1;
-					index++;
-				} else {
-					break;
-				}
-			}
-		}
+		table->hScroll->maximum = columnGap;
+		for (int i = 0; i < table->columnCount; i++) { table->hScroll->maximum += table->columnWidths[i] + columnGap; }
 
 		int vSpace = table->vScroll->page = UI_RECT_HEIGHT(element->bounds) - UI_SIZE_TABLE_HEADER;
 		int hSpace = table->hScroll->page = UI_RECT_WIDTH(element->bounds);
-
-		table->vScroll->page = vSpace - (table->hScroll->page < table->hScroll->maximum ? scrollBarSize : 0);
-		table->hScroll->page = hSpace - (table->vScroll->page < table->vScroll->maximum ? scrollBarSize : 0);
-		table->vScroll->page = vSpace - (table->hScroll->page < table->hScroll->maximum ? scrollBarSize : 0);
-
-		UIRectangle vScrollBarBounds = element->bounds, hScrollBarBounds = element->bounds;
-		hScrollBarBounds.r = vScrollBarBounds.l = vScrollBarBounds.r - (table->vScroll->page < table->vScroll->maximum ? scrollBarSize : 0);
-		vScrollBarBounds.b = hScrollBarBounds.t = hScrollBarBounds.b - (table->hScroll->page < table->hScroll->maximum ? scrollBarSize : 0);
-
-		UIElementMove(&table->hScroll->e, hScrollBarBounds, true);
-		UIElementMove(&table->vScroll->e, vScrollBarBounds, true);
+		_UI_LAYOUT_SCROLL_BAR_PAIR(table);
 	} else if (message == UI_MSG_MOUSE_MOVE || message == UI_MSG_UPDATE) {
 		UIElementRepaint(element, NULL);
 	} else if (message == UI_MSG_SCROLLED) {
