@@ -2796,9 +2796,11 @@ int _UICodeMessage(UIElement *element, UIMessage message, int di, void *dp) {
 		}
 		return UI_CURSOR_TEXT;
 	} else if (message == UI_MSG_LEFT_DOWN && code->lineCount) {
-		_UICodeMessage(element, UI_MSG_MOUSE_DRAG, di, dp);
-		code->selection[1] = code->selection[0];
-		UIElementFocus(element);
+		if (UICodeHitTest(code, element->window->cursorX, element->window->cursorY) > 0) {
+			_UICodeMessage(element, UI_MSG_MOUSE_DRAG, di, dp);
+			code->selection[1] = code->selection[0];
+			UIElementFocus(element);
+		}
 	} else if (message == UI_MSG_MOUSE_DRAG && element->window->pressedButton == 1 && code->lineCount) {
 		// TODO Double-click and triple-click dragging for word and line granularity respectively.
 
