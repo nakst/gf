@@ -2766,7 +2766,7 @@ int _UICodeMessage(UIElement *element, UIMessage message, int di, void *dp) {
 			if (code->hScroll) lineBounds.l -= (int64_t) code->hScroll->position;
 			selection.carets[0] = i == selectionLineFrom ? selectionOffsetFrom : 0;
 			selection.carets[1] = i == selectionLineTo ? selectionOffsetTo : code->lines[i].bytes;
-			int x = UIDrawStringHighlighted(painter, lineBounds, code->content + code->lines[i].offset, code->lines[i].bytes, code->tabSize, 
+			int x = UIDrawStringHighlighted(painter, lineBounds, code->content + code->lines[i].offset, code->lines[i].bytes, code->tabSize,
 					element->window->focused == element && i >= selectionLineFrom && i <= selectionLineTo ? &selection : NULL);
 			int y = (lineBounds.t + lineBounds.b - UIMeasureStringHeight()) / 2;
 
@@ -2794,6 +2794,7 @@ int _UICodeMessage(UIElement *element, UIMessage message, int di, void *dp) {
 		if (UICodeHitTest(code, element->window->cursorX, element->window->cursorY) < 0) {
 			return UI_CURSOR_FLIPPED_ARROW;
 		}
+		return UI_CURSOR_TEXT;
 	} else if (message == UI_MSG_LEFT_DOWN && code->lineCount) {
 		_UICodeMessage(element, UI_MSG_MOUSE_DRAG, di, dp);
 		code->selection[1] = code->selection[0];
