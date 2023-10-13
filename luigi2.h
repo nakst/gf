@@ -599,6 +599,7 @@ typedef struct UICode {
 	size_t contentBytes;
 	int tabSize;
 	int columns;
+	struct { int line, offset; } selection[2];
 } UICode;
 
 typedef struct UIGauge {
@@ -764,7 +765,7 @@ void UIDrawGlyph(UIPainter *painter, int x, int y, int c, uint32_t color);
 void UIDrawRectangle(UIPainter *painter, UIRectangle r, uint32_t mainColor, uint32_t borderColor, UIRectangle borderSize);
 void UIDrawBorder(UIPainter *painter, UIRectangle r, uint32_t borderColor, UIRectangle borderSize);
 void UIDrawString(UIPainter *painter, UIRectangle r, const char *string, ptrdiff_t bytes, uint32_t color, int align, UIStringSelection *selection);
-int  UIDrawStringHighlighted(UIPainter *painter, UIRectangle r, const char *string, ptrdiff_t bytes, int tabSize); // Returns final x position.
+int  UIDrawStringHighlighted(UIPainter *painter, UIRectangle r, const char *string, ptrdiff_t bytes, int tabSize, UIStringSelection *selection); // Returns final x position.
 
 int UIMeasureStringWidth(const char *string, ptrdiff_t bytes);
 int UIMeasureStringHeight();
@@ -2563,7 +2564,7 @@ int UICodeHitTest(UICode *code, int x, int y) {
 	return inMargin ? -line : line;
 }
 
-int UIDrawStringHighlighted(UIPainter *painter, UIRectangle lineBounds, const char *string, ptrdiff_t bytes, int tabSize) {
+int UIDrawStringHighlighted(UIPainter *painter, UIRectangle lineBounds, const char *string, ptrdiff_t bytes, int tabSize, UIStringSelection *selection) {
 	if (bytes == -1) bytes = _UIStringLength(string);
 	if (bytes > 10000) bytes = 10000;
 
@@ -2591,6 +2592,7 @@ int UIDrawStringHighlighted(UIPainter *painter, UIRectangle lineBounds, const ch
 	_UICodeTokenType tokenType = UI_CODE_TOKEN_TYPE_DEFAULT;
 	bool inComment = false, inIdentifier = false, inChar = false, startedString = false, startedPreprocessor = false;
 	uint32_t last = 0;
+	int j = 0;
 
 	while (bytes--) {
 		char c = *string++;
@@ -2651,6 +2653,8 @@ int UIDrawStringHighlighted(UIPainter *painter, UIRectangle lineBounds, const ch
 			}
 		}
 
+		int oldX = x;
+
 		if (c == '\t') {
 			x += ui.activeFont->glyphWidth, ti++;
 			while (ti % tabSize) x += ui.activeFont->glyphWidth, ti++;
@@ -2658,6 +2662,13 @@ int UIDrawStringHighlighted(UIPainter *painter, UIRectangle lineBounds, const ch
 			UIDrawGlyph(painter, x, y, c, colors[tokenType]);
 			x += ui.activeFont->glyphWidth, ti++;
 		}
+
+		if (selection && j >= selection->carets[0] && j <= selection->carets[1]) {
+			UIDrawBlock(painter, UI_RECT_4(oldX, x, y, y + UIMeasureStringHeight()), selection->colorBackground);
+			if (c != '\t') UIDrawGlyph(painter, oldX, y, c, selection->colorText);
+		}
+
+		j++;
 	}
 
 	return x;
@@ -2675,7 +2686,7 @@ int _UICodeMessage(UIElement *element, UIMessage message, int di, void *dp) {
 		}
 
 		code->vScroll->maximum = code->lineCount * UIMeasureStringHeight();
-		code->hScroll->maximum = code->columns * code->font->glyphWidth;
+		code->hScroll->maximum = code->columns * code->font->glyphWidth; // TODO This doesn't take into account tab sizes!
 		int vSpace = code->vScroll->page = UI_RECT_HEIGHT(element->bounds);
 		int hSpace = code->hScroll->page = UI_RECT_WIDTH(element->bounds);
 		if (!(code->e.flags & UI_CODE_NO_MARGIN)) hSpace -= UI_SIZE_CODE_MARGIN + UI_SIZE_CODE_MARGIN_GAP;
@@ -2698,6 +2709,23 @@ int _UICodeMessage(UIElement *element, UIMessage message, int di, void *dp) {
 		lineBounds.t -= (int64_t) code->vScroll->position % lineHeight;
 
 		UIDrawBlock(painter, element->bounds, ui.theme.codeBackground);
+
+#ifdef __cplusplus
+		UIStringSelection selection = {};
+#else
+		UIStringSelection selection = { 0 };
+#endif
+		selection.colorBackground = ui.theme.selected;
+		selection.colorText = ui.theme.textSelected;
+
+#define _UI_CODE_SELECTION() \
+		bool selectionSwap = code->selection[0].line > code->selection[1].line  \
+			|| (code->selection[0].line == code->selection[1].line && code->selection[0].offset > code->selection[1].offset); \
+		int selectionLineFrom   = selectionSwap ? code->selection[1].line   : code->selection[0].line  ; \
+		int selectionLineTo     = selectionSwap ? code->selection[0].line   : code->selection[1].line  ; \
+		int selectionOffsetFrom = selectionSwap ? code->selection[1].offset : code->selection[0].offset; \
+		int selectionOffsetTo   = selectionSwap ? code->selection[0].offset : code->selection[1].offset;
+		_UI_CODE_SELECTION();
 
 		for (int i = code->vScroll->position / lineHeight; i < code->lineCount; i++) {
 			if (lineBounds.t > element->clip.b) {
@@ -2736,8 +2764,16 @@ int _UICodeMessage(UIElement *element, UIMessage message, int di, void *dp) {
 			UIRectangle oldClip = painter->clip;
 			painter->clip = UIRectangleIntersection(oldClip, lineBounds);
 			if (code->hScroll) lineBounds.l -= (int64_t) code->hScroll->position;
-			int x = UIDrawStringHighlighted(painter, lineBounds, code->content + code->lines[i].offset, code->lines[i].bytes, code->tabSize);
+			selection.carets[0] = i == selectionLineFrom ? selectionOffsetFrom : 0;
+			selection.carets[1] = i == selectionLineTo ? selectionOffsetTo : code->lines[i].bytes;
+			int x = UIDrawStringHighlighted(painter, lineBounds, code->content + code->lines[i].offset, code->lines[i].bytes, code->tabSize, 
+					element->window->focused == element && i >= selectionLineFrom && i <= selectionLineTo ? &selection : NULL);
 			int y = (lineBounds.t + lineBounds.b - UIMeasureStringHeight()) / 2;
+
+			if (element->window->focused == element && i >= selectionLineFrom && i < selectionLineTo) {
+				UIDrawBlock(painter, UI_RECT_4PD(x, y, code->font->glyphWidth, code->font->glyphHeight), selection.colorBackground);
+			}
+
 			if (code->hScroll) lineBounds.l += (int64_t) code->hScroll->position;
 			painter->clip = oldClip;
 
@@ -2758,6 +2794,45 @@ int _UICodeMessage(UIElement *element, UIMessage message, int di, void *dp) {
 		if (UICodeHitTest(code, element->window->cursorX, element->window->cursorY) < 0) {
 			return UI_CURSOR_FLIPPED_ARROW;
 		}
+	} else if (message == UI_MSG_LEFT_DOWN && code->lineCount) {
+		_UICodeMessage(element, UI_MSG_MOUSE_DRAG, di, dp);
+		code->selection[1] = code->selection[0];
+		UIElementFocus(element);
+	} else if (message == UI_MSG_MOUSE_DRAG && element->window->pressedButton == 1 && code->lineCount) {
+		// TODO Double-click and triple-click dragging for word and line granularity respectively.
+
+		UIFont *previousFont = UIFontActivate(code->font);
+		int line = code->selection[0].line = (element->window->cursorY - element->bounds.t + code->vScroll->position) / UIMeasureStringHeight();
+		if (line < 0) line = code->selection[0].line = 0;
+		else if (line >= code->lineCount) line = code->selection[0].line = code->lineCount - 1;
+		int column = (element->window->cursorX - element->bounds.l + code->hScroll->position) / ui.activeFont->glyphWidth;
+		if (~code->e.flags & UI_CODE_NO_MARGIN) column -= (UI_SIZE_CODE_MARGIN + UI_SIZE_CODE_MARGIN_GAP) / ui.activeFont->glyphWidth;
+		UIFontActivate(previousFont);
+		code->selection[0].offset = 0;
+
+		for (int ti = 0; code->selection[0].offset < code->lines[line].bytes; code->selection[0].offset++) {
+			ti++;
+			if (code->content[code->selection[0].offset + code->lines[line].offset] == '\t') while (ti % code->tabSize) ti++;
+			if (column < ti) break;
+		}
+
+		UIElementRepaint(&code->e, NULL);
+	} else if (message == UI_MSG_KEY_TYPED) {
+		UIKeyTyped *m = (UIKeyTyped *) dp;
+		if ((m->code == UI_KEYCODE_LETTER('C') || m->code == UI_KEYCODE_LETTER('X') || m->code == UI_KEYCODE_INSERT)
+				&& element->window->ctrl && !element->window->alt && !element->window->shift) {
+			_UI_CODE_SELECTION();
+			int from = code->lines[selectionLineFrom].offset + selectionOffsetFrom;
+			int to = code->lines[selectionLineTo].offset + selectionOffsetTo;
+
+			if (from != to) {
+				char *pasteText = (char *) UI_CALLOC(to - from + 2);
+				for (int i = from; i <= to; i++) pasteText[i - from] = code->content[i];
+				_UIClipboardWriteText(element->window, pasteText);
+			}
+		}
+	} else if (message == UI_MSG_UPDATE) {
+		UIElementRepaint(element, NULL);
 	} else if (message == UI_MSG_DEALLOCATE) {
 		UI_FREE(code->content);
 		UI_FREE(code->lines);
@@ -2791,6 +2866,8 @@ void UICodeInsertContent(UICode *code, const char *content, ptrdiff_t byteCount,
 		code->contentBytes = 0;
 		code->lineCount = 0;
 		code->columns = 0;
+		code->selection[0].line = code->selection[1].line = 0;
+		code->selection[0].offset = code->selection[1].offset = 0;
 	}
 
 	code->content = (char *) UI_REALLOC(code->content, code->contentBytes + byteCount);

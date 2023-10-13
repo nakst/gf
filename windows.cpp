@@ -1811,7 +1811,7 @@ int WatchWindowMessage(UIElement *element, UIMessage message, int di, void *dp) 
 				if (focused) {
 					UIDrawString(painter, row, buffer, -1, ui.theme.textSelected, UI_ALIGN_LEFT, nullptr);
 				} else {
-					UIDrawStringHighlighted(painter, row, buffer, -1, 1);
+					UIDrawStringHighlighted(painter, row, buffer, -1, 1, NULL);
 				}
 			}
 		}
