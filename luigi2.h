@@ -3384,6 +3384,11 @@ int _UITextboxMessage(UIElement *element, UIMessage message, int di, void *dp) {
 				|| (m->code == UI_KEYCODE_INSERT && !element->window->ctrl && !element->window->alt && element->window->shift)) {
 			size_t bytes;
 			char *text = _UIClipboardReadTextStart(element->window, &bytes);
+			if (text[strlen(text) - 1] == '\n') {
+				text[strlen(text) - 1] = '\0';
+				bytes--;
+			}
+
 			if (text) UITextboxReplace(textbox, text, bytes, true);
 			_UIClipboardReadTextEnd(element->window, text);
 		} else {
