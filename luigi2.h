@@ -2794,6 +2794,7 @@ int _UICodeMessage(UIElement *element, UIMessage message, int di, void *dp) {
 		if (UICodeHitTest(code, element->window->cursorX, element->window->cursorY) < 0) {
 			return UI_CURSOR_FLIPPED_ARROW;
 		}
+
 		return UI_CURSOR_TEXT;
 	} else if (message == UI_MSG_LEFT_DOWN && code->lineCount) {
 		if (UICodeHitTest(code, element->window->cursorX, element->window->cursorY) > 0) {
@@ -3384,12 +3385,12 @@ int _UITextboxMessage(UIElement *element, UIMessage message, int di, void *dp) {
 				|| (m->code == UI_KEYCODE_INSERT && !element->window->ctrl && !element->window->alt && element->window->shift)) {
 			size_t bytes;
 			char *text = _UIClipboardReadTextStart(element->window, &bytes);
-			if (text[strlen(text) - 1] == '\n') {
-				text[strlen(text) - 1] = '\0';
-				bytes--;
+
+			if (text) {
+				if (text[bytes - 1] == '\n') bytes--;
+				UITextboxReplace(textbox, text, bytes, true);
 			}
 
-			if (text) UITextboxReplace(textbox, text, bytes, true);
 			_UIClipboardReadTextEnd(element->window, text);
 		} else {
 			handled = false;
