@@ -320,7 +320,7 @@ int DisplayCodeMessage(UIElement *element, UIMessage message, int di, void *dp) 
 				UIMenu *menu = UIMenuCreate(&element->window->e, UI_MENU_NO_SCROLL);
 				UIMenuAddItem(menu, 0, "Delete", -1, CommandDeleteAllBreakpointsOnLine, (void *) (intptr_t)-result);
 				UIMenuAddItem(menu, 0, atLeastOneBreakpointEnabled ? "Disable" : "Enable", -1,
-						atLeastOneBreakpointEnabled ? CommandDisableAllBreakpointsOnLine : CommandEnableAllBreakpointsOnLine, 
+						atLeastOneBreakpointEnabled ? CommandDisableAllBreakpointsOnLine : CommandEnableAllBreakpointsOnLine,
 						(void *) (intptr_t) -result);
 				UIMenuShow(menu);
 			}
@@ -2958,7 +2958,7 @@ int TextboxSearchCommandMessage(UIElement *element, UIMessage message, int di, v
 					memcpy(command.description, dash + 3, next - (dash + 3));
 
 					for (int i = 0; command.description[i]; i++) {
-						command.descriptionLower[i] = command.description[i] >= 'A' && command.description[i] <= 'Z' 
+						command.descriptionLower[i] = command.description[i] >= 'A' && command.description[i] <= 'Z'
 							? command.description[i] + 'a' - 'A' : command.description[i];
 					}
 
