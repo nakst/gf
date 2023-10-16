@@ -3391,7 +3391,9 @@ int _UITextboxMessage(UIElement *element, UIMessage message, int di, void *dp) {
 			char *text = _UIClipboardReadTextStart(element->window, &bytes);
 
 			if (text) {
-				if (text[bytes - 1] == '\n') bytes--;
+				for (size_t i = 0; i < strlen(text); i++) {
+					if (text[i] == '\n') text[i] = ' ';
+				}
 				UITextboxReplace(textbox, text, bytes, true);
 			}
 
