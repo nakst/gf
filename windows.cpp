@@ -282,7 +282,7 @@ DISPLAY_CODE_COMMAND_FOR_ALL_BREAKPOINTS_ON_LINE(CommandDisableAllBreakpointsOnL
 DISPLAY_CODE_COMMAND_FOR_ALL_BREAKPOINTS_ON_LINE(CommandEnableAllBreakpointsOnLine,  CommandEnableBreakpoint );
 
 int DisplayCodeMessage(UIElement *element, UIMessage message, int di, void *dp) {
-	if (message == UI_MSG_CLICKED && !showingDisassembly) {
+	if (message == UI_MSG_CLICKED && !showingDisassembly && ((UICode *) element)->leftDownInMargin) {
 		int result = UICodeHitTest((UICode *) element, element->window->cursorX, element->window->cursorY);
 
 		if (result < 0) {

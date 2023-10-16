@@ -595,6 +595,7 @@ typedef struct UICode {
 	UIFont *font;
 	int lineCount, focused;
 	bool moveScrollToFocusNextLayout;
+	bool leftDownInMargin;
 	char *content;
 	size_t contentBytes;
 	int tabSize;
@@ -2797,12 +2798,15 @@ int _UICodeMessage(UIElement *element, UIMessage message, int di, void *dp) {
 
 		return UI_CURSOR_TEXT;
 	} else if (message == UI_MSG_LEFT_DOWN && code->lineCount) {
-		if (UICodeHitTest(code, element->window->cursorX, element->window->cursorY) > 0) {
+		int hitTest = UICodeHitTest(code, element->window->cursorX, element->window->cursorY);
+		code->leftDownInMargin = hitTest < 0;
+
+		if (hitTest > 0) {
 			_UICodeMessage(element, UI_MSG_MOUSE_DRAG, di, dp);
 			code->selection[1] = code->selection[0];
 			UIElementFocus(element);
 		}
-	} else if (message == UI_MSG_MOUSE_DRAG && element->window->pressedButton == 1 && code->lineCount) {
+	} else if (message == UI_MSG_MOUSE_DRAG && element->window->pressedButton == 1 && code->lineCount && !code->leftDownInMargin) {
 		// TODO Double-click and triple-click dragging for word and line granularity respectively.
 
 		UIFont *previousFont = UIFontActivate(code->font);
@@ -2848,7 +2852,7 @@ int _UICodeMessage(UIElement *element, UIMessage message, int di, void *dp) {
 void UICodeFocusLine(UICode *code, int index) {
 	code->focused = index - 1;
 	code->moveScrollToFocusNextLayout = true;
-	UIElementRepaint(&code->e, NULL);
+	UIElementRefresh(&code->e);
 }
 
 void UICodeInsertContent(UICode *code, const char *content, ptrdiff_t byteCount, bool replace) {
