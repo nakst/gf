@@ -395,6 +395,8 @@ extern const int UI_KEYCODE_UP;
 extern const int UI_KEYCODE_INSERT;
 extern const int UI_KEYCODE_0;
 extern const int UI_KEYCODE_BACKTICK;
+extern const int UI_KEYCODE_PAGEUP;
+extern const int UI_KEYCODE_PAGEDOWN;
 
 #define UI_KEYCODE_LETTER(x) (UI_KEYCODE_A + (x) - 'A')
 #define UI_KEYCODE_DIGIT(x) (UI_KEYCODE_0 + (x) - '0')
@@ -2838,6 +2840,25 @@ int _UICodeMessage(UIElement *element, UIMessage message, int di, void *dp) {
 				for (int i = from; i <= to; i++) pasteText[i - from] = code->content[i];
 				_UIClipboardWriteText(element->window, pasteText);
 			}
+		} else if (m->code == UI_KEYCODE_UP || m->code == UI_KEYCODE_DOWN || m->code == UI_KEYCODE_PAGEUP || m->code == UI_KEYCODE_PAGEDOWN) {
+			UIFont *previousFont = UIFontActivate(code->font);
+			int lineHeight = UIMeasureStringHeight();
+			int pageHeight = element->bounds.t - code->hScroll->e.bounds.t;
+
+			if (m->code == UI_KEYCODE_UP) code->vScroll->position -= lineHeight;
+			else if (m->code == UI_KEYCODE_DOWN) code->vScroll->position += lineHeight;
+			else if (m->code == UI_KEYCODE_PAGEUP) code->vScroll->position += pageHeight;
+			else if (m->code == UI_KEYCODE_PAGEDOWN) code->vScroll->position -= pageHeight;
+
+			code->moveScrollToFocusNextLayout = false;
+			UIElementMove(&code->vScroll->e, code->vScroll->e.bounds, true);
+			UIFontActivate(previousFont);
+			UIElementRepaint(&code->e, NULL);
+		} else if (m->code == UI_KEYCODE_LEFT || m->code == UI_KEYCODE_RIGHT) {
+			code->hScroll->position += m->code == UI_KEYCODE_LEFT ? -ui.activeFont->glyphWidth : ui.activeFont->glyphWidth;
+
+			UIElementMove(&code->hScroll->e, code->hScroll->e.bounds, true);
+			UIElementRepaint(&code->e, NULL);
 		}
 	} else if (message == UI_MSG_UPDATE) {
 		UIElementRepaint(element, NULL);
@@ -5028,6 +5049,8 @@ const int UI_KEYCODE_UP = XK_Up;
 const int UI_KEYCODE_INSERT = XK_Insert;
 const int UI_KEYCODE_0 = XK_0;
 const int UI_KEYCODE_BACKTICK = XK_grave;
+const int UI_KEYCODE_PAGEDOWN = XK_Page_Down;
+const int UI_KEYCODE_PAGEUP = XK_Page_Up;
 
 int _UIWindowMessage(UIElement *element, UIMessage message, int di, void *dp) {
 	if (message == UI_MSG_DEALLOCATE) {
@@ -5442,6 +5465,10 @@ bool _UIProcessEvent(XEvent *event) {
 				m.code = UI_KEYCODE_ENTER;
 			} else if (symbol == XK_KP_Delete) {
 				m.code = UI_KEYCODE_DELETE;
+			} else if (symbol == XK_KP_Page_Up) {
+				m.code = UI_KEYCODE_UP;
+			} else if (symbol == XK_KP_Page_Down) {
+				m.code = UI_KEYCODE_DOWN;
 			}
 
 			_UIWindowInputEvent(window, UI_MSG_KEY_TYPED, 0, &m);
@@ -5718,6 +5745,8 @@ const int UI_KEYCODE_SPACE = VK_SPACE;
 const int UI_KEYCODE_TAB = VK_TAB;
 const int UI_KEYCODE_UP = VK_UP;
 const int UI_KEYCODE_INSERT = VK_INSERT;
+const int UI_KEYCODE_PAGEUP = VK_PRIOR;
+const int UI_KEYCODE_PAGEDOWN = VK_NEXT;
 
 int _UIWindowMessage(UIElement *element, UIMessage message, int di, void *dp) {
 	if (message == UI_MSG_DEALLOCATE) {
@@ -6103,6 +6132,8 @@ const int UI_KEYCODE_SPACE = ES_SCANCODE_SPACE;
 const int UI_KEYCODE_TAB = ES_SCANCODE_TAB;
 const int UI_KEYCODE_UP = ES_SCANCODE_UP_ARROW;
 const int UI_KEYCODE_INSERT = ES_SCANCODE_INSERT;
+const int UI_KEYCODE_PAGEUP = ES_SCANCODE_PAGE_UP;
+const int UI_KEYCODE_PAGEDOWN = ES_SCANCODE_PAGE_DOWN;
 
 int _UIWindowMessage(UIElement *element, UIMessage message, int di, void *dp) {
 	if (message == UI_MSG_DEALLOCATE) {
@@ -6310,6 +6341,8 @@ const int UI_KEYCODE_SPACE = kVK_Space;
 const int UI_KEYCODE_TAB = kVK_Tab;
 const int UI_KEYCODE_UP = kVK_UpArrow;
 const int UI_KEYCODE_BACKTICK = kVK_ANSI_Grave; // TODO Keyboard layout support.
+const int UI_KEYCODE_PAGEUP = kVK_PageUp;
+const int UI_KEYCODE_PAGEDOWN = kVK_PageDown;
 
 int (*_cocoaAppMain)(int, char **);
 int _cocoaArgc;
