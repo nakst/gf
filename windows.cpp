@@ -2335,6 +2335,12 @@ int TableBreakpointsMessage(UIElement *element, UIMessage message, int di, void 
 		} else if (!element->window->ctrl && !element->window->shift) {
 			data->selected.Free();
 		}
+		UIElementFocus(element);
+	} else if (message == UI_MSG_KEY_TYPED) {
+		UIKeyTyped *m = (UIKeyTyped *) dp;
+		if (m->code == UI_KEYCODE_DELETE && data->selected.Length() > 0) {
+			CommandDeleteSelectedBreakpoints(element->cp);
+		}
 	}
 
 	return 0;
