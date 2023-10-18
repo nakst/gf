@@ -2840,15 +2840,18 @@ int _UICodeMessage(UIElement *element, UIMessage message, int di, void *dp) {
 				for (int i = from; i <= to; i++) pasteText[i - from] = code->content[i];
 				_UIClipboardWriteText(element->window, pasteText);
 			}
-		} else if (m->code == UI_KEYCODE_UP || m->code == UI_KEYCODE_DOWN || m->code == UI_KEYCODE_PAGEUP || m->code == UI_KEYCODE_PAGEDOWN) {
+		} else if (m->code == UI_KEYCODE_UP || m->code == UI_KEYCODE_DOWN || m->code == UI_KEYCODE_PAGEUP || m->code == UI_KEYCODE_PAGEDOWN
+				|| m->code == UI_KEYCODE_HOME || m->code == UI_KEYCODE_END) {
 			UIFont *previousFont = UIFontActivate(code->font);
 			int lineHeight = UIMeasureStringHeight();
-			int pageHeight = element->bounds.t - code->hScroll->e.bounds.t;
+			int pageHeight = (element->bounds.t - code->hScroll->e.bounds.t) * 4 / 5 /* leave a few lines for context */;
 
 			if (m->code == UI_KEYCODE_UP) code->vScroll->position -= lineHeight;
 			else if (m->code == UI_KEYCODE_DOWN) code->vScroll->position += lineHeight;
 			else if (m->code == UI_KEYCODE_PAGEUP) code->vScroll->position += pageHeight;
 			else if (m->code == UI_KEYCODE_PAGEDOWN) code->vScroll->position -= pageHeight;
+			else if (m->code == UI_KEYCODE_HOME) code->vScroll->position = 0;
+			else if (m->code == UI_KEYCODE_END) code->vScroll->position = code->vScroll->maximum;
 
 			code->moveScrollToFocusNextLayout = false;
 			UIElementMove(&code->vScroll->e, code->vScroll->e.bounds, true);
