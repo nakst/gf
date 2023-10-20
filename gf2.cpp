@@ -1160,7 +1160,7 @@ void CommandDonate(void *) {
 const char *themeItems[] = {
 	"panel1", "panel2", "selected", "border", "text", "textDisabled", "textSelected",
 	"buttonNormal", "buttonHovered", "buttonPressed", "buttonDisabled", "textboxNormal", "textboxFocused",
-	"codeFocused", "codeBackground", "codeDefault", "codeComment", "codeString", "codeNumber", "codeOperator", "codePreprocessor",
+	"codeFocused", "codeBackground", "codeDefault", "codeComment", "codeString", "codeNumber", "codeLineNumber", "codeOperator", "codePreprocessor",
 };
 
 void SettingsAddTrustedFolder() {
