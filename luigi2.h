@@ -610,7 +610,7 @@ typedef struct UICode {
 	size_t contentBytes;
 	int tabSize;
 	int columns;
-	uint64_t lastAnimateTime;
+	UI_CLOCK_T lastAnimateTime;
 	struct { int line, offset; } selection[2];
 } UICode;
 
