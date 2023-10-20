@@ -2823,11 +2823,42 @@ int _UICodeMessage(UIElement *element, UIMessage message, int di, void *dp) {
 		// TODO Double-click and triple-click dragging for word and line granularity respectively.
 
 		UIFont *previousFont = UIFontActivate(code->font);
-		int line = code->selection[0].line = (element->window->cursorY - element->bounds.t + code->vScroll->position) / UIMeasureStringHeight();
+		int lineHeight = UIMeasureStringHeight();
+
+		int line = code->selection[0].line = (element->window->cursorY - element->bounds.t + code->vScroll->position) / lineHeight;
 		if (line < 0) line = code->selection[0].line = 0;
 		else if (line >= code->lineCount) line = code->selection[0].line = code->lineCount - 1;
 		int column = (element->window->cursorX - element->bounds.l + code->hScroll->position) / ui.activeFont->glyphWidth;
 		if (~code->e.flags & UI_CODE_NO_MARGIN) column -= (UI_SIZE_CODE_MARGIN + UI_SIZE_CODE_MARGIN_GAP) / ui.activeFont->glyphWidth;
+
+		int rbound = (code->vScroll->e.bounds.l - element->bounds.l + code->hScroll->position - (UI_SIZE_SCROLL_BAR * code->e.window->scale)) / ui.activeFont->glyphWidth;
+		if (~code->e.flags & UI_CODE_NO_MARGIN) rbound -= (UI_SIZE_CODE_MARGIN + UI_SIZE_CODE_MARGIN_GAP) / ui.activeFont->glyphWidth;
+		int lbound = (element->bounds.l + code->hScroll->position) / ui.activeFont->glyphWidth;
+		int bbound = (code->hScroll->e.bounds.t - element->bounds.t + code->vScroll->position) / lineHeight;
+		int tbound = code->vScroll->position / lineHeight;
+
+		if (column > rbound && column <= code->hScroll->maximum / ui.activeFont->glyphWidth) {
+			code->hScroll->position += ui.activeFont->glyphWidth;
+			UIElementMove(&code->hScroll->e, code->hScroll->e.bounds, true);
+		}
+
+		if (column <= lbound) {
+			code->hScroll->position = fmax(code->hScroll->position - ui.activeFont->glyphWidth, lbound);
+			UIElementMove(&code->hScroll->e, code->hScroll->e.bounds, true);
+		}
+
+		if (line >= bbound && line < code->vScroll->maximum / lineHeight) {
+			code->vScroll->position += lineHeight;
+			code->moveScrollToFocusNextLayout = false;
+			UIElementMove(&code->vScroll->e, code->vScroll->e.bounds, true);
+		}
+
+		if (line <= tbound) {
+			code->vScroll->position -= lineHeight;
+			code->moveScrollToFocusNextLayout = false;
+			UIElementMove(&code->vScroll->e, code->vScroll->e.bounds, true);
+		}
+
 		UIFontActivate(previousFont);
 		code->selection[0].offset = 0;
 
