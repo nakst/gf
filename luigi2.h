@@ -2892,15 +2892,17 @@ int _UICodeMessage(UIElement *element, UIMessage message, int di, void *dp) {
 			}
 
 			return 1;
-		} else if (m->code == UI_KEYCODE_UP || m->code == UI_KEYCODE_DOWN || m->code == UI_KEYCODE_PAGE_UP || m->code == UI_KEYCODE_PAGE_DOWN
-				|| m->code == UI_KEYCODE_HOME || m->code == UI_KEYCODE_END) {
+		} else if ((m->code == UI_KEYCODE_UP || m->code == UI_KEYCODE_DOWN || m->code == UI_KEYCODE_PAGE_UP || m->code == UI_KEYCODE_PAGE_DOWN
+				|| m->code == UI_KEYCODE_HOME || m->code == UI_KEYCODE_END)
+				&& !element->window->ctrl && !element->window->alt && !element->window->shift) {
 			UIFont *previousFont = UIFontActivate(code->font);
 			int lineHeight = UIMeasureStringHeight();
 			UIFontActivate(previousFont);
 			code->moveScrollToFocusNextLayout = false;
 			_UI_KEY_INPUT_VSCROLL(code, lineHeight, (element->bounds.t - code->hScroll->e.bounds.t) * 4 / 5 /* leave a few lines for context */);
 			return 1;
-		} else if (m->code == UI_KEYCODE_LEFT || m->code == UI_KEYCODE_RIGHT) {
+		} else if ((m->code == UI_KEYCODE_LEFT || m->code == UI_KEYCODE_RIGHT)
+				&& !element->window->ctrl && !element->window->alt && !element->window->shift) {
 			code->hScroll->position += m->code == UI_KEYCODE_LEFT ? -ui.activeFont->glyphWidth : ui.activeFont->glyphWidth;
 			UIElementRefresh(&code->e);
 			return 1;
@@ -3272,12 +3274,14 @@ int _UITableMessage(UIElement *element, UIMessage message, int di, void *dp) {
 	} else if (message == UI_MSG_KEY_TYPED) {
 		UIKeyTyped *m = (UIKeyTyped *) dp;
 
-		if (m->code == UI_KEYCODE_UP || m->code == UI_KEYCODE_DOWN || m->code == UI_KEYCODE_PAGE_UP || m->code == UI_KEYCODE_PAGE_DOWN
-				|| m->code == UI_KEYCODE_HOME || m->code == UI_KEYCODE_END) {
-			_UI_KEY_INPUT_VSCROLL(table, UI_SIZE_TABLE_ROW * element->window->scale, 
+		if ((m->code == UI_KEYCODE_UP || m->code == UI_KEYCODE_DOWN || m->code == UI_KEYCODE_PAGE_UP || m->code == UI_KEYCODE_PAGE_DOWN
+				|| m->code == UI_KEYCODE_HOME || m->code == UI_KEYCODE_END)
+				&& !element->window->ctrl && !element->window->alt && !element->window->shift) {
+			_UI_KEY_INPUT_VSCROLL(table, UI_SIZE_TABLE_ROW * element->window->scale,
 					(element->bounds.t - table->hScroll->e.bounds.t + UI_SIZE_TABLE_HEADER) * 4 / 5);
 			return 1;
-		} else if (m->code == UI_KEYCODE_LEFT || m->code == UI_KEYCODE_RIGHT) {
+		} else if ((m->code == UI_KEYCODE_LEFT || m->code == UI_KEYCODE_RIGHT)
+				&& !element->window->ctrl && !element->window->alt && !element->window->shift) {
 			table->hScroll->position += m->code == UI_KEYCODE_LEFT ? -ui.activeFont->glyphWidth : ui.activeFont->glyphWidth;
 			UIElementRefresh(&table->e);
 			return 1;
