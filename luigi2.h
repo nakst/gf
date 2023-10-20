@@ -230,7 +230,7 @@ typedef struct UITheme {
 	uint32_t text, textDisabled, textSelected;
 	uint32_t buttonNormal, buttonHovered, buttonPressed, buttonDisabled;
 	uint32_t textboxNormal, textboxFocused;
-	uint32_t codeFocused, codeBackground, codeDefault, codeComment, codeString, codeNumber, codeOperator, codePreprocessor;
+	uint32_t codeFocused, codeBackground, codeDefault, codeComment, codeString, codeNumber, codeLineNumber, codeOperator, codePreprocessor;
 } UITheme;
 
 typedef struct UIPainter {
@@ -908,6 +908,7 @@ UITheme uiThemeClassic = {
 	.codeComment = 0xFFA11F20,
 	.codeString = 0xFF037E01,
 	.codeNumber = 0xFF213EF1,
+	.codeLineNumber = 0xFFA11F20,
 	.codeOperator = 0xFF7F0480,
 	.codePreprocessor = 0xFF545D70,
 };
@@ -936,6 +937,7 @@ UITheme uiThemeDark = {
 	.codeComment = 0xFFB4B4B4,
 	.codeString = 0xFFF5DDD1,
 	.codeNumber = 0xFFC3F5D3,
+	.codeLineNumber = 0xFFB4B4B4,
 	.codeOperator = 0xFFF5D499,
 	.codePreprocessor = 0xFFF5F3D1,
 };
@@ -2757,7 +2759,7 @@ int _UICodeMessage(UIElement *element, UIMessage message, int di, void *dp) {
 					UIDrawBlock(painter, marginBounds, marginColor);
 				}
 
-				UIDrawString(painter, marginBounds, string + p, 16 - p, ui.theme.codeDefault, UI_ALIGN_RIGHT, NULL);
+				UIDrawString(painter, marginBounds, string + p, 16 - p, ui.theme.codeLineNumber, UI_ALIGN_RIGHT, NULL);
 			}
 
 			if (code->focused == i) {
