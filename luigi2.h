@@ -571,7 +571,7 @@ typedef struct UIScrollBar {
 	int64_t maximum, page;
 	int64_t dragOffset;
 	double position;
-	uint64_t lastAnimateTime;
+	UI_CLOCK_T lastAnimateTime;
 	bool inDrag, horizontal;
 } UIScrollBar;
 
@@ -610,6 +610,7 @@ typedef struct UICode {
 	size_t contentBytes;
 	int tabSize;
 	int columns;
+	uint64_t lastAnimateTime;
 	struct { int line, offset; } selection[2];
 } UICode;
 
@@ -2810,6 +2811,8 @@ int _UICodeMessage(UIElement *element, UIMessage message, int di, void *dp) {
 		}
 
 		return UI_CURSOR_TEXT;
+	} else if (message == UI_MSG_LEFT_UP) {
+		UIElementAnimate(element, true);
 	} else if (message == UI_MSG_LEFT_DOWN && code->lineCount) {
 		int hitTest = UICodeHitTest(code, element->window->cursorX, element->window->cursorY);
 		code->leftDownInMargin = hitTest < 0;
@@ -2818,48 +2821,52 @@ int _UICodeMessage(UIElement *element, UIMessage message, int di, void *dp) {
 			_UICodeMessage(element, UI_MSG_MOUSE_DRAG, di, dp);
 			code->selection[1] = code->selection[0];
 			UIElementFocus(element);
+			UIElementAnimate(element, false);
+			code->lastAnimateTime = UI_CLOCK();
+		}
+	} else if (message == UI_MSG_ANIMATE) {
+		if (element->window->pressed == element && element->window->pressedButton == 1 && code->lineCount && !code->leftDownInMargin) {
+			UI_CLOCK_T previous = code->lastAnimateTime;
+			UI_CLOCK_T current = UI_CLOCK();
+			UI_CLOCK_T deltaTicks = current - previous;
+			double deltaSeconds = (double) deltaTicks / UI_CLOCKS_PER_SECOND;
+			if (deltaSeconds > 0.1) deltaSeconds = 0.1;
+			int delta = deltaSeconds * 800;
+			if (!delta) { return 0; }
+			code->lastAnimateTime = current;
+
+			UIFont *previousFont = UIFontActivate(code->font);
+
+			if (element->window->cursorX < element->bounds.l + ((element->flags & UI_CODE_NO_MARGIN) ? 0 : UI_SIZE_CODE_MARGIN + UI_SIZE_CODE_MARGIN_GAP)) {
+				code->hScroll->position -= delta;
+			} else if (element->window->cursorX >= code->vScroll->e.bounds.l) {
+				code->hScroll->position += delta;
+			}
+
+			if (element->window->cursorY < element->bounds.t) {
+				code->vScroll->position -= delta;
+				code->moveScrollToFocusNextLayout = false;
+			} else if (element->window->cursorY >= code->hScroll->e.bounds.t) {
+				code->vScroll->position += delta;
+				code->moveScrollToFocusNextLayout = false;
+			}
+
+			UIFontActivate(previousFont);
+			_UICodeMessage(element, UI_MSG_MOUSE_DRAG, di, dp);
+			UIElementRefresh(element);
 		}
 	} else if (message == UI_MSG_MOUSE_DRAG && element->window->pressedButton == 1 && code->lineCount && !code->leftDownInMargin) {
 		// TODO Double-click and triple-click dragging for word and line granularity respectively.
 
 		UIFont *previousFont = UIFontActivate(code->font);
 		int lineHeight = UIMeasureStringHeight();
-
 		int line = code->selection[0].line = (element->window->cursorY - element->bounds.t + code->vScroll->position) / lineHeight;
 		if (line < 0) line = code->selection[0].line = 0;
 		else if (line >= code->lineCount) line = code->selection[0].line = code->lineCount - 1;
 		int column = (element->window->cursorX - element->bounds.l + code->hScroll->position) / ui.activeFont->glyphWidth;
 		if (~code->e.flags & UI_CODE_NO_MARGIN) column -= (UI_SIZE_CODE_MARGIN + UI_SIZE_CODE_MARGIN_GAP) / ui.activeFont->glyphWidth;
-
-		int rbound = (code->vScroll->e.bounds.l - element->bounds.l + code->hScroll->position - (UI_SIZE_SCROLL_BAR * code->e.window->scale)) / ui.activeFont->glyphWidth;
-		if (~code->e.flags & UI_CODE_NO_MARGIN) rbound -= (UI_SIZE_CODE_MARGIN + UI_SIZE_CODE_MARGIN_GAP) / ui.activeFont->glyphWidth;
-		int lbound = (element->bounds.l + code->hScroll->position) / ui.activeFont->glyphWidth;
-		int bbound = (code->hScroll->e.bounds.t - element->bounds.t + code->vScroll->position) / lineHeight;
-		int tbound = code->vScroll->position / lineHeight;
-
-		if (column > rbound && column <= code->hScroll->maximum / ui.activeFont->glyphWidth) {
-			code->hScroll->position += ui.activeFont->glyphWidth;
-			UIElementMove(&code->hScroll->e, code->hScroll->e.bounds, true);
-		}
-
-		if (column <= lbound) {
-			code->hScroll->position = fmax(code->hScroll->position - ui.activeFont->glyphWidth, lbound);
-			UIElementMove(&code->hScroll->e, code->hScroll->e.bounds, true);
-		}
-
-		if (line >= bbound && line < code->vScroll->maximum / lineHeight) {
-			code->vScroll->position += lineHeight;
-			code->moveScrollToFocusNextLayout = false;
-			UIElementMove(&code->vScroll->e, code->vScroll->e.bounds, true);
-		}
-
-		if (line <= tbound) {
-			code->vScroll->position -= lineHeight;
-			code->moveScrollToFocusNextLayout = false;
-			UIElementMove(&code->vScroll->e, code->vScroll->e.bounds, true);
-		}
-
 		UIFontActivate(previousFont);
+
 		code->selection[0].offset = 0;
 
 		for (int ti = 0; code->selection[0].offset < code->lines[line].bytes; code->selection[0].offset++) {
