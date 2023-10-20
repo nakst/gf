@@ -3228,6 +3228,29 @@ int _UITableMessage(UIElement *element, UIMessage message, int di, void *dp) {
 		UIElementRefresh(element);
 	} else if (message == UI_MSG_MOUSE_WHEEL) {
 		return UIElementMessage(&table->vScroll->e, message, di, dp);
+	} else if (message == UI_MSG_KEY_TYPED) {
+		UIKeyTyped *m = (UIKeyTyped *) dp;
+
+		if (m->code == UI_KEYCODE_UP || m->code == UI_KEYCODE_DOWN || m->code == UI_KEYCODE_PAGEUP || m->code == UI_KEYCODE_PAGEDOWN
+				|| m->code == UI_KEYCODE_HOME || m->code == UI_KEYCODE_END) {
+			int rowHeight = UI_SIZE_TABLE_ROW * element->window->scale;
+			int pageHeight = (element->bounds.t - table->hScroll->e.bounds.t + UI_SIZE_TABLE_HEADER) * 4 / 5;
+
+			if (m->code == UI_KEYCODE_UP) table->vScroll->position -= rowHeight;
+			else if (m->code == UI_KEYCODE_DOWN) table->vScroll->position += rowHeight;
+			else if (m->code == UI_KEYCODE_PAGEUP) table->vScroll->position += pageHeight;
+			else if (m->code == UI_KEYCODE_PAGEDOWN) table->vScroll->position -= pageHeight;
+			else if (m->code == UI_KEYCODE_HOME) table->vScroll->position = 0;
+			else if (m->code == UI_KEYCODE_END) table->vScroll->position = table->vScroll->maximum;
+
+			UIElementMove(&table->vScroll->e, table->vScroll->e.bounds, true);
+		} else if (m->code == UI_KEYCODE_LEFT || m->code == UI_KEYCODE_RIGHT) {
+			table->hScroll->position += m->code == UI_KEYCODE_LEFT ? -ui.activeFont->glyphWidth : ui.activeFont->glyphWidth;
+
+			UIElementMove(&table->hScroll->e, table->hScroll->e.bounds, true);
+		}
+
+		UIElementRepaint(&table->e, NULL);
 	} else if (message == UI_MSG_DEALLOCATE) {
 		UI_FREE(table->columns);
 		UI_FREE(table->columnWidths);
