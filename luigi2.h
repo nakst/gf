@@ -3220,7 +3220,7 @@ int _UITableMessage(UIElement *element, UIMessage message, int di, void *dp) {
 		table->hScroll->maximum = columnGap;
 		for (int i = 0; i < table->columnCount; i++) { table->hScroll->maximum += table->columnWidths[i] + columnGap; }
 
-		int vSpace = table->vScroll->page = UI_RECT_HEIGHT(element->bounds) - UI_SIZE_TABLE_HEADER;
+		int vSpace = table->vScroll->page = UI_RECT_HEIGHT(element->bounds) - UI_SIZE_TABLE_HEADER * element->window->scale;
 		int hSpace = table->hScroll->page = UI_RECT_WIDTH(element->bounds);
 		_UI_LAYOUT_SCROLL_BAR_PAIR(table);
 	} else if (message == UI_MSG_MOUSE_MOVE || message == UI_MSG_UPDATE) {
