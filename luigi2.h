@@ -3355,6 +3355,9 @@ int _UITextboxMessage(UIElement *element, UIMessage message, int di, void *dp) {
 	} else if (message == UI_MSG_GET_CURSOR) {
 		return UI_CURSOR_TEXT;
 	} else if (message == UI_MSG_LEFT_DOWN) {
+		int column = (element->window->cursorX - element->bounds.l + textbox->scroll - UI_SIZE_TEXTBOX_MARGIN) / ui.activeFont->glyphWidth;
+		textbox->carets[0] = textbox->carets[1] = fmin(column, textbox->bytes);
+
 		UIElementFocus(element);
 	} else if (message == UI_MSG_UPDATE) {
 		UIElementRepaint(element, NULL);
