@@ -395,8 +395,8 @@ extern const int UI_KEYCODE_UP;
 extern const int UI_KEYCODE_INSERT;
 extern const int UI_KEYCODE_0;
 extern const int UI_KEYCODE_BACKTICK;
-extern const int UI_KEYCODE_PAGEUP;
-extern const int UI_KEYCODE_PAGEDOWN;
+extern const int UI_KEYCODE_PAGE_UP;
+extern const int UI_KEYCODE_PAGE_DOWN;
 
 #define UI_KEYCODE_LETTER(x) (UI_KEYCODE_A + (x) - 'A')
 #define UI_KEYCODE_DIGIT(x) (UI_KEYCODE_0 + (x) - '0')
@@ -584,6 +584,14 @@ typedef struct UIScrollBar {
 		vScrollBarBounds.b = hScrollBarBounds.t = hScrollBarBounds.b - (element->hScroll->page < element->hScroll->maximum ? scrollBarSize : 0); \
 		UIElementMove(&element->vScroll->e, vScrollBarBounds, true); \
 		UIElementMove(&element->hScroll->e, hScrollBarBounds, true);
+#define _UI_KEY_INPUT_VSCROLL(element, rowHeight, pageHeight) \
+		if (m->code == UI_KEYCODE_UP) element->vScroll->position -= (rowHeight); \
+		else if (m->code == UI_KEYCODE_DOWN) element->vScroll->position += (rowHeight); \
+		else if (m->code == UI_KEYCODE_PAGE_UP) element->vScroll->position += (pageHeight); \
+		else if (m->code == UI_KEYCODE_PAGE_DOWN) element->vScroll->position -= (pageHeight); \
+		else if (m->code == UI_KEYCODE_HOME) element->vScroll->position = 0; \
+		else if (m->code == UI_KEYCODE_END) element->vScroll->position = element->vScroll->maximum; \
+		UIElementRefresh(&element->e);
 
 typedef struct UICodeLine {
 	int offset, bytes;
@@ -2832,6 +2840,7 @@ int _UICodeMessage(UIElement *element, UIMessage message, int di, void *dp) {
 		UIElementRepaint(&code->e, NULL);
 	} else if (message == UI_MSG_KEY_TYPED) {
 		UIKeyTyped *m = (UIKeyTyped *) dp;
+
 		if ((m->code == UI_KEYCODE_LETTER('C') || m->code == UI_KEYCODE_LETTER('X') || m->code == UI_KEYCODE_INSERT)
 				&& element->window->ctrl && !element->window->alt && !element->window->shift) {
 			_UI_CODE_SELECTION();
@@ -2843,28 +2852,20 @@ int _UICodeMessage(UIElement *element, UIMessage message, int di, void *dp) {
 				for (int i = from; i <= to; i++) pasteText[i - from] = code->content[i];
 				_UIClipboardWriteText(element->window, pasteText);
 			}
-		} else if (m->code == UI_KEYCODE_UP || m->code == UI_KEYCODE_DOWN || m->code == UI_KEYCODE_PAGEUP || m->code == UI_KEYCODE_PAGEDOWN
+
+			return 1;
+		} else if (m->code == UI_KEYCODE_UP || m->code == UI_KEYCODE_DOWN || m->code == UI_KEYCODE_PAGE_UP || m->code == UI_KEYCODE_PAGE_DOWN
 				|| m->code == UI_KEYCODE_HOME || m->code == UI_KEYCODE_END) {
 			UIFont *previousFont = UIFontActivate(code->font);
 			int lineHeight = UIMeasureStringHeight();
-			int pageHeight = (element->bounds.t - code->hScroll->e.bounds.t) * 4 / 5 /* leave a few lines for context */;
-
-			if (m->code == UI_KEYCODE_UP) code->vScroll->position -= lineHeight;
-			else if (m->code == UI_KEYCODE_DOWN) code->vScroll->position += lineHeight;
-			else if (m->code == UI_KEYCODE_PAGEUP) code->vScroll->position += pageHeight;
-			else if (m->code == UI_KEYCODE_PAGEDOWN) code->vScroll->position -= pageHeight;
-			else if (m->code == UI_KEYCODE_HOME) code->vScroll->position = 0;
-			else if (m->code == UI_KEYCODE_END) code->vScroll->position = code->vScroll->maximum;
-
-			code->moveScrollToFocusNextLayout = false;
-			UIElementMove(&code->vScroll->e, code->vScroll->e.bounds, true);
 			UIFontActivate(previousFont);
-			UIElementRepaint(&code->e, NULL);
+			code->moveScrollToFocusNextLayout = false;
+			_UI_KEY_INPUT_VSCROLL(code, lineHeight, (element->bounds.t - code->hScroll->e.bounds.t) * 4 / 5 /* leave a few lines for context */);
+			return 1;
 		} else if (m->code == UI_KEYCODE_LEFT || m->code == UI_KEYCODE_RIGHT) {
 			code->hScroll->position += m->code == UI_KEYCODE_LEFT ? -ui.activeFont->glyphWidth : ui.activeFont->glyphWidth;
-
-			UIElementMove(&code->hScroll->e, code->hScroll->e.bounds, true);
-			UIElementRepaint(&code->e, NULL);
+			UIElementRefresh(&code->e);
+			return 1;
 		}
 	} else if (message == UI_MSG_UPDATE) {
 		UIElementRepaint(element, NULL);
@@ -3228,29 +3229,21 @@ int _UITableMessage(UIElement *element, UIMessage message, int di, void *dp) {
 		UIElementRefresh(element);
 	} else if (message == UI_MSG_MOUSE_WHEEL) {
 		return UIElementMessage(&table->vScroll->e, message, di, dp);
+	} else if (message == UI_MSG_LEFT_DOWN) {
+		UIElementFocus(element);
 	} else if (message == UI_MSG_KEY_TYPED) {
 		UIKeyTyped *m = (UIKeyTyped *) dp;
 
-		if (m->code == UI_KEYCODE_UP || m->code == UI_KEYCODE_DOWN || m->code == UI_KEYCODE_PAGEUP || m->code == UI_KEYCODE_PAGEDOWN
+		if (m->code == UI_KEYCODE_UP || m->code == UI_KEYCODE_DOWN || m->code == UI_KEYCODE_PAGE_UP || m->code == UI_KEYCODE_PAGE_DOWN
 				|| m->code == UI_KEYCODE_HOME || m->code == UI_KEYCODE_END) {
-			int rowHeight = UI_SIZE_TABLE_ROW * element->window->scale;
-			int pageHeight = (element->bounds.t - table->hScroll->e.bounds.t + UI_SIZE_TABLE_HEADER) * 4 / 5;
-
-			if (m->code == UI_KEYCODE_UP) table->vScroll->position -= rowHeight;
-			else if (m->code == UI_KEYCODE_DOWN) table->vScroll->position += rowHeight;
-			else if (m->code == UI_KEYCODE_PAGEUP) table->vScroll->position += pageHeight;
-			else if (m->code == UI_KEYCODE_PAGEDOWN) table->vScroll->position -= pageHeight;
-			else if (m->code == UI_KEYCODE_HOME) table->vScroll->position = 0;
-			else if (m->code == UI_KEYCODE_END) table->vScroll->position = table->vScroll->maximum;
-
-			UIElementMove(&table->vScroll->e, table->vScroll->e.bounds, true);
+			_UI_KEY_INPUT_VSCROLL(table, UI_SIZE_TABLE_ROW * element->window->scale, 
+					(element->bounds.t - table->hScroll->e.bounds.t + UI_SIZE_TABLE_HEADER) * 4 / 5);
+			return 1;
 		} else if (m->code == UI_KEYCODE_LEFT || m->code == UI_KEYCODE_RIGHT) {
 			table->hScroll->position += m->code == UI_KEYCODE_LEFT ? -ui.activeFont->glyphWidth : ui.activeFont->glyphWidth;
-
-			UIElementMove(&table->hScroll->e, table->hScroll->e.bounds, true);
+			UIElementRefresh(&table->e);
+			return 1;
 		}
-
-		UIElementRepaint(&table->e, NULL);
 	} else if (message == UI_MSG_DEALLOCATE) {
 		UI_FREE(table->columns);
 		UI_FREE(table->columnWidths);
@@ -5081,8 +5074,8 @@ const int UI_KEYCODE_UP = XK_Up;
 const int UI_KEYCODE_INSERT = XK_Insert;
 const int UI_KEYCODE_0 = XK_0;
 const int UI_KEYCODE_BACKTICK = XK_grave;
-const int UI_KEYCODE_PAGEDOWN = XK_Page_Down;
-const int UI_KEYCODE_PAGEUP = XK_Page_Up;
+const int UI_KEYCODE_PAGE_DOWN = XK_Page_Down;
+const int UI_KEYCODE_PAGE_UP = XK_Page_Up;
 
 int _UIWindowMessage(UIElement *element, UIMessage message, int di, void *dp) {
 	if (message == UI_MSG_DEALLOCATE) {
@@ -5777,8 +5770,8 @@ const int UI_KEYCODE_SPACE = VK_SPACE;
 const int UI_KEYCODE_TAB = VK_TAB;
 const int UI_KEYCODE_UP = VK_UP;
 const int UI_KEYCODE_INSERT = VK_INSERT;
-const int UI_KEYCODE_PAGEUP = VK_PRIOR;
-const int UI_KEYCODE_PAGEDOWN = VK_NEXT;
+const int UI_KEYCODE_PAGE_UP = VK_PRIOR;
+const int UI_KEYCODE_PAGE_DOWN = VK_NEXT;
 
 int _UIWindowMessage(UIElement *element, UIMessage message, int di, void *dp) {
 	if (message == UI_MSG_DEALLOCATE) {
@@ -6164,8 +6157,8 @@ const int UI_KEYCODE_SPACE = ES_SCANCODE_SPACE;
 const int UI_KEYCODE_TAB = ES_SCANCODE_TAB;
 const int UI_KEYCODE_UP = ES_SCANCODE_UP_ARROW;
 const int UI_KEYCODE_INSERT = ES_SCANCODE_INSERT;
-const int UI_KEYCODE_PAGEUP = ES_SCANCODE_PAGE_UP;
-const int UI_KEYCODE_PAGEDOWN = ES_SCANCODE_PAGE_DOWN;
+const int UI_KEYCODE_PAGE_UP = ES_SCANCODE_PAGE_UP;
+const int UI_KEYCODE_PAGE_DOWN = ES_SCANCODE_PAGE_DOWN;
 
 int _UIWindowMessage(UIElement *element, UIMessage message, int di, void *dp) {
 	if (message == UI_MSG_DEALLOCATE) {
@@ -6373,8 +6366,8 @@ const int UI_KEYCODE_SPACE = kVK_Space;
 const int UI_KEYCODE_TAB = kVK_Tab;
 const int UI_KEYCODE_UP = kVK_UpArrow;
 const int UI_KEYCODE_BACKTICK = kVK_ANSI_Grave; // TODO Keyboard layout support.
-const int UI_KEYCODE_PAGEUP = kVK_PageUp;
-const int UI_KEYCODE_PAGEDOWN = kVK_PageDown;
+const int UI_KEYCODE_PAGE_UP = kVK_PageUp;
+const int UI_KEYCODE_PAGE_DOWN = kVK_PageDown;
 
 int (*_cocoaAppMain)(int, char **);
 int _cocoaArgc;

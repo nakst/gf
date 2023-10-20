@@ -2167,6 +2167,17 @@ void CommandAddWatch(void *) {
 // Stack window:
 //////////////////////////////////////////////////////
 
+void StackSetFrame(UIElement *element, int index) {
+	if (index >= 0 && index < ((UITable *) element)->itemCount && stackSelected != index) {
+		char buffer[64];
+		StringFormat(buffer, 64, "frame %d", index);
+		DebuggerSend(buffer, false, false);
+		stackSelected = index;
+		stackChanged = true;
+		UIElementRepaint(element, nullptr);
+	}
+}
+
 int TableStackMessage(UIElement *element, UIMessage message, int di, void *dp) {
 	if (message == UI_MSG_TABLE_GET_ITEM) {
 		UITableGetItem *m = (UITableGetItem *) dp;
@@ -2183,15 +2194,14 @@ int TableStackMessage(UIElement *element, UIMessage message, int di, void *dp) {
 			return StringFormat(m->buffer, m->bufferBytes, "0x%lX", entry->address);
 		}
 	} else if (message == UI_MSG_LEFT_DOWN || message == UI_MSG_MOUSE_DRAG) {
-		int index = UITableHitTest((UITable *) element, element->window->cursorX, element->window->cursorY);
+		StackSetFrame(element, UITableHitTest((UITable *) element, element->window->cursorX, element->window->cursorY));
+	} else if (message == UI_MSG_KEY_TYPED) {
+		UIKeyTyped *m = (UIKeyTyped *) dp;
 
-		if (index != -1 && stackSelected != index) {
-			char buffer[64];
-			StringFormat(buffer, 64, "frame %d", index);
-			DebuggerSend(buffer, false, false);
-			stackSelected = index;
-			stackChanged = true;
-			UIElementRepaint(element, nullptr);
+		if (m->code == UI_KEYCODE_UP || m->code == UI_KEYCODE_DOWN) {
+			StackSetFrame(element, stackSelected + (m->code == UI_KEYCODE_UP ? -1 : 1));
+			// TODO Scroll the row into view if necessary.
+			return 1;
 		}
 	}
 
