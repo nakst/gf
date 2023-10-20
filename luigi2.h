@@ -2759,7 +2759,8 @@ int _UICodeMessage(UIElement *element, UIMessage message, int di, void *dp) {
 					UIDrawBlock(painter, marginBounds, marginColor);
 				}
 
-				UIDrawString(painter, marginBounds, string + p, 16 - p, ui.theme.codeLineNumber, UI_ALIGN_RIGHT, NULL);
+				UIDrawString(painter, marginBounds, string + p, 16 - p, 
+						marginColor ? ui.theme.codeDefault : ui.theme.codeLineNumber, UI_ALIGN_RIGHT, NULL);
 			}
 
 			if (code->focused == i) {
