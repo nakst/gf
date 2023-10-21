@@ -231,6 +231,7 @@ typedef struct UITheme {
 	uint32_t buttonNormal, buttonHovered, buttonPressed, buttonDisabled;
 	uint32_t textboxNormal, textboxFocused;
 	uint32_t codeFocused, codeBackground, codeDefault, codeComment, codeString, codeNumber, codeLineNumber, codeOperator, codePreprocessor;
+	uint32_t rowModified;
 } UITheme;
 
 typedef struct UIPainter {
@@ -920,6 +921,8 @@ UITheme uiThemeClassic = {
 	.codeLineNumber = 0xFFA11F20,
 	.codeOperator = 0xFF7F0480,
 	.codePreprocessor = 0xFF545D70,
+
+	.rowModified = 0xFF00FF00,
 };
 
 UITheme uiThemeDark = {
@@ -949,6 +952,8 @@ UITheme uiThemeDark = {
 	.codeLineNumber = 0xFFB4B4B4,
 	.codeOperator = 0xFFF5D499,
 	.codePreprocessor = 0xFFF5F3D1,
+
+	.rowModified = 0xFF00FF00,
 };
 
 /////////////////////////////////////////

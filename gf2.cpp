@@ -423,7 +423,7 @@ bool INIParse(INIState *s) {
 
 int ModifiedRowMessage(UIElement *element, UIMessage message, int di, void *dp) {
 	if (message == UI_MSG_PAINT) {
-		UIDrawBorder((UIPainter *) dp, element->bounds, 0x00FF00, UI_RECT_1(2));
+		UIDrawBorder((UIPainter *) dp, element->bounds, ui.theme.rowModified, UI_RECT_1(2));
 	}
 
 	return 0;
@@ -1161,6 +1161,7 @@ const char *themeItems[] = {
 	"panel1", "panel2", "selected", "border", "text", "textDisabled", "textSelected",
 	"buttonNormal", "buttonHovered", "buttonPressed", "buttonDisabled", "textboxNormal", "textboxFocused",
 	"codeFocused", "codeBackground", "codeDefault", "codeComment", "codeString", "codeNumber", "codeLineNumber", "codeOperator", "codePreprocessor",
+	"rowModified",
 };
 
 void SettingsAddTrustedFolder() {
