@@ -2837,16 +2837,17 @@ int _UICodeMessage(UIElement *element, UIMessage message, int di, void *dp) {
 
 			UIFont *previousFont = UIFontActivate(code->font);
 
-			if (element->window->cursorX < element->bounds.l + ((element->flags & UI_CODE_NO_MARGIN) ? 0 : UI_SIZE_CODE_MARGIN + UI_SIZE_CODE_MARGIN_GAP)) {
+			if (element->window->cursorX < element->bounds.l + ((element->flags & UI_CODE_NO_MARGIN) 
+						? UI_SIZE_CODE_MARGIN_GAP : (UI_SIZE_CODE_MARGIN + UI_SIZE_CODE_MARGIN_GAP * 2))) {
 				code->hScroll->position -= delta;
-			} else if (element->window->cursorX >= code->vScroll->e.bounds.l) {
+			} else if (element->window->cursorX >= code->vScroll->e.bounds.l - UI_SIZE_CODE_MARGIN_GAP) {
 				code->hScroll->position += delta;
 			}
 
-			if (element->window->cursorY < element->bounds.t) {
+			if (element->window->cursorY < element->bounds.t + UI_SIZE_CODE_MARGIN_GAP) {
 				code->vScroll->position -= delta;
 				code->moveScrollToFocusNextLayout = false;
-			} else if (element->window->cursorY >= code->hScroll->e.bounds.t) {
+			} else if (element->window->cursorY >= code->hScroll->e.bounds.t - UI_SIZE_CODE_MARGIN_GAP) {
 				code->vScroll->position += delta;
 				code->moveScrollToFocusNextLayout = false;
 			}
