@@ -2837,7 +2837,7 @@ int _UICodeMessage(UIElement *element, UIMessage message, int di, void *dp) {
 
 			UIFont *previousFont = UIFontActivate(code->font);
 
-			if (element->window->cursorX < element->bounds.l + ((element->flags & UI_CODE_NO_MARGIN) 
+			if (element->window->cursorX < element->bounds.l + ((element->flags & UI_CODE_NO_MARGIN)
 						? UI_SIZE_CODE_MARGIN_GAP : (UI_SIZE_CODE_MARGIN + UI_SIZE_CODE_MARGIN_GAP * 2))) {
 				code->hScroll->position -= delta;
 			} else if (element->window->cursorX >= code->vScroll->e.bounds.l - UI_SIZE_CODE_MARGIN_GAP) {
@@ -2891,23 +2891,67 @@ int _UICodeMessage(UIElement *element, UIMessage message, int di, void *dp) {
 				for (int i = from; i <= to; i++) pasteText[i - from] = code->content[i];
 				_UIClipboardWriteText(element->window, pasteText);
 			}
-
-			return 1;
 		} else if ((m->code == UI_KEYCODE_UP || m->code == UI_KEYCODE_DOWN || m->code == UI_KEYCODE_PAGE_UP || m->code == UI_KEYCODE_PAGE_DOWN
-				|| m->code == UI_KEYCODE_HOME || m->code == UI_KEYCODE_END)
-				&& !element->window->ctrl && !element->window->alt && !element->window->shift) {
+				|| m->code == UI_KEYCODE_HOME || m->code == UI_KEYCODE_END) && !element->window->ctrl && !element->window->alt) {
 			UIFont *previousFont = UIFontActivate(code->font);
 			int lineHeight = UIMeasureStringHeight();
-			UIFontActivate(previousFont);
-			code->moveScrollToFocusNextLayout = false;
-			_UI_KEY_INPUT_VSCROLL(code, lineHeight, (element->bounds.t - code->hScroll->e.bounds.t) * 4 / 5 /* leave a few lines for context */);
-			return 1;
-		} else if ((m->code == UI_KEYCODE_LEFT || m->code == UI_KEYCODE_RIGHT)
-				&& !element->window->ctrl && !element->window->alt && !element->window->shift) {
-			code->hScroll->position += m->code == UI_KEYCODE_LEFT ? -ui.activeFont->glyphWidth : ui.activeFont->glyphWidth;
-			UIElementRefresh(&code->e);
-			return 1;
+
+			if (element->window->shift) {
+				if (m->code == UI_KEYCODE_UP) {
+					if (code->selection[0].line - 1 >= 0) {
+						code->selection[0].line--;
+					} else {
+						code->selection[0].offset = 0;
+					}
+				} else if (m->code == UI_KEYCODE_DOWN) {
+					if (code->selection[0].line + 1 < code->lineCount) {
+						code->selection[0].line++;
+					} else {
+						code->selection[0].offset = code->lines[code->selection[0].line].bytes;
+					}
+				} else if (m->code == UI_KEYCODE_HOME) {
+					code->selection[0].offset = 0;
+				} else if (m->code == UI_KEYCODE_END) {
+					code->selection[0].offset = code->lines[code->selection[0].line].bytes;
+				} else if (m->code == UI_KEYCODE_PAGE_UP || m->code == UI_KEYCODE_PAGE_DOWN) {
+					int pageHeight = (element->bounds.t - code->hScroll->e.bounds.t) / lineHeight * 4 / 5;
+
+					code->selection[0].line += m->code == UI_KEYCODE_PAGE_UP ? pageHeight : -pageHeight;
+				}
+
+				UIFontActivate(previousFont);
+				UIElementRepaint(&code->e, NULL);
+			} else {
+				UIFontActivate(previousFont);
+				code->moveScrollToFocusNextLayout = false;
+				_UI_KEY_INPUT_VSCROLL(code, lineHeight, (element->bounds.t - code->hScroll->e.bounds.t) * 4 / 5 /* leave a few lines for context */);
+			}
+		} else if ((m->code == UI_KEYCODE_LEFT || m->code == UI_KEYCODE_RIGHT) && !element->window->ctrl && !element->window->alt) {
+			if (element->window->shift) {
+				if (m->code == UI_KEYCODE_LEFT) {
+					if (code->selection[0].offset - 1 < 0) {
+						if (code->selection[0].line - 1 >= 0) {
+							code->selection[0].line--;
+							code->selection[0].offset = code->lines[code->selection[0].line].bytes;
+						}
+					} else code->selection[0].offset--;
+				} else if (m->code == UI_KEYCODE_RIGHT) {
+					if (code->selection[0].offset + 1 > code->lines[code->selection[0].line].bytes) {
+						if (code->selection[0].line + 1 < code->lineCount) {
+							code->selection[0].line++;
+							code->selection[0].offset = 0;
+						}
+					} else code->selection[0].offset++;
+				}
+
+				UIElementRepaint(&code->e, NULL);
+			} else {
+				code->hScroll->position += m->code == UI_KEYCODE_LEFT ? -ui.activeFont->glyphWidth : ui.activeFont->glyphWidth;
+				UIElementRefresh(&code->e);
+			}
 		}
+
+		return 1;
 	} else if (message == UI_MSG_UPDATE) {
 		UIElementRepaint(element, NULL);
 	} else if (message == UI_MSG_DEALLOCATE) {
