@@ -764,6 +764,7 @@ UICode *UICodeCreate(UIElement *parent, uint32_t flags);
 void UICodeFocusLine(UICode *code, int index); // Line numbers are 1-indexed!!
 int UICodeHitTest(UICode *code, int x, int y); // Returns line number; negates if in margin. Returns 0 if not on a line.
 void UICodeInsertContent(UICode *code, const char *content, ptrdiff_t byteCount, bool replace);
+void UICodeMoveCaret(UICode *code, bool backward, bool word);
 
 void UIDrawBlock(UIPainter *painter, UIRectangle rectangle, uint32_t color);
 void UIDrawCircle(UIPainter *painter, int centerX, int centerY, int radius, uint32_t fillColor, uint32_t outlineColor, bool hollow);
@@ -2926,31 +2927,16 @@ int _UICodeMessage(UIElement *element, UIMessage message, int di, void *dp) {
 				code->moveScrollToFocusNextLayout = false;
 				_UI_KEY_INPUT_VSCROLL(code, lineHeight, (element->bounds.t - code->hScroll->e.bounds.t) * 4 / 5 /* leave a few lines for context */);
 			}
-		} else if ((m->code == UI_KEYCODE_LEFT || m->code == UI_KEYCODE_RIGHT) && !element->window->ctrl && !element->window->alt) {
+		} else if ((m->code == UI_KEYCODE_LEFT || m->code == UI_KEYCODE_RIGHT) && !element->window->alt) {
 			if (element->window->shift) {
-				if (m->code == UI_KEYCODE_LEFT) {
-					if (code->selection[0].offset - 1 < 0) {
-						if (code->selection[0].line - 1 >= 0) {
-							code->selection[0].line--;
-							code->selection[0].offset = code->lines[code->selection[0].line].bytes;
-						}
-					} else code->selection[0].offset--;
-				} else if (m->code == UI_KEYCODE_RIGHT) {
-					if (code->selection[0].offset + 1 > code->lines[code->selection[0].line].bytes) {
-						if (code->selection[0].line + 1 < code->lineCount) {
-							code->selection[0].line++;
-							code->selection[0].offset = 0;
-						}
-					} else code->selection[0].offset++;
-				}
-
-				UIElementRepaint(&code->e, NULL);
+				UICodeMoveCaret(code, m->code == UI_KEYCODE_LEFT, element->window->ctrl);
 			} else {
-				code->hScroll->position += m->code == UI_KEYCODE_LEFT ? -ui.activeFont->glyphWidth : ui.activeFont->glyphWidth;
-				UIElementRefresh(&code->e);
+				if (!element->window->ctrl) {
+					code->hScroll->position += m->code == UI_KEYCODE_LEFT ? -ui.activeFont->glyphWidth : ui.activeFont->glyphWidth;
+					UIElementRefresh(&code->e);
+				}
 			}
 		}
-
 		return 1;
 	} else if (message == UI_MSG_UPDATE) {
 		UIElementRepaint(element, NULL);
@@ -2960,6 +2946,37 @@ int _UICodeMessage(UIElement *element, UIMessage message, int di, void *dp) {
 	}
 
 	return 0;
+}
+
+void UICodeMoveCaret(UICode *code, bool backward, bool word) {
+	while (true) {
+		if (backward) {
+			if (code->selection[0].offset - 1 < 0) {
+				if (code->selection[0].line > 0) {
+					code->selection[0].line--;
+					code->selection[0].offset = code->lines[code->selection[0].line].bytes;
+				} else break;
+			} else code->selection[0].offset--;
+		} else {
+			if (code->selection[0].offset + 1 > code->lines[code->selection[0].line].bytes) {
+				if (code->selection[0].line + 1 < code->lineCount) {
+					code->selection[0].line++;
+					code->selection[0].offset = 0;
+				} else break;
+			} else code->selection[0].offset++;
+		}
+
+		if (!word) break;
+
+		if (code->selection[0].offset != 0 && code->selection[0].offset != code->lines[code->selection[0].line].bytes) {
+			char c1 = *(code->content + code->lines[code->selection[0].line].offset + code->selection[0].offset - 1);
+			char c2 = *(code->content + code->lines[code->selection[0].line].offset + code->selection[0].offset);
+
+			if (_UICharIsAlphaOrDigitOrUnderscore(c1) != _UICharIsAlphaOrDigitOrUnderscore(c2)) break;
+		}
+	}
+
+	UIElementRepaint(&code->e, NULL);
 }
 
 void UICodeFocusLine(UICode *code, int index) {
