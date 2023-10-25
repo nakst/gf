@@ -2600,8 +2600,9 @@ int UIDrawStringHighlighted(UIPainter *painter, UIRectangle lineBounds, const ch
 		ui.theme.codePreprocessor,
 	};
 
+	int lineHeight = UIMeasureStringHeight();
 	int x = lineBounds.l;
-	int y = (lineBounds.t + lineBounds.b - UIMeasureStringHeight()) / 2;
+	int y = (lineBounds.t + lineBounds.b - lineHeight) / 2;
 	int ti = 0;
 	_UICodeTokenType tokenType = UI_CODE_TOKEN_TYPE_DEFAULT;
 	bool inComment = false, inIdentifier = false, inChar = false, startedString = false, startedPreprocessor = false;
@@ -2677,9 +2678,13 @@ int UIDrawStringHighlighted(UIPainter *painter, UIRectangle lineBounds, const ch
 			x += ui.activeFont->glyphWidth, ti++;
 		}
 
-		if (selection && j >= selection->carets[0] && j <= selection->carets[1]) {
-			UIDrawBlock(painter, UI_RECT_4(oldX, x, y, y + UIMeasureStringHeight()), selection->colorBackground);
+		if (selection && selection->carets[0] != selection->carets[1] && j >= selection->carets[0] && j < selection->carets[1]) {
+			UIDrawBlock(painter, UI_RECT_4(oldX, x, y, y + lineHeight), selection->colorBackground);
 			if (c != '\t') UIDrawGlyph(painter, oldX, y, c, selection->colorText);
+		}
+
+		if (selection && selection->carets[0] == j) {
+			UIDrawInvert(painter, UI_RECT_4(x, x + 1, y, y + lineHeight));
 		}
 
 		j++;
@@ -2888,7 +2893,7 @@ int _UICodeMessage(UIElement *element, UIMessage message, int di, void *dp) {
 
 			if (from != to) {
 				char *pasteText = (char *) UI_CALLOC(to - from + 2);
-				for (int i = from; i <= to; i++) pasteText[i - from] = code->content[i];
+				for (int i = from; i < to; i++) pasteText[i - from] = code->content[i];
 				_UIClipboardWriteText(element->window, pasteText);
 			}
 
