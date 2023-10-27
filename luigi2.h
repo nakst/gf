@@ -611,7 +611,10 @@ typedef struct UICode {
 	int tabSize;
 	int columns;
 	UI_CLOCK_T lastAnimateTime;
-	struct { int line, offset; } selection[3 /* start, end, anchor */];
+	struct { int line, offset; } selection[4 /* start, end, anchor, caret */];
+	int verticalMotionColumn;
+	bool useVerticalMotionColumn;
+	bool moveScrollToCaretNextLayout;
 } UICode;
 
 typedef struct UIGauge {
@@ -2558,23 +2561,39 @@ bool _UICharIsAlphaOrDigitOrUnderscore(char c) {
 	return _UICharIsAlpha(c) || _UICharIsDigit(c) || c == '_';
 }
 
+int _UICodeColumnToByte(UICode *code, int line, int column) {
+	int byte = 0;
+
+	for (int ti = 0; byte < code->lines[line].bytes; byte++) {
+		ti++;
+		if (code->content[byte + code->lines[line].offset] == '\t') while (ti % code->tabSize) ti++;
+		if (column < ti) break;
+	}
+
+	return byte;
+}
+
+int _UICodeByteToColumn(UICode *code, int line, int byte) {
+	int ti = 0;
+
+	for (int i = 0; i < byte; i++) {
+		ti++;
+		if (code->content[byte + code->lines[line].offset] == '\t') while (ti % code->tabSize) ti++;
+	}
+
+	return ti;
+}
+
 void UICodePositionToByte(UICode *code, int x, int y, int *line, int *byte) {
 	UIFont *previousFont = UIFontActivate(code->font);
 	int lineHeight = UIMeasureStringHeight();
-	*line = (code->e.window->cursorY - code->e.bounds.t + code->vScroll->position) / lineHeight;
+	*line = (y - code->e.bounds.t + code->vScroll->position) / lineHeight;
 	if (*line < 0) *line = 0;
 	else if (*line >= code->lineCount) *line = code->lineCount - 1;
-	int column = (code->e.window->cursorX - code->e.bounds.l + code->hScroll->position + ui.activeFont->glyphWidth / 2) / ui.activeFont->glyphWidth;
+	int column = (x - code->e.bounds.l + code->hScroll->position + ui.activeFont->glyphWidth / 2) / ui.activeFont->glyphWidth;
 	if (~code->e.flags & UI_CODE_NO_MARGIN) column -= (UI_SIZE_CODE_MARGIN + UI_SIZE_CODE_MARGIN_GAP) / ui.activeFont->glyphWidth;
 	UIFontActivate(previousFont);
-
-	*byte = 0;
-
-	for (int ti = 0; *byte < code->lines[*line].bytes; *byte = *byte + 1) {
-		ti++;
-		if (code->content[*byte + code->lines[*line].offset] == '\t') while (ti % code->tabSize) ti++;
-		if (column < ti) break;
-	}
+	*byte = _UICodeColumnToByte(code, *line, column);
 }
 
 int UICodeHitTest(UICode *code, int x, int y) {
@@ -2704,18 +2723,28 @@ int UIDrawStringHighlighted(UIPainter *painter, UIRectangle lineBounds, const ch
 			if (c != '\t') UIDrawGlyph(painter, oldX, y, c, selection->colorText);
 		}
 
-		if (selection && selection->carets[0] == j) {
-			UIDrawInvert(painter, UI_RECT_4(oldX, oldX + 1, y, y + lineHeight));
-		}
-
 		j++;
 	}
 
-	if (selection && selection->carets[0] == j) {
-		UIDrawInvert(painter, UI_RECT_4(x, x + 1, y, y + lineHeight));
-	}
-
 	return x;
+}
+
+void _UICodeUpdateSelection(UICode *code) {
+	bool swap = code->selection[3].line < code->selection[2].line 
+		|| (code->selection[3].line == code->selection[2].line && code->selection[3].offset < code->selection[2].offset);
+	code->selection[1 - swap] = code->selection[3];
+	code->selection[0 + swap] = code->selection[2];
+	code->moveScrollToCaretNextLayout = true;
+	UIElementRefresh(&code->e);
+}
+
+void _UICodeSetVerticalMotionColumn(UICode *code, bool restore) {
+	if (restore) {
+		code->selection[3].offset = _UICodeColumnToByte(code, code->selection[3].line, code->verticalMotionColumn);
+	} else if (!code->useVerticalMotionColumn) {
+		code->useVerticalMotionColumn = true;
+		code->verticalMotionColumn = _UICodeByteToColumn(code, code->selection[3].line, code->selection[3].offset);
+	}
 }
 
 int _UICodeMessage(UIElement *element, UIMessage message, int di, void *dp) {
@@ -2724,15 +2753,23 @@ int _UICodeMessage(UIElement *element, UIMessage message, int di, void *dp) {
 	if (message == UI_MSG_LAYOUT) {
 		UIFont *previousFont = UIFontActivate(code->font);
 		int scrollBarSize = UI_SIZE_SCROLL_BAR * code->e.window->scale;
-
-		if (code->moveScrollToFocusNextLayout) {
-			code->vScroll->position = (code->focused + 0.5) * UIMeasureStringHeight() - UI_RECT_HEIGHT(code->e.bounds) / 2;
-		}
-
 		code->vScroll->maximum = code->lineCount * UIMeasureStringHeight();
 		code->hScroll->maximum = code->columns * code->font->glyphWidth; // TODO This doesn't take into account tab sizes!
 		int vSpace = code->vScroll->page = UI_RECT_HEIGHT(element->bounds);
 		int hSpace = code->hScroll->page = UI_RECT_WIDTH(element->bounds);
+
+		if (code->moveScrollToCaretNextLayout) {
+			int top = code->selection[3].line * UIMeasureStringHeight();
+			int bottom = top + UIMeasureStringHeight();
+			int context = UIMeasureStringHeight() * 2;
+			if (bottom > code->vScroll->position + vSpace - context) code->vScroll->position = bottom - vSpace + context;
+			if (top < code->vScroll->position + context) code->vScroll->position = top - context;
+			code->moveScrollToCaretNextLayout = code->moveScrollToFocusNextLayout = false;
+			// TODO Horizontal scrolling.
+		} else if (code->moveScrollToFocusNextLayout) {
+			code->vScroll->position = (code->focused + 0.5) * UIMeasureStringHeight() - UI_RECT_HEIGHT(code->e.bounds) / 2;
+		}
+
 		if (!(code->e.flags & UI_CODE_NO_MARGIN)) hSpace -= UI_SIZE_CODE_MARGIN + UI_SIZE_CODE_MARGIN_GAP;
 		_UI_LAYOUT_SCROLL_BAR_PAIR(code);
 
@@ -2867,33 +2904,22 @@ int _UICodeMessage(UIElement *element, UIMessage message, int di, void *dp) {
 
 			if (element->window->cursorY < element->bounds.t + UI_SIZE_CODE_MARGIN_GAP) {
 				code->vScroll->position -= delta;
-				code->moveScrollToFocusNextLayout = false;
 			} else if (element->window->cursorY >= code->hScroll->e.bounds.t - UI_SIZE_CODE_MARGIN_GAP) {
 				code->vScroll->position += delta;
-				code->moveScrollToFocusNextLayout = false;
 			}
 
+			code->moveScrollToFocusNextLayout = false;
 			UIFontActivate(previousFont);
 			_UICodeMessage(element, UI_MSG_MOUSE_DRAG, di, dp);
 			UIElementRefresh(element);
 		}
 	} else if (message == UI_MSG_MOUSE_DRAG && element->window->pressedButton == 1 && code->lineCount && !code->leftDownInMargin) {
 		// TODO Double-click and triple-click dragging for word and line granularity respectively.
-		int line, offset;
-		UICodePositionToByte(code, element->window->cursorX, element->window->cursorY, &line, &offset);
-
-		if (line < code->selection[2].line || (line == code->selection[2].line && offset < code->selection[2].offset)) {
-			code->selection[0].line = line;
-			code->selection[0].offset = offset;
-			code->selection[1] = code->selection[2];
-		} else {
-			code->selection[0] = code->selection[2];
-			code->selection[1].line = line;
-			code->selection[1].offset = offset;
-		}
-
-		UIElementRepaint(&code->e, NULL);
-	} else if (message == UI_MSG_KEY_TYPED) {
+		UICodePositionToByte(code, element->window->cursorX, element->window->cursorY, &code->selection[3].line, &code->selection[3].offset);
+		_UICodeUpdateSelection(code);
+		code->moveScrollToFocusNextLayout = code->moveScrollToCaretNextLayout = false;
+		code->useVerticalMotionColumn = false;
+	} else if (message == UI_MSG_KEY_TYPED && code->lineCount) {
 		UIKeyTyped *m = (UIKeyTyped *) dp;
 
 		if ((m->code == UI_KEYCODE_LETTER('C') || m->code == UI_KEYCODE_LETTER('X') || m->code == UI_KEYCODE_INSERT)
@@ -2906,51 +2932,71 @@ int _UICodeMessage(UIElement *element, UIMessage message, int di, void *dp) {
 				for (int i = from; i < to; i++) pasteText[i - from] = code->content[i];
 				_UIClipboardWriteText(element->window, pasteText);
 			}
-		} else if ((m->code == UI_KEYCODE_UP || m->code == UI_KEYCODE_DOWN || m->code == UI_KEYCODE_PAGE_UP || m->code == UI_KEYCODE_PAGE_DOWN
-				|| m->code == UI_KEYCODE_HOME || m->code == UI_KEYCODE_END) && !element->window->ctrl && !element->window->alt) {
+		} else if ((m->code == UI_KEYCODE_UP || m->code == UI_KEYCODE_DOWN || m->code == UI_KEYCODE_PAGE_UP || m->code == UI_KEYCODE_PAGE_DOWN) 
+				&& !element->window->ctrl && !element->window->alt) {
 			UIFont *previousFont = UIFontActivate(code->font);
 			int lineHeight = UIMeasureStringHeight();
 
 			if (element->window->shift) {
 				if (m->code == UI_KEYCODE_UP) {
-					if (code->selection[0].line - 1 >= 0) {
-						code->selection[0].line--;
-					} else {
-						code->selection[0].offset = 0;
+					if (code->selection[3].line - 1 >= 0) {
+						_UICodeSetVerticalMotionColumn(code, false);
+						code->selection[3].line--;
+						_UICodeSetVerticalMotionColumn(code, true);
 					}
 				} else if (m->code == UI_KEYCODE_DOWN) {
-					if (code->selection[0].line + 1 < code->lineCount) {
-						code->selection[0].line++;
-					} else {
-						code->selection[0].offset = code->lines[code->selection[0].line].bytes;
+					if (code->selection[3].line + 1 < code->lineCount) {
+						_UICodeSetVerticalMotionColumn(code, false);
+						code->selection[3].line++;
+						_UICodeSetVerticalMotionColumn(code, true);
 					}
-				} else if (m->code == UI_KEYCODE_HOME) {
-					code->selection[0].offset = 0;
-				} else if (m->code == UI_KEYCODE_END) {
-					code->selection[0].offset = code->lines[code->selection[0].line].bytes;
 				} else if (m->code == UI_KEYCODE_PAGE_UP || m->code == UI_KEYCODE_PAGE_DOWN) {
+					_UICodeSetVerticalMotionColumn(code, false);
 					int pageHeight = (element->bounds.t - code->hScroll->e.bounds.t) / lineHeight * 4 / 5;
-
-					code->selection[0].line += m->code == UI_KEYCODE_PAGE_UP ? pageHeight : -pageHeight;
+					code->selection[3].line += m->code == UI_KEYCODE_PAGE_UP ? pageHeight : -pageHeight;
+					if (code->selection[3].line < 0) code->selection[3].line = 0;
+					if (code->selection[3].line >= code->lineCount) code->selection[3].line = code->lineCount - 1;
+					_UICodeSetVerticalMotionColumn(code, true);
 				}
 
-				UIFontActivate(previousFont);
-				UIElementRepaint(&code->e, NULL);
+				_UICodeUpdateSelection(code);
 			} else {
-				UIFontActivate(previousFont);
 				code->moveScrollToFocusNextLayout = false;
 				_UI_KEY_INPUT_VSCROLL(code, lineHeight, (element->bounds.t - code->hScroll->e.bounds.t) * 4 / 5 /* leave a few lines for context */);
+			}
+
+			UIFontActivate(previousFont);
+		} else if ((m->code == UI_KEYCODE_HOME || m->code == UI_KEYCODE_END) && !element->window->alt) {
+			if (element->window->shift) {
+				if (m->code == UI_KEYCODE_HOME) {
+					if (element->window->ctrl) code->selection[3].line = 0;
+					code->selection[3].offset = 0;
+					code->useVerticalMotionColumn = false;
+				} else {
+					if (element->window->ctrl) code->selection[3].line = code->lineCount - 1;
+					code->selection[3].offset = code->lines[code->selection[3].line].bytes;
+					code->useVerticalMotionColumn = false;
+				}
+
+				_UICodeUpdateSelection(code);
+			} else {
+				code->vScroll->position = m->code == UI_KEYCODE_HOME ? 0 : code->vScroll->maximum;
+				code->moveScrollToFocusNextLayout = false;
+				UIElementRefresh(&code->e);
 			}
 		} else if ((m->code == UI_KEYCODE_LEFT || m->code == UI_KEYCODE_RIGHT) && !element->window->alt) {
 			if (element->window->shift) {
 				UICodeMoveCaret(code, m->code == UI_KEYCODE_LEFT, element->window->ctrl);
+			} else if (!element->window->ctrl) {
+				code->hScroll->position += m->code == UI_KEYCODE_LEFT ? -ui.activeFont->glyphWidth : ui.activeFont->glyphWidth;
+				UIElementRefresh(&code->e);
 			} else {
-				if (!element->window->ctrl) {
-					code->hScroll->position += m->code == UI_KEYCODE_LEFT ? -ui.activeFont->glyphWidth : ui.activeFont->glyphWidth;
-					UIElementRefresh(&code->e);
-				}
+				return 0;
 			}
+		} else {
+			return 0;
 		}
+
 		return 1;
 	} else if (message == UI_MSG_UPDATE) {
 		UIElementRepaint(element, NULL);
@@ -2965,32 +3011,32 @@ int _UICodeMessage(UIElement *element, UIMessage message, int di, void *dp) {
 void UICodeMoveCaret(UICode *code, bool backward, bool word) {
 	while (true) {
 		if (backward) {
-			if (code->selection[0].offset - 1 < 0) {
-				if (code->selection[0].line > 0) {
-					code->selection[0].line--;
-					code->selection[0].offset = code->lines[code->selection[0].line].bytes;
+			if (code->selection[3].offset - 1 < 0) {
+				if (code->selection[3].line > 0) {
+					code->selection[3].line--;
+					code->selection[3].offset = code->lines[code->selection[3].line].bytes;
 				} else break;
-			} else code->selection[0].offset--;
+			} else code->selection[3].offset--;
 		} else {
-			if (code->selection[0].offset + 1 > code->lines[code->selection[0].line].bytes) {
-				if (code->selection[0].line + 1 < code->lineCount) {
-					code->selection[0].line++;
-					code->selection[0].offset = 0;
+			if (code->selection[3].offset + 1 > code->lines[code->selection[3].line].bytes) {
+				if (code->selection[3].line + 1 < code->lineCount) {
+					code->selection[3].line++;
+					code->selection[3].offset = 0;
 				} else break;
-			} else code->selection[0].offset++;
+			} else code->selection[3].offset++;
 		}
 
 		if (!word) break;
 
-		if (code->selection[0].offset != 0 && code->selection[0].offset != code->lines[code->selection[0].line].bytes) {
-			char c1 = *(code->content + code->lines[code->selection[0].line].offset + code->selection[0].offset - 1);
-			char c2 = *(code->content + code->lines[code->selection[0].line].offset + code->selection[0].offset);
-
+		if (code->selection[3].offset != 0 && code->selection[3].offset != code->lines[code->selection[3].line].bytes) {
+			char c1 = code->content[code->lines[code->selection[3].line].offset + code->selection[3].offset - 1];
+			char c2 = code->content[code->lines[code->selection[3].line].offset + code->selection[3].offset];
 			if (_UICharIsAlphaOrDigitOrUnderscore(c1) != _UICharIsAlphaOrDigitOrUnderscore(c2)) break;
 		}
 	}
 
-	UIElementRepaint(&code->e, NULL);
+	code->useVerticalMotionColumn = false;
+	_UICodeUpdateSelection(code);
 }
 
 void UICodeFocusLine(UICode *code, int index) {
@@ -3000,6 +3046,8 @@ void UICodeFocusLine(UICode *code, int index) {
 }
 
 void UICodeInsertContent(UICode *code, const char *content, ptrdiff_t byteCount, bool replace) {
+	code->useVerticalMotionColumn = false;
+
 	UIFont *previousFont = UIFontActivate(code->font);
 
 	if (byteCount == -1) {
