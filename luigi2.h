@@ -611,7 +611,7 @@ typedef struct UICode {
 	int tabSize;
 	int columns;
 	UI_CLOCK_T lastAnimateTime;
-	struct { int line, offset; } selection[2];
+	struct { int line, offset; } selection[3 /* start, end, anchor */];
 } UICode;
 
 typedef struct UIGauge {
@@ -763,6 +763,7 @@ void UITableResizeColumns(UITable *table);
 UICode *UICodeCreate(UIElement *parent, uint32_t flags);
 void UICodeFocusLine(UICode *code, int index); // Line numbers are 1-indexed!!
 int UICodeHitTest(UICode *code, int x, int y); // Returns line number; negates if in margin. Returns 0 if not on a line.
+void UICodePositionToByte(UICode *code, int x, int y, int *line, int *byte);
 void UICodeInsertContent(UICode *code, const char *content, ptrdiff_t byteCount, bool replace);
 
 void UIDrawBlock(UIPainter *painter, UIRectangle rectangle, uint32_t color);
@@ -2556,6 +2557,25 @@ bool _UICharIsAlphaOrDigitOrUnderscore(char c) {
 	return _UICharIsAlpha(c) || _UICharIsDigit(c) || c == '_';
 }
 
+void UICodePositionToByte(UICode *code, int x, int y, int *line, int *byte) {
+	UIFont *previousFont = UIFontActivate(code->font);
+	int lineHeight = UIMeasureStringHeight();
+	*line = (code->e.window->cursorY - code->e.bounds.t + code->vScroll->position) / lineHeight;
+	if (*line < 0) *line = 0;
+	else if (*line >= code->lineCount) *line = code->lineCount - 1;
+	int column = (code->e.window->cursorX - code->e.bounds.l + code->hScroll->position + ui.activeFont->glyphWidth / 2) / ui.activeFont->glyphWidth;
+	if (~code->e.flags & UI_CODE_NO_MARGIN) column -= (UI_SIZE_CODE_MARGIN + UI_SIZE_CODE_MARGIN_GAP) / ui.activeFont->glyphWidth;
+	UIFontActivate(previousFont);
+
+	*byte = 0;
+
+	for (int ti = 0; *byte < code->lines[*line].bytes; *byte = *byte + 1) {
+		ti++;
+		if (code->content[*byte + code->lines[*line].offset] == '\t') while (ti % code->tabSize) ti++;
+		if (column < ti) break;
+	}
+}
+
 int UICodeHitTest(UICode *code, int x, int y) {
 	x -= code->e.bounds.l;
 
@@ -2678,16 +2698,20 @@ int UIDrawStringHighlighted(UIPainter *painter, UIRectangle lineBounds, const ch
 			x += ui.activeFont->glyphWidth, ti++;
 		}
 
-		if (selection && selection->carets[0] != selection->carets[1] && j >= selection->carets[0] && j < selection->carets[1]) {
+		if (selection && j >= selection->carets[0] && j < selection->carets[1]) {
 			UIDrawBlock(painter, UI_RECT_4(oldX, x, y, y + lineHeight), selection->colorBackground);
 			if (c != '\t') UIDrawGlyph(painter, oldX, y, c, selection->colorText);
 		}
 
 		if (selection && selection->carets[0] == j) {
-			UIDrawInvert(painter, UI_RECT_4(x, x + 1, y, y + lineHeight));
+			UIDrawInvert(painter, UI_RECT_4(oldX, oldX + 1, y, y + lineHeight));
 		}
 
 		j++;
+	}
+
+	if (selection && selection->carets[0] == j) {
+		UIDrawInvert(painter, UI_RECT_4(x, x + 1, y, y + lineHeight));
 	}
 
 	return x;
@@ -2737,15 +2761,6 @@ int _UICodeMessage(UIElement *element, UIMessage message, int di, void *dp) {
 		selection.colorBackground = ui.theme.selected;
 		selection.colorText = ui.theme.textSelected;
 
-#define _UI_CODE_SELECTION() \
-		bool selectionSwap = code->selection[0].line > code->selection[1].line  \
-			|| (code->selection[0].line == code->selection[1].line && code->selection[0].offset > code->selection[1].offset); \
-		int selectionLineFrom   = selectionSwap ? code->selection[1].line   : code->selection[0].line  ; \
-		int selectionLineTo     = selectionSwap ? code->selection[0].line   : code->selection[1].line  ; \
-		int selectionOffsetFrom = selectionSwap ? code->selection[1].offset : code->selection[0].offset; \
-		int selectionOffsetTo   = selectionSwap ? code->selection[0].offset : code->selection[1].offset;
-		_UI_CODE_SELECTION();
-
 		for (int i = code->vScroll->position / lineHeight; i < code->lineCount; i++) {
 			if (lineBounds.t > element->clip.b) {
 				break;
@@ -2784,13 +2799,13 @@ int _UICodeMessage(UIElement *element, UIMessage message, int di, void *dp) {
 			UIRectangle oldClip = painter->clip;
 			painter->clip = UIRectangleIntersection(oldClip, lineBounds);
 			if (code->hScroll) lineBounds.l -= (int64_t) code->hScroll->position;
-			selection.carets[0] = i == selectionLineFrom ? selectionOffsetFrom : 0;
-			selection.carets[1] = i == selectionLineTo ? selectionOffsetTo : code->lines[i].bytes;
+			selection.carets[0] = i == code->selection[0].line ? code->selection[0].offset : 0;
+			selection.carets[1] = i == code->selection[1].line ? code->selection[1].offset : code->lines[i].bytes;
 			int x = UIDrawStringHighlighted(painter, lineBounds, code->content + code->lines[i].offset, code->lines[i].bytes, code->tabSize,
-					element->window->focused == element && i >= selectionLineFrom && i <= selectionLineTo ? &selection : NULL);
+					element->window->focused == element && i >= code->selection[0].line && i <= code->selection[1].line ? &selection : NULL);
 			int y = (lineBounds.t + lineBounds.b - UIMeasureStringHeight()) / 2;
 
-			if (element->window->focused == element && i >= selectionLineFrom && i < selectionLineTo) {
+			if (element->window->focused == element && i >= code->selection[0].line && i < code->selection[1].line) {
 				UIDrawBlock(painter, UI_RECT_4PD(x, y, code->font->glyphWidth, code->font->glyphHeight), selection.colorBackground);
 			}
 
@@ -2823,8 +2838,8 @@ int _UICodeMessage(UIElement *element, UIMessage message, int di, void *dp) {
 		code->leftDownInMargin = hitTest < 0;
 
 		if (hitTest > 0) {
+			UICodePositionToByte(code, element->window->cursorX, element->window->cursorY, &code->selection[2].line, &code->selection[2].offset);
 			_UICodeMessage(element, UI_MSG_MOUSE_DRAG, di, dp);
-			code->selection[1] = code->selection[0];
 			UIElementFocus(element);
 			UIElementAnimate(element, false);
 			code->lastAnimateTime = UI_CLOCK();
@@ -2863,22 +2878,17 @@ int _UICodeMessage(UIElement *element, UIMessage message, int di, void *dp) {
 		}
 	} else if (message == UI_MSG_MOUSE_DRAG && element->window->pressedButton == 1 && code->lineCount && !code->leftDownInMargin) {
 		// TODO Double-click and triple-click dragging for word and line granularity respectively.
+		int line, offset;
+		UICodePositionToByte(code, element->window->cursorX, element->window->cursorY, &line, &offset);
 
-		UIFont *previousFont = UIFontActivate(code->font);
-		int lineHeight = UIMeasureStringHeight();
-		int line = code->selection[0].line = (element->window->cursorY - element->bounds.t + code->vScroll->position) / lineHeight;
-		if (line < 0) line = code->selection[0].line = 0;
-		else if (line >= code->lineCount) line = code->selection[0].line = code->lineCount - 1;
-		int column = (element->window->cursorX - element->bounds.l + code->hScroll->position) / ui.activeFont->glyphWidth;
-		if (~code->e.flags & UI_CODE_NO_MARGIN) column -= (UI_SIZE_CODE_MARGIN + UI_SIZE_CODE_MARGIN_GAP) / ui.activeFont->glyphWidth;
-		UIFontActivate(previousFont);
-
-		code->selection[0].offset = 0;
-
-		for (int ti = 0; code->selection[0].offset < code->lines[line].bytes; code->selection[0].offset++) {
-			ti++;
-			if (code->content[code->selection[0].offset + code->lines[line].offset] == '\t') while (ti % code->tabSize) ti++;
-			if (column < ti) break;
+		if (line < code->selection[2].line || (line == code->selection[2].line && offset < code->selection[2].offset)) {
+			code->selection[0].line = line;
+			code->selection[0].offset = offset;
+			code->selection[1] = code->selection[2];
+		} else {
+			code->selection[0] = code->selection[2];
+			code->selection[1].line = line;
+			code->selection[1].offset = offset;
 		}
 
 		UIElementRepaint(&code->e, NULL);
@@ -2887,9 +2897,8 @@ int _UICodeMessage(UIElement *element, UIMessage message, int di, void *dp) {
 
 		if ((m->code == UI_KEYCODE_LETTER('C') || m->code == UI_KEYCODE_LETTER('X') || m->code == UI_KEYCODE_INSERT)
 				&& element->window->ctrl && !element->window->alt && !element->window->shift) {
-			_UI_CODE_SELECTION();
-			int from = code->lines[selectionLineFrom].offset + selectionOffsetFrom;
-			int to = code->lines[selectionLineTo].offset + selectionOffsetTo;
+			int from = code->lines[code->selection[0].line].offset + code->selection[0].offset;
+			int to = code->lines[code->selection[1].line].offset + code->selection[1].offset;
 
 			if (from != to) {
 				char *pasteText = (char *) UI_CALLOC(to - from + 2);
