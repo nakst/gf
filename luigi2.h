@@ -2882,11 +2882,11 @@ int _UICodeMessage(UIElement *element, UIMessage message, int di, void *dp) {
 		}
 	} else if (message == UI_MSG_LEFT_UP) {
 		UIElementAnimate(element, true);
-	} else if (message == UI_MSG_LEFT_DOWN && code->lineCount && (element->flags & UI_CODE_SELECTABLE)) {
+	} else if (message == UI_MSG_LEFT_DOWN && code->lineCount) {
 		int hitTest = UICodeHitTest(code, element->window->cursorX, element->window->cursorY);
 		code->leftDownInMargin = hitTest < 0;
 
-		if (hitTest > 0) {
+		if (hitTest > 0 && (element->flags & UI_CODE_SELECTABLE)) {
 			UICodePositionToByte(code, element->window->cursorX, element->window->cursorY, &code->selection[2].line, &code->selection[2].offset);
 			_UICodeMessage(element, UI_MSG_MOUSE_DRAG, di, dp);
 			UIElementFocus(element);
