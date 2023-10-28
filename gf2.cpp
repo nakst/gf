@@ -180,6 +180,7 @@ const char *fontPath;
 int fontSizeCode = 13;
 int fontSizeInterface = 11;
 float uiScale = 1;
+bool selectableSource;
 bool restoreWatchWindow;
 struct WatchWindow *firstWatchWindow;
 bool maximize;
@@ -1283,6 +1284,8 @@ void SettingsLoad(bool earlyPass) {
 					maximize = atoi(state.value);
 				} else if (0 == strcmp(state.key, "restore_watch_window")) {
 					restoreWatchWindow = atoi(state.value);
+				} else if (0 == strcmp(state.key, "selectable_source")) {
+					selectableSource = atoi(state.value);
 				}
 			} else if (0 == strcmp(state.section, "gdb") && !earlyPass) {
 				if (0 == strcmp(state.key, "argument")) {

@@ -382,7 +382,7 @@ int DisplayCodeMessage(UIElement *element, UIMessage message, int di, void *dp) 
 }
 
 UIElement *SourceWindowCreate(UIElement *parent) {
-	displayCode = UICodeCreate(parent, 0);
+	displayCode = UICodeCreate(parent, selectableSource ? UI_CODE_SELECTABLE : 0);
 	displayCode->font = fontCode;
 	displayCode->e.messageUser = DisplayCodeMessage;
 	return &displayCode->e;
@@ -956,7 +956,7 @@ int TextboxInputMessage(UIElement *element, UIMessage message, int di, void *dp)
 
 UIElement *ConsoleWindowCreate(UIElement *parent) {
 	UIPanel *panel2 = UIPanelCreate(parent, UI_PANEL_EXPAND);
-	displayOutput = UICodeCreate(&panel2->e, UI_CODE_NO_MARGIN | UI_ELEMENT_V_FILL);
+	displayOutput = UICodeCreate(&panel2->e, UI_CODE_NO_MARGIN | UI_ELEMENT_V_FILL | UI_CODE_SELECTABLE);
 	UIPanel *panel3 = UIPanelCreate(&panel2->e, UI_PANEL_HORIZONTAL | UI_PANEL_EXPAND | UI_PANEL_COLOR_1);
 	panel3->border = UI_RECT_1(5);
 	panel3->gap = 5;
@@ -2461,7 +2461,7 @@ UIElement *StructWindowCreate(UIElement *parent) {
 	window->textbox = UITextboxCreate(&panel->e, 0);
 	window->textbox->e.messageUser = TextboxStructNameMessage;
 	window->textbox->e.cp = window;
-	window->display = UICodeCreate(&panel->e, UI_ELEMENT_V_FILL | UI_CODE_NO_MARGIN);
+	window->display = UICodeCreate(&panel->e, UI_ELEMENT_V_FILL | UI_CODE_NO_MARGIN | UI_CODE_SELECTABLE);
 	UICodeInsertContent(window->display, "Type the name of a struct to view its layout.", -1, false);
 	return &panel->e;
 }
@@ -2746,7 +2746,7 @@ void LogReceived(char *buffer) {
 }
 
 UIElement *LogWindowCreate(UIElement *parent) {
-	UICode *code = UICodeCreate(parent, 0);
+	UICode *code = UICodeCreate(parent, UI_CODE_SELECTABLE);
 	pthread_t thread;
 	pthread_create(&thread, nullptr, LogWindowThread, code);
 	return &code->e;
@@ -3018,7 +3018,7 @@ UIElement *CommandSearchWindowCreate(UIElement *parent) {
 	window->textbox = UITextboxCreate(&panel->e, 0);
 	window->textbox->e.messageUser = TextboxSearchCommandMessage;
 	window->textbox->e.cp = window;
-	window->display = UICodeCreate(&panel->e, UI_ELEMENT_V_FILL | UI_CODE_NO_MARGIN);
+	window->display = UICodeCreate(&panel->e, UI_ELEMENT_V_FILL | UI_CODE_NO_MARGIN | UI_CODE_SELECTABLE);
 	UICodeInsertContent(window->display, "Type here to search \nGDB command descriptions.", -1, true);
 	return &panel->e;
 }

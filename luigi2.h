@@ -599,6 +599,7 @@ typedef struct UICodeLine {
 
 typedef struct UICode {
 #define UI_CODE_NO_MARGIN (1 << 0)
+#define UI_CODE_SELECTABLE (1 << 1)
 	UIElement e;
 	UIScrollBar *vScroll, *hScroll;
 	UICodeLine *lines;
@@ -2723,7 +2724,15 @@ int UIDrawStringHighlighted(UIPainter *painter, UIRectangle lineBounds, const ch
 			if (c != '\t') UIDrawGlyph(painter, oldX, y, c, selection->colorText);
 		}
 
+		if (selection && selection->carets[0] == j) {
+			UIDrawInvert(painter, UI_RECT_4(oldX, oldX + 1, y, y + lineHeight));
+		}
+
 		j++;
+	}
+
+	if (selection && selection->carets[0] == j) {
+		UIDrawInvert(painter, UI_RECT_4(x, x + 1, y, y + lineHeight));
 	}
 
 	return x;
@@ -2868,10 +2877,12 @@ int _UICodeMessage(UIElement *element, UIMessage message, int di, void *dp) {
 			return UI_CURSOR_FLIPPED_ARROW;
 		}
 
-		return UI_CURSOR_TEXT;
+		if (element->flags & UI_CODE_SELECTABLE) {
+			return UI_CURSOR_TEXT;
+		}
 	} else if (message == UI_MSG_LEFT_UP) {
 		UIElementAnimate(element, true);
-	} else if (message == UI_MSG_LEFT_DOWN && code->lineCount) {
+	} else if (message == UI_MSG_LEFT_DOWN && code->lineCount && (element->flags & UI_CODE_SELECTABLE)) {
 		int hitTest = UICodeHitTest(code, element->window->cursorX, element->window->cursorY);
 		code->leftDownInMargin = hitTest < 0;
 
