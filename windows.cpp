@@ -330,13 +330,13 @@ int DisplayCodeMessage(UIElement *element, UIMessage message, int di, void *dp) 
 
 		for (int i = 0; i < breakpoints.Length(); i++) {
 			if (breakpoints[i].line == di && 0 == strcmp(breakpoints[i].fileFull, currentFileFull)) {
-				if (breakpoints[i].enabled) return 0xFF0000;
+				if (breakpoints[i].enabled) return ui.theme.accent1;
 				else atLeastOneBreakpointDisabled = true;
 			}
 		}
 
 		if (atLeastOneBreakpointDisabled) {
-			return 0x822454;
+			return (((ui.theme.accent1 & 0xFF0000) >> 1) & 0xFF0000) | (((ui.theme.accent1 & 0xFF00) >> 1) & 0xFF00) | ((ui.theme.accent1 & 0xFF) >> 1);
 		}
 	} else if (message == UI_MSG_PAINT) {
 		element->messageClass(element, message, di, dp);
@@ -363,7 +363,7 @@ int DisplayCodeMessage(UIElement *element, UIMessage message, int di, void *dp) 
 		if (UICodeHitTest((UICode *) element, element->window->cursorX, element->window->cursorY) == m->index
 				&& element->window->hovered == element && (element->window->ctrl || element->window->alt || element->window->shift)
 				&& !element->window->textboxModifiedFlag) {
-			UIDrawBorder(m->painter, m->bounds, element->window->ctrl ? 0xFF6290E0 : 0xFFE09062, UI_RECT_1(2));
+			UIDrawBorder(m->painter, m->bounds, element->window->ctrl ? ui.theme.selected : ui.theme.codeOperator, UI_RECT_1(2));
 			UIDrawString(m->painter, m->bounds, element->window->ctrl ? "=> run until " : "=> skip to ", -1, ui.theme.text, UI_ALIGN_RIGHT, NULL);
 		} else if (m->index == currentEndOfBlock) {
 			UIDrawString(m->painter, m->bounds, "[Shift+F10]", -1, ui.theme.codeComment, UI_ALIGN_RIGHT, NULL);

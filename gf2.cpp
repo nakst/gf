@@ -424,7 +424,7 @@ bool INIParse(INIState *s) {
 
 int ModifiedRowMessage(UIElement *element, UIMessage message, int di, void *dp) {
 	if (message == UI_MSG_PAINT) {
-		UIDrawBorder((UIPainter *) dp, element->bounds, 0x00FF00, UI_RECT_1(2));
+		UIDrawBorder((UIPainter *) dp, element->bounds, ui.theme.selected, UI_RECT_1(2));
 	}
 
 	return 0;
@@ -432,7 +432,7 @@ int ModifiedRowMessage(UIElement *element, UIMessage message, int di, void *dp) 
 
 int TrafficLightMessage(UIElement *element, UIMessage message, int di, void *dp) {
 	if (message == UI_MSG_PAINT) {
-		UIDrawRectangle((UIPainter *) dp, element->bounds, programRunning ? 0xFF0000 : 0x00FF00, ui.theme.border, UI_RECT_1(1));
+		UIDrawRectangle((UIPainter *) dp, element->bounds, programRunning ? ui.theme.accent1 : ui.theme.accent2, ui.theme.border, UI_RECT_1(1));
 	}
 
 	return 0;
@@ -1161,7 +1161,8 @@ void CommandDonate(void *) {
 const char *themeItems[] = {
 	"panel1", "panel2", "selected", "border", "text", "textDisabled", "textSelected",
 	"buttonNormal", "buttonHovered", "buttonPressed", "buttonDisabled", "textboxNormal", "textboxFocused",
-	"codeFocused", "codeBackground", "codeDefault", "codeComment", "codeString", "codeNumber", "codeLineNumber", "codeOperator", "codePreprocessor",
+	"codeFocused", "codeBackground", "codeDefault", "codeComment", "codeString", "codeNumber", "codeOperator", "codePreprocessor",
+	"accent1", "accent2",
 };
 
 void SettingsAddTrustedFolder() {

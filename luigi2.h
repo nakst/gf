@@ -230,7 +230,8 @@ typedef struct UITheme {
 	uint32_t text, textDisabled, textSelected;
 	uint32_t buttonNormal, buttonHovered, buttonPressed, buttonDisabled;
 	uint32_t textboxNormal, textboxFocused;
-	uint32_t codeFocused, codeBackground, codeDefault, codeComment, codeString, codeNumber, codeLineNumber, codeOperator, codePreprocessor;
+	uint32_t codeFocused, codeBackground, codeDefault, codeComment, codeString, codeNumber, codeOperator, codePreprocessor;
+	uint32_t accent1, accent2;
 } UITheme;
 
 typedef struct UIPainter {
@@ -923,9 +924,11 @@ UITheme uiThemeClassic = {
 	.codeComment = 0xFFA11F20,
 	.codeString = 0xFF037E01,
 	.codeNumber = 0xFF213EF1,
-	.codeLineNumber = 0xFFA11F20,
 	.codeOperator = 0xFF7F0480,
 	.codePreprocessor = 0xFF545D70,
+
+	.accent1 = 0xFF0000,
+	.accent2 = 0x00FF00,
 };
 
 UITheme uiThemeDark = {
@@ -952,9 +955,11 @@ UITheme uiThemeDark = {
 	.codeComment = 0xFFB4B4B4,
 	.codeString = 0xFFF5DDD1,
 	.codeNumber = 0xFFC3F5D3,
-	.codeLineNumber = 0xFFB4B4B4,
 	.codeOperator = 0xFFF5D499,
 	.codePreprocessor = 0xFFF5F3D1,
+
+	.accent1 = 0xF01231,
+	.accent2 = 0x45F94E,
 };
 
 /////////////////////////////////////////
@@ -2836,7 +2841,7 @@ int _UICodeMessage(UIElement *element, UIMessage message, int di, void *dp) {
 				}
 
 				UIDrawString(painter, marginBounds, string + p, 16 - p,
-						marginColor ? ui.theme.codeDefault : ui.theme.codeLineNumber, UI_ALIGN_RIGHT, NULL);
+						marginColor ? ui.theme.codeDefault : ui.theme.codeComment, UI_ALIGN_RIGHT, NULL);
 			}
 
 			if (code->focused == i) {
