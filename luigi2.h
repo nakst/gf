@@ -3647,15 +3647,20 @@ int _UITextboxMessage(UIElement *element, UIMessage message, int di, void *dp) {
 			return 1;
 		}
 	} else if (message == UI_MSG_RIGHT_DOWN) {
-		int   to = textbox->carets[0] > textbox->carets[1] ? textbox->carets[0] : textbox->carets[1];
-		int from = textbox->carets[0] < textbox->carets[1] ? textbox->carets[0] : textbox->carets[1];
+		int c0 = textbox->carets[0], c1 = textbox->carets[1];
+		_UITextboxMessage(element, UI_MSG_LEFT_DOWN, di, dp);
 
-		if (ui.pasteText || from != to) {
-			UIMenu *menu = UIMenuCreate(&element->window->e, UI_MENU_NO_SCROLL);
-			if (from != to) UIMenuAddItem(menu, 0, "Copy", -1, _UITextboxCopyText, textbox);
-			if (ui.pasteText) UIMenuAddItem(menu, 0, "Paste", -1, _UITextboxPasteText, textbox);
-			UIMenuShow(menu);
+		if (c0 < c1 ? (textbox->carets[0] >= c0 && textbox->carets[0] < c1) : (textbox->carets[0] >= c1 && textbox->carets[0] < c0)) {
+			textbox->carets[0] = c0, textbox->carets[1] = c1; // Only move caret if clicking outside the existing selection.
 		}
+
+		UIMenu *menu = UIMenuCreate(&element->window->e, UI_MENU_NO_SCROLL);
+		UIMenuAddItem(menu, textbox->carets[0] == textbox->carets[1] ? UI_ELEMENT_DISABLED : 0, "Copy", -1, _UITextboxCopyText, textbox);
+		size_t pasteBytes;
+		char *paste = _UIClipboardReadTextStart(textbox->e.window, &pasteBytes);
+		UIMenuAddItem(menu, !paste || !pasteBytes ? UI_ELEMENT_DISABLED : 0, "Paste", -1, _UITextboxPasteText, textbox);
+		_UIClipboardReadTextEnd(textbox->e.window, paste);
+		UIMenuShow(menu);
 	}
 
 	return 0;
