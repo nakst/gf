@@ -2744,7 +2744,7 @@ int UIDrawStringHighlighted(UIPainter *painter, UIRectangle lineBounds, const ch
 }
 
 void _UICodeUpdateSelection(UICode *code) {
-	bool swap = code->selection[3].line < code->selection[2].line 
+	bool swap = code->selection[3].line < code->selection[2].line
 		|| (code->selection[3].line == code->selection[2].line && code->selection[3].offset < code->selection[2].offset);
 	code->selection[1 - swap] = code->selection[3];
 	code->selection[0 + swap] = code->selection[2];
@@ -2948,7 +2948,7 @@ int _UICodeMessage(UIElement *element, UIMessage message, int di, void *dp) {
 				for (int i = from; i < to; i++) pasteText[i - from] = code->content[i];
 				_UIClipboardWriteText(element->window, pasteText);
 			}
-		} else if ((m->code == UI_KEYCODE_UP || m->code == UI_KEYCODE_DOWN || m->code == UI_KEYCODE_PAGE_UP || m->code == UI_KEYCODE_PAGE_DOWN) 
+		} else if ((m->code == UI_KEYCODE_UP || m->code == UI_KEYCODE_DOWN || m->code == UI_KEYCODE_PAGE_UP || m->code == UI_KEYCODE_PAGE_DOWN)
 				&& !element->window->ctrl && !element->window->alt) {
 			UIFont *previousFont = UIFontActivate(code->font);
 			int lineHeight = UIMeasureStringHeight();
@@ -3508,6 +3508,35 @@ void UITextboxMoveCaret(UITextbox *textbox, bool backward, bool word) {
 	UIElementRepaint(&textbox->e, NULL);
 }
 
+void _UITextboxCopyText(void *cp) {
+	UITextbox *textbox = (UITextbox *) cp;
+
+	int   to = textbox->carets[0] > textbox->carets[1] ? textbox->carets[0] : textbox->carets[1];
+	int from = textbox->carets[0] < textbox->carets[1] ? textbox->carets[0] : textbox->carets[1];
+
+	if (from != to) {
+		char *pasteText = (char *) UI_CALLOC(to - from + 1);
+		for (int i = from; i < to; i++) pasteText[i - from] = textbox->string[i];
+		_UIClipboardWriteText(textbox->e.window, pasteText);
+	}
+}
+
+void _UITextboxPasteText(void *cp) {
+	UITextbox *textbox = (UITextbox *) cp;
+	size_t bytes;
+	char *text = _UIClipboardReadTextStart(textbox->e.window, &bytes);
+
+	if (text) {
+		for (size_t i = 0; i < bytes; i++) {
+			if (text[i] == '\n') text[i] = ' ';
+		}
+
+		UITextboxReplace(textbox, text, bytes, true);
+	}
+
+	_UIClipboardReadTextEnd(textbox->e.window, text);
+}
+
 int _UITextboxMessage(UIElement *element, UIMessage message, int di, void *dp) {
 	UITextbox *textbox = (UITextbox *) element;
 
@@ -3601,32 +3630,14 @@ int _UITextboxMessage(UIElement *element, UIMessage message, int di, void *dp) {
 			UITextboxReplace(textbox, m->text, m->textBytes, true);
 		} else if ((m->code == UI_KEYCODE_LETTER('C') || m->code == UI_KEYCODE_LETTER('X') || m->code == UI_KEYCODE_INSERT)
 				&& element->window->ctrl && !element->window->alt && !element->window->shift) {
-			int   to = textbox->carets[0] > textbox->carets[1] ? textbox->carets[0] : textbox->carets[1];
-			int from = textbox->carets[0] < textbox->carets[1] ? textbox->carets[0] : textbox->carets[1];
-
-			if (from != to) {
-				char *pasteText = (char *) UI_CALLOC(to - from + 1);
-				for (int i = from; i < to; i++) pasteText[i - from] = textbox->string[i];
-				_UIClipboardWriteText(element->window, pasteText);
-			}
+			_UITextboxCopyText(textbox);
 
 			if (m->code == UI_KEYCODE_LETTER('X')) {
 				UITextboxReplace(textbox, NULL, 0, true);
 			}
 		} else if ((m->code == UI_KEYCODE_LETTER('V') && element->window->ctrl && !element->window->alt && !element->window->shift)
 				|| (m->code == UI_KEYCODE_INSERT && !element->window->ctrl && !element->window->alt && element->window->shift)) {
-			size_t bytes;
-			char *text = _UIClipboardReadTextStart(element->window, &bytes);
-
-			if (text) {
-				for (size_t i = 0; i < bytes; i++) {
-					if (text[i] == '\n') text[i] = ' ';
-				}
-
-				UITextboxReplace(textbox, text, bytes, true);
-			}
-
-			_UIClipboardReadTextEnd(element->window, text);
+			_UITextboxPasteText(textbox);
 		} else {
 			handled = false;
 		}
@@ -3634,6 +3645,16 @@ int _UITextboxMessage(UIElement *element, UIMessage message, int di, void *dp) {
 		if (handled) {
 			UIElementRepaint(element, NULL);
 			return 1;
+		}
+	} else if (message == UI_MSG_RIGHT_DOWN) {
+		int   to = textbox->carets[0] > textbox->carets[1] ? textbox->carets[0] : textbox->carets[1];
+		int from = textbox->carets[0] < textbox->carets[1] ? textbox->carets[0] : textbox->carets[1];
+
+		if (ui.pasteText || from != to) {
+			UIMenu *menu = UIMenuCreate(&element->window->e, UI_MENU_NO_SCROLL);
+			if (from != to) UIMenuAddItem(menu, 0, "Copy", -1, _UITextboxCopyText, textbox);
+			if (ui.pasteText) UIMenuAddItem(menu, 0, "Paste", -1, _UITextboxPasteText, textbox);
+			UIMenuShow(menu);
 		}
 	}
 
