@@ -3021,7 +3021,9 @@ int _UICodeMessage(UIElement *element, UIMessage message, int di, void *dp) {
 
 		return 1;
 	} else if (message == UI_MSG_RIGHT_DOWN) {
-		if (element->flags & UI_CODE_SELECTABLE) {
+		int hitTest = UICodeHitTest(code, element->window->cursorX, element->window->cursorY);
+
+		if (hitTest > 0 && (element->flags & UI_CODE_SELECTABLE)) {
 			UIElementFocus(element);
 			UIMenu *menu = UIMenuCreate(&element->window->e, UI_MENU_NO_SCROLL);
 			UIMenuAddItem(menu, (code->selection[0].line == code->selection[1].line
