@@ -2761,6 +2761,19 @@ void _UICodeSetVerticalMotionColumn(UICode *code, bool restore) {
 	}
 }
 
+void _UICodeCopyText(void *cp) {
+	UICode *code = (UICode *) cp;
+
+	int from = code->lines[code->selection[0].line].offset + code->selection[0].offset;
+	int to = code->lines[code->selection[1].line].offset + code->selection[1].offset;
+
+	if (from != to) {
+		char *pasteText = (char *) UI_CALLOC(to - from + 2);
+		for (int i = from; i < to; i++) pasteText[i - from] = code->content[i];
+		_UIClipboardWriteText(code->e.window, pasteText);
+	}
+}
+
 int _UICodeMessage(UIElement *element, UIMessage message, int di, void *dp) {
 	UICode *code = (UICode *) element;
 
@@ -2940,14 +2953,7 @@ int _UICodeMessage(UIElement *element, UIMessage message, int di, void *dp) {
 
 		if ((m->code == UI_KEYCODE_LETTER('C') || m->code == UI_KEYCODE_LETTER('X') || m->code == UI_KEYCODE_INSERT)
 				&& element->window->ctrl && !element->window->alt && !element->window->shift) {
-			int from = code->lines[code->selection[0].line].offset + code->selection[0].offset;
-			int to = code->lines[code->selection[1].line].offset + code->selection[1].offset;
-
-			if (from != to) {
-				char *pasteText = (char *) UI_CALLOC(to - from + 2);
-				for (int i = from; i < to; i++) pasteText[i - from] = code->content[i];
-				_UIClipboardWriteText(element->window, pasteText);
-			}
+			_UICodeCopyText(code);
 		} else if ((m->code == UI_KEYCODE_UP || m->code == UI_KEYCODE_DOWN || m->code == UI_KEYCODE_PAGE_UP || m->code == UI_KEYCODE_PAGE_DOWN)
 				&& !element->window->ctrl && !element->window->alt) {
 			UIFont *previousFont = UIFontActivate(code->font);
@@ -3014,6 +3020,14 @@ int _UICodeMessage(UIElement *element, UIMessage message, int di, void *dp) {
 		}
 
 		return 1;
+	} else if (message == UI_MSG_RIGHT_DOWN) {
+		if (element->flags & UI_CODE_SELECTABLE) {
+			UIElementFocus(element);
+			UIMenu *menu = UIMenuCreate(&element->window->e, UI_MENU_NO_SCROLL);
+			UIMenuAddItem(menu, (code->selection[0].line == code->selection[1].line
+						&& code->selection[0].offset == code->selection[1].offset) ? UI_ELEMENT_DISABLED : 0, "Copy", -1, _UICodeCopyText, code);
+			UIMenuShow(menu);
+		}
 	} else if (message == UI_MSG_UPDATE) {
 		UIElementRepaint(element, NULL);
 	} else if (message == UI_MSG_DEALLOCATE) {
