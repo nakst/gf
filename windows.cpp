@@ -10,6 +10,9 @@ int autoPrintResultLine;
 int currentEndOfBlock;
 int lastCursorX, lastCursorY;
 
+int ifConditionEvaluation, ifConditionLine;
+int ifConditionFrom, ifConditionTo;
+
 Array<char *> inspectResults;
 bool noInspectResults;
 bool inInspectLineMode;
@@ -282,13 +285,15 @@ DISPLAY_CODE_COMMAND_FOR_ALL_BREAKPOINTS_ON_LINE(CommandDisableAllBreakpointsOnL
 DISPLAY_CODE_COMMAND_FOR_ALL_BREAKPOINTS_ON_LINE(CommandEnableAllBreakpointsOnLine,  CommandEnableBreakpoint );
 
 int DisplayCodeMessage(UIElement *element, UIMessage message, int di, void *dp) {
-	if (message == UI_MSG_CLICKED && !showingDisassembly && ((UICode *) element)->leftDownInMargin) {
-		int result = UICodeHitTest((UICode *) element, element->window->cursorX, element->window->cursorY);
+	UICode *code = (UICode *) element;
 
-		if (result < 0) {
+	if (message == UI_MSG_CLICKED && !showingDisassembly) {
+		int result = UICodeHitTest(code, element->window->cursorX, element->window->cursorY);
+
+		if (result < 0 && code->leftDownInMargin) {
 			int line = -result;
 			CommandToggleBreakpoint((void *) (intptr_t) line);
-		} else if (result > 0) {
+		} else if (result > 0 && !code->leftDownInMargin) {
 			int line = result;
 
 			if (element->window->ctrl) {
@@ -304,7 +309,7 @@ int DisplayCodeMessage(UIElement *element, UIMessage message, int di, void *dp) 
 			}
 		}
 	} else if (message == UI_MSG_RIGHT_DOWN && !showingDisassembly) {
-		int result = UICodeHitTest((UICode *) element, element->window->cursorX, element->window->cursorY);
+		int result = UICodeHitTest(code, element->window->cursorX, element->window->cursorY);
 
 		bool atLeastOneBreakpointEnabled = false;
 
@@ -342,7 +347,7 @@ int DisplayCodeMessage(UIElement *element, UIMessage message, int di, void *dp) 
 		element->messageClass(element, message, di, dp);
 
 		if (inInspectLineMode) {
-			UIFont *previousFont = UIFontActivate(((UICode *) element)->font);
+			UIFont *previousFont = UIFontActivate(code->font);
 			DisplayCodeDrawInspectLineModeOverlay((UIPainter *) dp);
 			UIFontActivate(previousFont);
 		}
@@ -360,13 +365,21 @@ int DisplayCodeMessage(UIElement *element, UIMessage message, int di, void *dp) 
 			UIDrawString(m->painter, rectangle, autoPrintResult, -1, ui.theme.codeComment, UI_ALIGN_LEFT, NULL);
 		}
 
-		if (UICodeHitTest((UICode *) element, element->window->cursorX, element->window->cursorY) == m->index
+		if (UICodeHitTest(code, element->window->cursorX, element->window->cursorY) == m->index
 				&& element->window->hovered == element && (element->window->ctrl || element->window->alt || element->window->shift)
 				&& !element->window->textboxModifiedFlag) {
 			UIDrawBorder(m->painter, m->bounds, element->window->ctrl ? ui.theme.selected : ui.theme.codeOperator, UI_RECT_1(2));
 			UIDrawString(m->painter, m->bounds, element->window->ctrl ? "=> run until " : "=> skip to ", -1, ui.theme.text, UI_ALIGN_RIGHT, NULL);
 		} else if (m->index == currentEndOfBlock) {
 			UIDrawString(m->painter, m->bounds, "[Shift+F10]", -1, ui.theme.codeComment, UI_ALIGN_RIGHT, NULL);
+		}
+
+		if (m->index == ifConditionLine && ifConditionEvaluation) {
+			int columnFrom = _UICodeByteToColumn(code, ifConditionLine - 1, ifConditionFrom);
+			int columnTo = _UICodeByteToColumn(code, ifConditionLine - 1, ifConditionTo);
+			UIDrawBlock(m->painter, UI_RECT_4(m->bounds.l + columnFrom * ui.activeFont->glyphWidth,
+						m->bounds.l + columnTo * ui.activeFont->glyphWidth, m->bounds.b - 2, m->bounds.b), 
+					ifConditionEvaluation == 2 ? ui.theme.accent2 : ui.theme.accent1);
 		}
 	} else if (message == UI_MSG_MOUSE_MOVE || message == UI_MSG_UPDATE) {
 		if (element->window->cursorX != lastCursorX || element->window->cursorY != lastCursorY) {
@@ -448,7 +461,7 @@ void SourceWindowUpdate(const char *data, UIElement *element) {
 		// Parse the new source line.
 
 		UICodeLine *line = displayCode->lines + currentLine - 1;
-		const char *text = displayCode->content + line->offset;
+		char *text = displayCode->content + line->offset;
 		size_t bytes = line->bytes;
 		uintptr_t position = 0;
 
@@ -505,6 +518,67 @@ void SourceWindowUpdate(const char *data, UIElement *element) {
 		}
 
 		autoPrintExpressionLine = currentLine;
+
+		// Try to evaluate simple if conditions.
+
+		ifConditionEvaluation = 0;
+
+		for (uintptr_t i = 0, phase = 0, expressionStart = 0, depth = 0; i < bytes; i++) {
+			if (phase == 0) {
+				if (text[i] == ' ' || text[i] == '\t' || text[i] == '}') {
+				} else if (i < bytes - 4 && text[i] == 'e' && text[i + 1] == 'l' && text[i + 2] == 's' && text[i + 3] == 'e' && text[i + 4] == ' ') {
+					i += 4;
+				} else if (i < bytes - 2 && text[i] == 'i' && text[i + 1] == 'f' && (text[i + 2] == ' ' || text[i + 2] == '(')) {
+					phase = 1;
+				} else {
+					break;
+				}
+			} else if (phase == 1) {
+				if (text[i] == '(') {
+					phase = 2;
+					expressionStart = i + 1;
+				}
+			} else if (phase == 2) {
+				if (text[i] == '(') {
+					if ((i > 3 && text[i - 3] == '|' && text[i - 2] == '|' && text[i - 1] == ' ')
+							|| (i > 3 && text[i - 3] == '&' && text[i - 2] == '&' && text[i - 1] == ' ')
+							|| (i > 2 && text[i - 2] == '|' && text[i - 1] == '|')
+							|| (i > 2 && text[i - 2] == '&' && text[i - 1] == '&')
+							|| (i > 2 && text[i - 2] == '!' && text[i - 1] == ' ')
+							|| (i > 1 && text[i - 1] == '!')
+							|| (i > 6 && text[i - 6] == 's' && text[i - 5] == 't' && text[i - 4] == 'r' 
+								&& text[i - 3] == 'c' && text[i - 2] == 'm' && text[i - 1] == 'p')) {
+						depth++;
+					} else {
+						// Don't evaluate function calls.
+						break;
+					}
+				} else if (i > 1 && i < bytes - 1 && text[i] == '=' 
+						&& text[i - 1] != '>' && text[i - 1] != '<' && text[i - 1] != '=' && text[i + 1] != '=') {
+					// Don't evaluate assignments.
+					break;
+				} else if (text[i] == ')' && depth) {
+					depth--;
+				} else if (text[i] == ')' && !depth) {
+					text[i] = 0;
+					const char *result = EvaluateExpression(&text[expressionStart]);
+					text[i] = ')';
+
+					if (!result) {
+					} else if (0 == strcmp(result, "= true")) {
+						ifConditionEvaluation = 2;
+						ifConditionFrom = expressionStart, ifConditionTo = i;
+						ifConditionLine = currentLine;
+					} else if (0 == strcmp(result, "= false")) {
+						ifConditionEvaluation = 1;
+						ifConditionFrom = expressionStart, ifConditionTo = i;
+						ifConditionLine = currentLine;
+					}
+
+					break;
+				}
+			}
+		}
 	}
 
 	UIElementRefresh(element);

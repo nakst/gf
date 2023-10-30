@@ -2584,7 +2584,7 @@ int _UICodeByteToColumn(UICode *code, int line, int byte) {
 
 	for (int i = 0; i < byte; i++) {
 		ti++;
-		if (code->content[byte + code->lines[line].offset] == '\t') while (ti % code->tabSize) ti++;
+		if (code->content[i + code->lines[line].offset] == '\t') while (ti % code->tabSize) ti++;
 	}
 
 	return ti;
