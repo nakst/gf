@@ -652,6 +652,7 @@ typedef struct UIMenu {
 	UIElement e;
 	int pointX, pointY;
 	UIScrollBar *vScroll;
+	UIWindow *parentWindow;
 } UIMenu;
 #endif
 
@@ -4332,6 +4333,7 @@ UIMenu *UIMenuCreate(UIElement *parent, uint32_t flags) {
 	UIWindow *window = UIWindowCreate(parent->window, UI_WINDOW_MENU, 0, 0, 0);
 	UIMenu *menu = (UIMenu *) UIElementCreate(sizeof(UIMenu), &window->e, flags, _UIMenuMessage, "Menu");
 	menu->vScroll = UIScrollBarCreate(&menu->e, UI_ELEMENT_NON_CLIENT);
+	menu->parentWindow = parent->window;
 
 	if (parent->parent) {
 		UIRectangle screenBounds = UIElementScreenBounds(parent);
@@ -5550,21 +5552,34 @@ void UIMenuShow(UIMenu *menu) {
 	int width, height;
 	_UIMenuPrepare(menu, &width, &height);
 
+	UIWindow *parentWindow = menu->parentWindow;
+
 	for (int i = 0; i < ScreenCount(ui.display); i++) {
 		Screen *screen = ScreenOfDisplay(ui.display, i);
 
-		int x, y;
+		int x, y, x2, y2;
 		Window child;
-		XTranslateCoordinates(ui.display, screen->root, DefaultRootWindow(ui.display), 0, 0, &x, &y, &child);
+
+		XTranslateCoordinates(ui.display, parentWindow->window, DefaultRootWindow(ui.display), 0, 0, &x, &y, &child);
+		XTranslateCoordinates(ui.display, screen->root, DefaultRootWindow(ui.display), 0, 0, &x2, &y2, &child);
 
 		if (menu->pointX >= x && menu->pointX < x + screen->width
 				&& menu->pointY >= y && menu->pointY < y + screen->height) {
-			if (menu->pointX + width > x + screen->width) menu->pointX = x + screen->width - width;
-			if (menu->pointY + height > y + screen->height) menu->pointY = y + screen->height - height;
+			if (menu->pointX + width > x + parentWindow->width) menu->pointX = x + parentWindow->width - width;
+			if (menu->pointX + width > x2 + screen->width) menu->pointX = x2 + screen->width - width;
+
+			if (menu->pointY + height > y + parentWindow->height) menu->pointY = y + parentWindow->height - height;
+			if (menu->pointY + height > y2 + screen->height) menu->pointY = y2 + screen->height - height;
+
 			if (menu->pointX < x) menu->pointX = x;
+			if (menu->pointX < x2) menu->pointX = x2;
 			if (menu->pointY < y) menu->pointY = y;
-			if (menu->pointX + width > x + screen->width) width = x + screen->width - menu->pointX;
-			if (menu->pointY + height > y + screen->height) height = y + screen->height - menu->pointY;
+			if (menu->pointY < y2) menu->pointY = y2;
+
+			if (menu->pointX + width > x + parentWindow->width) width = x + parentWindow->width - menu->pointX;
+			if (menu->pointX + width > x2 + screen->width) width = x2 + screen->width - menu->pointX;
+			if (menu->pointY + height > y + parentWindow->height) height = y + parentWindow->height - menu->pointY;
+			if (menu->pointY + height > y2 + screen->height) height = y2 + screen->height - menu->pointY;
 			break;
 		}
 	}
