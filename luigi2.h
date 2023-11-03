@@ -5750,6 +5750,9 @@ bool _UIProcessEvent(XEvent *event) {
 		if (!window) return false;
 		window->ctrl = window->shift = window->alt = false;
 		UIElementMessage(&window->e, UI_MSG_WINDOW_ACTIVATE, 0, 0);
+	} else if (event->type == FocusOut || event->type == ResizeRequest) {
+		_UIMenusClose();
+		_UIUpdate();
 	} else if (event->type == ClientMessage && event->xclient.message_type == ui.dndEnterID) {
 		UIWindow *window = _UIFindWindow(event->xclient.window);
 		if (!window) return false;
