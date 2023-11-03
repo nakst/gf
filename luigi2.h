@@ -5549,39 +5549,47 @@ void _UIWindowGetScreenPosition(UIWindow *window, int *_x, int *_y) {
 }
 
 void UIMenuShow(UIMenu *menu) {
-	int width, height;
-	_UIMenuPrepare(menu, &width, &height);
+	Window child;
 
-	UIWindow *parentWindow = menu->parentWindow;
+	// Find the screen that contains the point the menu was created at.
+	Screen *menuScreen = NULL;
+	int screenX, screenY;
 
 	for (int i = 0; i < ScreenCount(ui.display); i++) {
 		Screen *screen = ScreenOfDisplay(ui.display, i);
+		int x, y;
+		XTranslateCoordinates(ui.display, screen->root, DefaultRootWindow(ui.display), 0, 0, &x, &y, &child);
 
-		int x, y, x2, y2;
-		Window child;
-
-		XTranslateCoordinates(ui.display, parentWindow->window, DefaultRootWindow(ui.display), 0, 0, &x, &y, &child);
-		XTranslateCoordinates(ui.display, screen->root, DefaultRootWindow(ui.display), 0, 0, &x2, &y2, &child);
-
-		if (menu->pointX >= x && menu->pointX < x + screen->width
-				&& menu->pointY >= y && menu->pointY < y + screen->height) {
-			if (menu->pointX + width > x + parentWindow->width) menu->pointX = x + parentWindow->width - width;
-			if (menu->pointX + width > x2 + screen->width) menu->pointX = x2 + screen->width - width;
-
-			if (menu->pointY + height > y + parentWindow->height) menu->pointY = y + parentWindow->height - height;
-			if (menu->pointY + height > y2 + screen->height) menu->pointY = y2 + screen->height - height;
-
-			if (menu->pointX < x) menu->pointX = x;
-			if (menu->pointX < x2) menu->pointX = x2;
-			if (menu->pointY < y) menu->pointY = y;
-			if (menu->pointY < y2) menu->pointY = y2;
-
-			if (menu->pointX + width > x + parentWindow->width) width = x + parentWindow->width - menu->pointX;
-			if (menu->pointX + width > x2 + screen->width) width = x2 + screen->width - menu->pointX;
-			if (menu->pointY + height > y + parentWindow->height) height = y + parentWindow->height - menu->pointY;
-			if (menu->pointY + height > y2 + screen->height) height = y2 + screen->height - menu->pointY;
+		if (menu->pointX >= x && menu->pointX < x + screen->width && menu->pointY >= y && menu->pointY < y + screen->height) {
+			menuScreen = screen;
+			screenX = x, screenY = y;
 			break;
 		}
+	}
+		
+	int width, height;
+	_UIMenuPrepare(menu, &width, &height);
+
+	{
+		// Clamp the menu to the bounds of the window.
+		// This step shouldn't be necessary with the screen clamping below, but there are some buggy X11 drivers that report screen sizes incorrectly.
+		int wx, wy;
+		UIWindow *parentWindow = menu->parentWindow;
+		XTranslateCoordinates(ui.display, parentWindow->window, DefaultRootWindow(ui.display), 0, 0, &wx, &wy, &child);
+		if (menu->pointX + width > wx + parentWindow->width) menu->pointX = wx + parentWindow->width - width;
+		if (menu->pointY + height > wy + parentWindow->height) menu->pointY = wy + parentWindow->height - height;
+		if (menu->pointX < wx) menu->pointX = wx;
+		if (menu->pointY < wy) menu->pointY = wy;
+	}
+
+	if (menuScreen) {
+		// Clamp to the bounds of the screen.
+		if (menu->pointX + width > screenX + menuScreen->width) menu->pointX = screenX + menuScreen->width - width;
+		if (menu->pointY + height > screenY + menuScreen->height) menu->pointY = screenY + menuScreen->height - height;
+		if (menu->pointX < screenX) menu->pointX = screenX;
+		if (menu->pointY < screenY) menu->pointY = screenY;
+		if (menu->pointX + width > screenX + menuScreen->width) width = screenX + menuScreen->width - menu->pointX;
+		if (menu->pointY + height > screenY + menuScreen->height) height = screenY + menuScreen->height - menu->pointY;
 	}
 
 	Atom properties[] = {
