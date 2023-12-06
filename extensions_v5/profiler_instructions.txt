@@ -1,0 +1,35 @@
+Setup:
+	Step 1: 
+		Copy `gf_profiling.c` into your project.
+		Either `#include` it like a single-header library, or add it a separate translation unit.
+		This file is available under a permissive license, so don't worry if it ends up in version control.
+	Step 2:
+		If needed, change the settings at the top of `gf_profiling.c`.
+		You can change the size of the buffer to use, and the type of time measurements to take.
+		If you are not linking against the C standard library, you will also need to replace the calls to assert/malloc/clock_gettime.
+	Step 3: 
+		Add `-finstrument-functions` to your compiler command line arguments.
+		This works with Clang and GCC/G++.
+		It does not need to be passed to the linker.
+	Step 4:
+		Copy `extensions.cpp` into the root of the gf source, and rerun `build.sh`.
+		It will be automatically detected.
+	Step 5:
+		Add the `Prof` window to the interface layout in your gf configuration file.
+		See gf's README.md for detailed instructions -- see the "User Interface" section.
+	Step 6:
+		Run your executable in gf as usual.
+		To capture a profile, select the `Prof` tab, and click the "Step over profiled".
+		This will run the typical step over debug command, and then create a report window in the data tab.
+Let me know if you have issues getting this to work.
+
+Usage:
+	Left click and drag to pan horizontally.
+	Middle click and drag to zoom in and out and move sideways.
+	Right click and drag to zoom into a selection.
+	Middle click an entry to fill the screen with it horizontally.
+	Right click an entry to view more options.
+	Click "Table view" to switch to a table report.
+	In the table report, click a column header to sort by it.
+	Click the close button in the top-right when you are done with the report.
+

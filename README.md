@@ -372,7 +372,9 @@ Arseniy Khvorov khvorov45
 ![A screenshot showing the embedded profiler, which is displaying a multi-colored flame graph.](https://raw.githubusercontent.com/nakst/cdn/main/unknown2.png)
 ![A screenshot showing the memory window and extended watch expression view.](https://raw.githubusercontent.com/nakst/cdn/main/%20memory%20window%20and%20extended%20view%20window.png)
 
-All tiers on my Patreon, https://www.patreon.com/nakst, get access to the extension pack. 
+~~All tiers on my Patreon, https://www.patreon.com/nakst, get access to the extension pack. ~~
+
+**This is now available to all; see the folder `extensions_v5`.**
 
 This currently includes:
 - Embedded tracing profiler

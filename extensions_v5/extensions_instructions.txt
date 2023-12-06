@@ -1,0 +1,13 @@
+*This is the extensions pack that was previously only available on Patreon. It is now available for all under the same license as the rest of the gf source.*
+
+Copy `extensions.cpp` into the root of the gf source, and rerun `build.sh`.
+It will be automatically detected.
+
+You can now add the following windows to the interface layout in your gf configuration file:
+- `Prof` 
+- `Memory` 
+- `View`
+See gf's README.md for detailed instructions on how to do this -- see the "User Interface" section.
+The waveform data viewer will be available in the "Data" window.
+
+See `profiler_instructions.txt` for a description of how to set up the profiler.
