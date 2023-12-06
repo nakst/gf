@@ -1150,10 +1150,6 @@ void CommandCustom(void *_command) {
 	}
 }
 
-void CommandDonate(void *) {
-	system("xdg-open https://www.patreon.com/nakst");
-}
-
 //////////////////////////////////////////////////////
 // Settings:
 //////////////////////////////////////////////////////
@@ -1556,8 +1552,6 @@ void InterfaceAddBuiltinWindowsAndCommands() {
 			{ .code = UI_KEYCODE_LETTER('N'), .ctrl = true, .shift = false, .invoke = CommandNextCommand } });
 	interfaceCommands.Add({ .label = nullptr,
 			{ .code = UI_KEYCODE_LETTER('L'), .ctrl = true, .shift = false, .invoke = CommandClearOutput } });
-	interfaceCommands.Add({ .label = "Donate",
-			{ .invoke = CommandDonate } });
 
 	msgReceivedData = ReceiveMessageRegister(MsgReceivedData);
 	msgReceivedControl = ReceiveMessageRegister(MsgReceivedControl);
