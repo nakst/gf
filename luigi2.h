@@ -249,9 +249,15 @@ typedef struct UIFont {
 #ifdef UI_FREETYPE
 	bool isFreeType;
 	FT_Face font;
+#ifdef UI_UNICODE
+	FT_Bitmap *glyphs;
+	bool *glyphsRendered;
+	int *glyphOffsetsX, *glyphOffsetsY;
+#else
 	FT_Bitmap glyphs[128];
 	bool glyphsRendered[128];
 	int glyphOffsetsX[128], glyphOffsetsY[128];
+#endif
 #endif
 } UIFont;
 
@@ -830,6 +836,127 @@ UIFont *UIFontActivate(UIFont *font); // Returns the previously active font.
 void UIInspectorLog(const char *cFormat, ...);
 #endif
 
+ptrdiff_t _UIStringLength(const char *cString) {
+	if (!cString) return 0;
+	ptrdiff_t length;
+	for (length = 0; cString[length]; length++);
+	return length;
+}
+
+#ifdef UI_UNICODE
+
+#ifndef UI_FREETYPE
+#error "Unicode support requires Freetype"
+#endif
+
+#define UNICODE_MAX_CODEPOINT 0x10FFFF
+
+bool _Utf8ApplyExtendedByte(int byte, int *codePoint, int shift)
+{
+	if ((byte & 0xC0) != 0x80) {
+		return false;
+	}
+
+	*codePoint |= (byte & 0x3F) << (6 * shift);
+	return true;
+}
+
+int Utf8GetCodePoint(const char *cString, ptrdiff_t bytesLength, ptrdiff_t *bytesConsumed)
+{
+	UI_ASSERT(bytesLength > 0 && "Attempted to get UTF-8 code point from an empty string");
+
+	ptrdiff_t numExtraBytes;
+	uint8_t first = cString[0];
+
+	*bytesConsumed = 1;
+	if ((first & 0xF0) == 0xF0) {
+		numExtraBytes = 3;
+	} else if ((first & 0xE0) == 0xE0) {
+		numExtraBytes = 2;
+	} else if ((first & 0xC0) == 0xC0) {
+		numExtraBytes = 1;
+	} else if (first & 0x7F) {
+		return first & 0x80 ? -1 : first;
+	} else {
+		return -1;
+	}
+
+	if (bytesLength < numExtraBytes + 1) {
+		return -1;
+	}
+
+	int codePoint = int(first & (0x3F >> numExtraBytes)) << (6 * numExtraBytes);
+	for (ptrdiff_t idx = 1; idx < numExtraBytes + 1; idx++) {
+		if (!_Utf8ApplyExtendedByte(cString[idx], &codePoint, numExtraBytes - idx)) {
+			return -1;
+		}
+		(*bytesConsumed)++;
+	}
+
+	return codePoint > UNICODE_MAX_CODEPOINT ? -1 : codePoint;
+}
+
+int Utf8GetCodePoint2(const char *cString, ptrdiff_t bytesLength)
+{
+	ptrdiff_t bytesConsumed;
+	return Utf8GetCodePoint(cString, bytesLength, &bytesConsumed);
+}
+
+char * Utf8GetPreviousChar(char *string, char *offset)
+{
+	if (string == offset) {
+		return string;
+	}
+
+	char *prev = offset - 1;
+	while (prev > string) {
+		if ((*prev & 0xC0) == 0x80) prev--;
+		else break;
+	}
+
+	return prev;
+}
+
+ptrdiff_t Utf8GetCharBytes(const char *cString, ptrdiff_t bytes)
+{
+	if (!cString) {
+		return 0;
+	}
+	if (bytes == -1) {
+		bytes = _UIStringLength(cString);
+	}
+
+	ptrdiff_t bytesConsumed;
+	Utf8GetCodePoint(cString, bytes, &bytesConsumed);
+	return bytesConsumed;
+}
+
+ptrdiff_t Utf8StringLength(const char *cString, ptrdiff_t bytes)
+{
+	if (!cString) {
+		return 0;
+	}
+	if (bytes == -1) {
+		bytes = _UIStringLength(cString);
+	}
+
+	ptrdiff_t length = 0;
+	ptrdiff_t byteIdx = 0;
+	while (byteIdx < bytes) {
+		ptrdiff_t bytesConsumed;
+		Utf8GetCodePoint(cString+ byteIdx, bytes - byteIdx, &bytesConsumed);
+		byteIdx += bytesConsumed;
+		length++;
+
+		UI_ASSERT(byteIdx <= bytes && "Overran the end of the string while counting the number of UTF-8 code points");
+	}
+
+	return length;
+}
+
+#endif // UI_UNICODE
+
+
 #ifdef UI_IMPLEMENTATION
 
 /////////////////////////////////////////
@@ -1140,13 +1267,6 @@ void UIColorToRGB(float h, float s, float v, uint32_t *rgb) {
 	*rgb = UI_COLOR_FROM_FLOAT(r, g, b);
 }
 
-ptrdiff_t _UIStringLength(const char *cString) {
-	if (!cString) return 0;
-	ptrdiff_t length;
-	for (length = 0; cString[length]; length++);
-	return length;
-}
-
 char *UIStringCopy(const char *in, ptrdiff_t inBytes) {
 	if (inBytes == -1) {
 		inBytes = _UIStringLength(in);
@@ -1408,11 +1528,15 @@ void UIDrawInvert(UIPainter *painter, UIRectangle rectangle) {
 }
 
 int UIMeasureStringWidth(const char *string, ptrdiff_t bytes) {
+#ifdef UI_UNICODE
+	return Utf8StringLength(string, bytes) * ui.activeFont->glyphWidth;
+#else
 	if (bytes == -1) {
 		bytes = _UIStringLength(string);
 	}
 
 	return bytes * ui.activeFont->glyphWidth;
+#endif
 }
 
 int UIMeasureStringHeight() {
@@ -1449,12 +1573,24 @@ void UIDrawString(UIPainter *painter, UIRectangle r, const char *string, ptrdiff
 		}
 	}
 
-	for (; j < bytes; j++) {
+	while (j < bytes) {
+		ptrdiff_t bytesConsumed = 1;
+#ifdef UI_UNICODE
+		int c = Utf8GetCodePoint(string, bytes - j, &bytesConsumed);
+		UI_ASSERT(bytesConsumed > 0);
+		string += bytesConsumed;
+#else
 		char c = *string++;
+#endif
 		uint32_t colorText = color;
 
-		if (j >= selectFrom && j < selectTo) {
-			UIDrawBlock(painter, UI_RECT_4(x, x + ui.activeFont->glyphWidth, y, y + height), selection->colorBackground);
+		if (i >= selectFrom && i < selectTo) {
+			int w = ui.activeFont->glyphWidth;
+			if (c == '\t') {
+				int ii = i;
+				while (++ii & 3) w += ui.activeFont->glyphWidth;
+			}
+			UIDrawBlock(painter, UI_RECT_4(x, x + w, y, y + height), selection->colorBackground);
 			colorText = selection->colorText;
 		}
 
@@ -1462,7 +1598,7 @@ void UIDrawString(UIPainter *painter, UIRectangle r, const char *string, ptrdiff
 			UIDrawGlyph(painter, x, y, c, colorText);
 		}
 
-		if (selection && selection->carets[0] == j) {
+		if (selection && selection->carets[0] == i) {
 			UIDrawInvert(painter, UI_RECT_4(x, x + 1, y, y + height));
 		}
 
@@ -1471,9 +1607,11 @@ void UIDrawString(UIPainter *painter, UIRectangle r, const char *string, ptrdiff
 		if (c == '\t') {
 			while (i & 3) x += ui.activeFont->glyphWidth, i++;
 		}
+
+		j += bytesConsumed;
 	}
 
-	if (selection && selection->carets[0] == j) {
+	if (selection && selection->carets[0] == i) {
 		UIDrawInvert(painter, UI_RECT_4(x, x + 1, y, y + height));
 	}
 
@@ -2556,36 +2694,48 @@ UIScrollBar *UIScrollBarCreate(UIElement *parent, uint32_t flags) {
 // Code views.
 /////////////////////////////////////////
 
-bool _UICharIsAlpha(char c) {
+bool _UICharIsAlpha(int c) {
 	return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z');
 }
 
-bool _UICharIsDigit(char c) {
+bool _UICharIsDigit(int c) {
 	return c >= '0' && c <= '9';
 }
 
-bool _UICharIsAlphaOrDigitOrUnderscore(char c) {
+bool _UICharIsAlphaOrDigitOrUnderscore(int c) {
 	return _UICharIsAlpha(c) || _UICharIsDigit(c) || c == '_';
 }
 
 int _UICodeColumnToByte(UICode *code, int line, int column) {
-	int byte = 0;
+	int byte = 0, ti = 0;
+	int bytes = code->lines[line].bytes;
 
-	for (int ti = 0; byte < code->lines[line].bytes; byte++) {
+	while (byte < bytes) {
 		ti++;
 		if (code->content[byte + code->lines[line].offset] == '\t') while (ti % code->tabSize) ti++;
 		if (column < ti) break;
+
+#ifdef UI_UNICODE
+		byte += Utf8GetCharBytes(&code->content[byte + code->lines[line].offset], bytes - byte);
+#else
+		byte++;
+#endif
 	}
 
 	return byte;
 }
 
 int _UICodeByteToColumn(UICode *code, int line, int byte) {
-	int ti = 0;
+	int ti = 0, i = 0;
 
-	for (int i = 0; i < byte; i++) {
+	while (i < byte) {
 		ti++;
 		if (code->content[i + code->lines[line].offset] == '\t') while (ti % code->tabSize) ti++;
+#ifdef UI_UNICODE
+		i += Utf8GetCharBytes(&code->content[i + code->lines[line].offset], code->lines[line].bytes - i);
+#else
+		i++;
+#endif
 	}
 
 	return ti;
@@ -2656,11 +2806,20 @@ int UIDrawStringHighlighted(UIPainter *painter, UIRectangle lineBounds, const ch
 	uint32_t last = 0;
 	int j = 0;
 
-	while (bytes--) {
+	while (bytes) {
+#ifdef UI_UNICODE
+		ptrdiff_t bytesConsumed;
+		int c = Utf8GetCodePoint(string, bytes, &bytesConsumed);
+		UI_ASSERT(bytesConsumed > 0);
+		string += bytesConsumed;
+		bytes -= bytesConsumed;
+#else
 		char c = *string++;
+		bytes--;
+#endif
 
 		last <<= 8;
-		last |= c;
+		last |= (char)c;
 
 		if (tokenType == UI_CODE_TOKEN_TYPE_PREPROCESSOR) {
 			if (bytes && c == '/' && (*string == '/' || *string == '*')) {
@@ -2865,8 +3024,8 @@ int _UICodeMessage(UIElement *element, UIMessage message, int di, void *dp) {
 			UIRectangle oldClip = painter->clip;
 			painter->clip = UIRectangleIntersection(oldClip, lineBounds);
 			if (code->hScroll) lineBounds.l -= (int64_t) code->hScroll->position;
-			selection.carets[0] = i == code->selection[0].line ? code->selection[0].offset : 0;
-			selection.carets[1] = i == code->selection[1].line ? code->selection[1].offset : code->lines[i].bytes;
+			selection.carets[0] = i == code->selection[0].line ? _UICodeByteToColumn(code, i, code->selection[0].offset) : 0;
+			selection.carets[1] = i == code->selection[1].line ? _UICodeByteToColumn(code, i, code->selection[1].offset) : code->lines[i].bytes;
 			int x = UIDrawStringHighlighted(painter, lineBounds, code->content + code->lines[i].offset, code->lines[i].bytes, code->tabSize,
 					element->window->focused == element && i >= code->selection[0].line && i <= code->selection[1].line ? &selection : NULL);
 			int y = (lineBounds.t + lineBounds.b - UIMeasureStringHeight()) / 2;
@@ -3041,6 +3200,48 @@ int _UICodeMessage(UIElement *element, UIMessage message, int di, void *dp) {
 	return 0;
 }
 
+#if UI_UNICODE
+void UICodeMoveCaret(UICode *code, bool backward, bool word) {
+	while (true) {
+		if (backward) {
+			if (code->selection[3].offset - 1 < 0) {
+				if (code->selection[3].line > 0) {
+					code->selection[3].line--;
+					code->selection[3].offset = code->lines[code->selection[3].line].bytes;
+				} else break;
+			} else {
+				int offset = code->lines[code->selection[3].line].offset + code->selection[3].offset;
+				char *prev = Utf8GetPreviousChar(code->content, code->content + offset);
+				code->selection[3].offset = prev - code->content - code->lines[code->selection[3].line].offset;
+			}
+		} else {
+			if (code->selection[3].offset + 1 > code->lines[code->selection[3].line].bytes) {
+				if (code->selection[3].line + 1 < code->lineCount) {
+					code->selection[3].line++;
+					code->selection[3].offset = 0;
+				} else break;
+			} else {
+				int offset = code->lines[code->selection[3].line].offset + code->selection[3].offset;
+				code->selection[3].offset += Utf8GetCharBytes(code->content + offset, code->contentBytes - offset);
+			}
+		}
+
+		if (!word) break;
+
+		if (code->selection[3].offset != 0 && code->selection[3].offset != code->lines[code->selection[3].line].bytes) {
+			int offset = code->lines[code->selection[3].line].offset + code->selection[3].offset;
+			char *prev = Utf8GetPreviousChar(code->content, code->content + offset);
+
+			int c1 = Utf8GetCodePoint2(prev, code->contentBytes - (prev - code->content));
+			int c2 = Utf8GetCodePoint2(code->content + offset, code->contentBytes - offset);
+			if (_UICharIsAlphaOrDigitOrUnderscore(c1) != _UICharIsAlphaOrDigitOrUnderscore(c2)) break;
+		}
+	}
+
+	code->useVerticalMotionColumn = false;
+	_UICodeUpdateSelection(code);
+}
+#else
 void UICodeMoveCaret(UICode *code, bool backward, bool word) {
 	while (true) {
 		if (backward) {
@@ -3071,6 +3272,7 @@ void UICodeMoveCaret(UICode *code, bool backward, bool word) {
 	code->useVerticalMotionColumn = false;
 	_UICodeUpdateSelection(code);
 }
+#endif
 
 void UICodeFocusLine(UICode *code, int index) {
 	code->focused = index - 1;
@@ -3464,6 +3666,22 @@ UITable *UITableCreate(UIElement *parent, uint32_t flags, const char *columns) {
 // Textboxes.
 /////////////////////////////////////////
 
+int _UITextboxByteToColumn(const char *string, int byte, ptrdiff_t bytes) {
+	int ti = 0, i = 0;
+
+	while (i < byte) {
+		ti++;
+		if (string[i] == '\t') while (ti & 3) ti++;
+#ifdef UI_UNICODE
+		i += Utf8GetCharBytes(string + i, bytes - i);
+#else
+		i++;
+#endif
+	}
+
+	return ti;
+}
+
 char *UITextboxToCString(UITextbox *textbox) {
 	char *buffer = (char *) UI_MALLOC(textbox->bytes + 1);
 
@@ -3500,6 +3718,35 @@ void UITextboxClear(UITextbox *textbox, bool sendChangedMessage) {
 	UITextboxReplace(textbox, "", 0, sendChangedMessage);
 }
 
+#ifdef UI_UNICODE
+void UITextboxMoveCaret(UITextbox *textbox, bool backward, bool word) {
+	while (true) {
+		if (textbox->carets[0] > 0 && backward) {
+			char *prev = Utf8GetPreviousChar(textbox->string, textbox->string + textbox->carets[0]);
+			textbox->carets[0] = prev - textbox->string;
+		} else if (textbox->carets[0] < textbox->bytes && !backward) {
+			textbox->carets[0] += Utf8GetCharBytes(textbox->string + textbox->carets[0], textbox->bytes - textbox->carets[0]);
+		} else {
+			return;
+		}
+
+		if (!word) {
+			return;
+		} else if (textbox->carets[0] != textbox->bytes && textbox->carets[0] != 0) {
+			char *prev = Utf8GetPreviousChar(textbox->string, textbox->string + textbox->carets[0]);
+
+			int c1 = Utf8GetCodePoint2(prev, textbox->bytes - (prev - textbox->string));
+			int c2 = Utf8GetCodePoint2(textbox->string + textbox->carets[0], textbox->bytes - textbox->carets[0]);
+
+			if (_UICharIsAlphaOrDigitOrUnderscore(c1) != _UICharIsAlphaOrDigitOrUnderscore(c2)) {
+				return;
+			}
+		}
+	}
+
+	UIElementRepaint(&textbox->e, NULL);
+}
+#else
 void UITextboxMoveCaret(UITextbox *textbox, bool backward, bool word) {
 	while (true) {
 		if (textbox->carets[0] > 0 && backward) {
@@ -3524,6 +3771,7 @@ void UITextboxMoveCaret(UITextbox *textbox, bool backward, bool word) {
 
 	UIElementRepaint(&textbox->e, NULL);
 }
+#endif
 
 void _UITextboxCopyText(void *cp) {
 	UITextbox *textbox = (UITextbox *) cp;
@@ -3590,8 +3838,8 @@ int _UITextboxMessage(UIElement *element, UIMessage message, int di, void *dp) {
 #else
 		UIStringSelection selection = { 0 };
 #endif
-		selection.carets[0] = textbox->carets[0];
-		selection.carets[1] = textbox->carets[1];
+		selection.carets[0] = _UITextboxByteToColumn(textbox->string, textbox->carets[0], textbox->bytes);
+		selection.carets[1] = _UITextboxByteToColumn(textbox->string, textbox->carets[1], textbox->bytes);
 		selection.colorBackground = ui.theme.selected;
 		selection.colorText = ui.theme.textSelected;
 		textBounds.l -= textbox->scroll;
@@ -4876,7 +5124,11 @@ void UIDrawGlyph(UIPainter *painter, int x0, int y0, int c, uint32_t color) {
 	UIFont *font = ui.activeFont;
 
 	if (font->isFreeType) {
+#ifdef UI_UNICODE
+		if (c < 0) c = '?';
+#else
 		if (c < 0 || c > 127) c = '?';
+#endif
 		if (c == '\r') c = ' ';
 
 		if (!font->glyphsRendered[c]) {
@@ -4965,6 +5217,12 @@ UIFont *UIFontCreate(const char *cPath, uint32_t size) {
 	UIFont *font = (UIFont *) UI_CALLOC(sizeof(UIFont));
 
 #ifdef UI_FREETYPE
+#ifdef UI_UNICODE
+	font->glyphs = (FT_Bitmap *) UI_CALLOC(sizeof(FT_Bitmap) * (UNICODE_MAX_CODEPOINT + 1));
+	font->glyphsRendered = (bool *) UI_CALLOC(sizeof(bool) * (UNICODE_MAX_CODEPOINT + 1));
+	font->glyphOffsetsX = (int *) UI_CALLOC(sizeof(int) * (UNICODE_MAX_CODEPOINT + 1));
+	font->glyphOffsetsY = (int *) UI_CALLOC(sizeof(int) * (UNICODE_MAX_CODEPOINT + 1));
+#endif
 	if (cPath) {
 		if (!FT_New_Face(ui.ft, cPath, 0, &font->font)) {
 			if (FT_HAS_FIXED_SIZES(font->font) && font->font->num_fixed_sizes) {
