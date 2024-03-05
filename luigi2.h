@@ -2694,12 +2694,16 @@ UIScrollBar *UIScrollBarCreate(UIElement *parent, uint32_t flags) {
 // Code views.
 /////////////////////////////////////////
 
-bool _UICharIsAlpha(int c) {
-	return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z');
-}
-
 bool _UICharIsDigit(int c) {
 	return c >= '0' && c <= '9';
+}
+
+bool _UICharIsAlpha(int c) {
+	return (
+		('A' <= c && c <= 'Z') ||
+		('a' <= c && c <= 'z') ||
+		c > 127
+	);
 }
 
 bool _UICharIsAlphaOrDigitOrUnderscore(int c) {
