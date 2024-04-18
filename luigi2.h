@@ -849,21 +849,15 @@ ptrdiff_t _UIStringLength(const char *cString) {
 #error "Unicode support requires Freetype"
 #endif
 
-#define UNICODE_MAX_CODEPOINT 0x10FFFF
+#define _UNICODE_MAX_CODEPOINT 0x10FFFF
 
-bool _Utf8ApplyExtendedByte(int byte, int *codePoint, int shift)
-{
-	if ((byte & 0xC0) != 0x80) {
-		return false;
-	}
-
-	*codePoint |= (byte & 0x3F) << (6 * shift);
-	return true;
-}
-
-int Utf8GetCodePoint(const char *cString, ptrdiff_t bytesLength, ptrdiff_t *bytesConsumed)
-{
+int Utf8GetCodePoint(const char *cString, ptrdiff_t bytesLength, ptrdiff_t *bytesConsumed) {
 	UI_ASSERT(bytesLength > 0 && "Attempted to get UTF-8 code point from an empty string");
+
+	if (bytesConsumed == NULL) {
+		ptrdiff_t bytesConsumed;
+		return Utf8GetCodePoint(cString, bytesLength, &bytesConsumed);
+	}
 
 	ptrdiff_t numExtraBytes;
 	uint8_t first = cString[0];
@@ -885,25 +879,21 @@ int Utf8GetCodePoint(const char *cString, ptrdiff_t bytesLength, ptrdiff_t *byte
 		return -1;
 	}
 
-	int codePoint = int(first & (0x3F >> numExtraBytes)) << (6 * numExtraBytes);
+	int codePoint = ((int)first & (0x3F >> numExtraBytes)) << (6 * numExtraBytes);
 	for (ptrdiff_t idx = 1; idx < numExtraBytes + 1; idx++) {
-		if (!_Utf8ApplyExtendedByte(cString[idx], &codePoint, numExtraBytes - idx)) {
+		char byte = cString[idx];
+		if ((byte & 0xC0) != 0x80) {
 			return -1;
 		}
+
+		codePoint |= (byte & 0x3F) << (6 * (numExtraBytes - idx));
 		(*bytesConsumed)++;
 	}
 
-	return codePoint > UNICODE_MAX_CODEPOINT ? -1 : codePoint;
+	return codePoint > _UNICODE_MAX_CODEPOINT ? -1 : codePoint;
 }
 
-int Utf8GetCodePoint2(const char *cString, ptrdiff_t bytesLength)
-{
-	ptrdiff_t bytesConsumed;
-	return Utf8GetCodePoint(cString, bytesLength, &bytesConsumed);
-}
-
-char * Utf8GetPreviousChar(char *string, char *offset)
-{
+char * Utf8GetPreviousChar(char *string, char *offset) {
 	if (string == offset) {
 		return string;
 	}
@@ -917,8 +907,7 @@ char * Utf8GetPreviousChar(char *string, char *offset)
 	return prev;
 }
 
-ptrdiff_t Utf8GetCharBytes(const char *cString, ptrdiff_t bytes)
-{
+ptrdiff_t Utf8GetCharBytes(const char *cString, ptrdiff_t bytes) {
 	if (!cString) {
 		return 0;
 	}
@@ -931,8 +920,7 @@ ptrdiff_t Utf8GetCharBytes(const char *cString, ptrdiff_t bytes)
 	return bytesConsumed;
 }
 
-ptrdiff_t Utf8StringLength(const char *cString, ptrdiff_t bytes)
-{
+ptrdiff_t Utf8StringLength(const char *cString, ptrdiff_t bytes) {
 	if (!cString) {
 		return 0;
 	}
@@ -941,14 +929,14 @@ ptrdiff_t Utf8StringLength(const char *cString, ptrdiff_t bytes)
 	}
 
 	ptrdiff_t length = 0;
-	ptrdiff_t byteIdx = 0;
-	while (byteIdx < bytes) {
+	ptrdiff_t byteIndex = 0;
+	while (byteIndex < bytes) {
 		ptrdiff_t bytesConsumed;
-		Utf8GetCodePoint(cString+ byteIdx, bytes - byteIdx, &bytesConsumed);
-		byteIdx += bytesConsumed;
+		Utf8GetCodePoint(cString+ byteIndex, bytes - byteIndex, &bytesConsumed);
+		byteIndex += bytesConsumed;
 		length++;
 
-		UI_ASSERT(byteIdx <= bytes && "Overran the end of the string while counting the number of UTF-8 code points");
+		UI_ASSERT(byteIndex <= bytes && "Overran the end of the string while counting the number of UTF-8 code points");
 	}
 
 	return length;
@@ -2823,7 +2811,7 @@ int UIDrawStringHighlighted(UIPainter *painter, UIRectangle lineBounds, const ch
 #endif
 
 		last <<= 8;
-		last |= (char)c;
+		last |= (char) c;
 
 		if (tokenType == UI_CODE_TOKEN_TYPE_PREPROCESSOR) {
 			if (bytes && c == '/' && (*string == '/' || *string == '*')) {
@@ -3236,8 +3224,8 @@ void UICodeMoveCaret(UICode *code, bool backward, bool word) {
 			int offset = code->lines[code->selection[3].line].offset + code->selection[3].offset;
 			char *prev = Utf8GetPreviousChar(code->content, code->content + offset);
 
-			int c1 = Utf8GetCodePoint2(prev, code->contentBytes - (prev - code->content));
-			int c2 = Utf8GetCodePoint2(code->content + offset, code->contentBytes - offset);
+			int c1 = Utf8GetCodePoint(prev, code->contentBytes - (prev - code->content), NULL);
+			int c2 = Utf8GetCodePoint(code->content + offset, code->contentBytes - offset, NULL);
 			if (_UICharIsAlphaOrDigitOrUnderscore(c1) != _UICharIsAlphaOrDigitOrUnderscore(c2)) break;
 		}
 	}
@@ -3739,8 +3727,8 @@ void UITextboxMoveCaret(UITextbox *textbox, bool backward, bool word) {
 		} else if (textbox->carets[0] != textbox->bytes && textbox->carets[0] != 0) {
 			char *prev = Utf8GetPreviousChar(textbox->string, textbox->string + textbox->carets[0]);
 
-			int c1 = Utf8GetCodePoint2(prev, textbox->bytes - (prev - textbox->string));
-			int c2 = Utf8GetCodePoint2(textbox->string + textbox->carets[0], textbox->bytes - textbox->carets[0]);
+			int c1 = Utf8GetCodePoint(prev, textbox->bytes - (prev - textbox->string), NULL);
+			int c2 = Utf8GetCodePoint(textbox->string + textbox->carets[0], textbox->bytes - textbox->carets[0], NULL);
 
 			if (_UICharIsAlphaOrDigitOrUnderscore(c1) != _UICharIsAlphaOrDigitOrUnderscore(c2)) {
 				return;
@@ -5222,13 +5210,15 @@ UIFont *UIFontCreate(const char *cPath, uint32_t size) {
 
 #ifdef UI_FREETYPE
 #ifdef UI_UNICODE
-	font->glyphs = (FT_Bitmap *) UI_CALLOC(sizeof(FT_Bitmap) * (UNICODE_MAX_CODEPOINT + 1));
-	font->glyphsRendered = (bool *) UI_CALLOC(sizeof(bool) * (UNICODE_MAX_CODEPOINT + 1));
-	font->glyphOffsetsX = (int *) UI_CALLOC(sizeof(int) * (UNICODE_MAX_CODEPOINT + 1));
-	font->glyphOffsetsY = (int *) UI_CALLOC(sizeof(int) * (UNICODE_MAX_CODEPOINT + 1));
+	font->glyphs = (FT_Bitmap *) UI_CALLOC(sizeof(FT_Bitmap) * (_UNICODE_MAX_CODEPOINT + 1));
+	font->glyphsRendered = (bool *) UI_CALLOC(sizeof(bool) * (_UNICODE_MAX_CODEPOINT + 1));
+	font->glyphOffsetsX = (int *) UI_CALLOC(sizeof(int) * (_UNICODE_MAX_CODEPOINT + 1));
+	font->glyphOffsetsY = (int *) UI_CALLOC(sizeof(int) * (_UNICODE_MAX_CODEPOINT + 1));
 #endif
 	if (cPath) {
-		if (!FT_New_Face(ui.ft, cPath, 0, &font->font)) {
+		int ret = FT_New_Face(ui.ft, cPath, 0, &font->font);
+		if (ret == 0) {
+			FT_Select_Charmap(font->font, FT_ENCODING_UNICODE);
 			if (FT_HAS_FIXED_SIZES(font->font) && font->font->num_fixed_sizes) {
 				// Look for the smallest strike that's at least `size`.
 				int j = 0;
@@ -5250,7 +5240,8 @@ UIFont *UIFontCreate(const char *cPath, uint32_t size) {
 			font->glyphHeight = (font->font->size->metrics.ascender - font->font->size->metrics.descender) / 64;
 			font->isFreeType = true;
 			return font;
-		}
+		} else
+			printf("Cannot load font %s : %d\n", cPath, ret);
 	}
 #endif
 
