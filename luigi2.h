@@ -2698,6 +2698,12 @@ bool _UICharIsAlphaOrDigitOrUnderscore(int c) {
 	return _UICharIsAlpha(c) || _UICharIsDigit(c) || c == '_';
 }
 
+#ifdef UI_UNICODE
+#define _UI_ADVANCE_BYTE(byte, code, bytes) \
+	byte += Utf8GetCharBytes(&code->content[byte + code->lines[line].offset], bytes - byte)
+#else
+#define _UI_ADVANCE_BYTE(byte, code, bytes) byte++
+#endif
 int _UICodeColumnToByte(UICode *code, int line, int column) {
 	int byte = 0, ti = 0;
 	int bytes = code->lines[line].bytes;
@@ -2707,27 +2713,26 @@ int _UICodeColumnToByte(UICode *code, int line, int column) {
 		if (code->content[byte + code->lines[line].offset] == '\t') while (ti % code->tabSize) ti++;
 		if (column < ti) break;
 
-#ifdef UI_UNICODE
-		byte += Utf8GetCharBytes(&code->content[byte + code->lines[line].offset], bytes - byte);
-#else
-		byte++;
-#endif
+		_UI_ADVANCE_BYTE(byte, code, bytes);
 	}
 
 	return byte;
 }
 
+#ifdef UI_UNICODE
+#define _UI_ADVANCE_COLUMN(columnIndex, code, byte) \
+	columnIndex += Utf8GetCharBytes(&code->content[columnIndex + code->lines[line].offset], code->lines[line].bytes - columnIndex)
+
+#else
+	columnIndex++
+#endif
 int _UICodeByteToColumn(UICode *code, int line, int byte) {
 	int ti = 0, i = 0;
 
 	while (i < byte) {
 		ti++;
 		if (code->content[i + code->lines[line].offset] == '\t') while (ti % code->tabSize) ti++;
-#ifdef UI_UNICODE
-		i += Utf8GetCharBytes(&code->content[i + code->lines[line].offset], code->lines[line].bytes - i);
-#else
-		i++;
-#endif
+		_UI_ADVANCE_COLUMN(i, code, byte);
 	}
 
 	return ti;
