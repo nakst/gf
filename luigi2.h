@@ -2724,6 +2724,7 @@ int _UICodeColumnToByte(UICode *code, int line, int column) {
 	columnIndex += Utf8GetCharBytes(&code->content[columnIndex + code->lines[line].offset], code->lines[line].bytes - columnIndex)
 
 #else
+#define _UI_ADVANCE_COLUMN(columnIndex, code, byte) \
 	columnIndex++
 #endif
 int _UICodeByteToColumn(UICode *code, int line, int byte) {
@@ -3197,48 +3198,38 @@ int _UICodeMessage(UIElement *element, UIMessage message, int di, void *dp) {
 	return 0;
 }
 
-#if UI_UNICODE
-void UICodeMoveCaret(UICode *code, bool backward, bool word) {
-	while (true) {
-		if (backward) {
-			if (code->selection[3].offset - 1 < 0) {
-				if (code->selection[3].line > 0) {
-					code->selection[3].line--;
-					code->selection[3].offset = code->lines[code->selection[3].line].bytes;
-				} else break;
-			} else {
-				int offset = code->lines[code->selection[3].line].offset + code->selection[3].offset;
-				char *prev = Utf8GetPreviousChar(code->content, code->content + offset);
-				code->selection[3].offset = prev - code->content - code->lines[code->selection[3].line].offset;
-			}
-		} else {
-			if (code->selection[3].offset + 1 > code->lines[code->selection[3].line].bytes) {
-				if (code->selection[3].line + 1 < code->lineCount) {
-					code->selection[3].line++;
-					code->selection[3].offset = 0;
-				} else break;
-			} else {
-				int offset = code->lines[code->selection[3].line].offset + code->selection[3].offset;
-				code->selection[3].offset += Utf8GetCharBytes(code->content + offset, code->contentBytes - offset);
-			}
-		}
+#ifdef UI_UNICODE
+#define _UI_MOVE_CARET_BACKWARD(code) do { \
+	int offset = code->lines[code->selection[3].line].offset + code->selection[3].offset; \
+	char *prev = Utf8GetPreviousChar(code->content, code->content + offset); \
+	code->selection[3].offset = prev - code->content - code->lines[code->selection[3].line].offset; \
+} while (0)
 
-		if (!word) break;
+#define _UI_MOVE_CARET_FORWARD(code) do { \
+	int offset = code->lines[code->selection[3].line].offset + code->selection[3].offset; \
+	code->selection[3].offset += Utf8GetCharBytes(code->content + offset, code->contentBytes - offset); \
+} while (0)
 
-		if (code->selection[3].offset != 0 && code->selection[3].offset != code->lines[code->selection[3].line].bytes) {
-			int offset = code->lines[code->selection[3].line].offset + code->selection[3].offset;
-			char *prev = Utf8GetPreviousChar(code->content, code->content + offset);
-
-			int c1 = Utf8GetCodePoint(prev, code->contentBytes - (prev - code->content), NULL);
-			int c2 = Utf8GetCodePoint(code->content + offset, code->contentBytes - offset, NULL);
-			if (_UICharIsAlphaOrDigitOrUnderscore(c1) != _UICharIsAlphaOrDigitOrUnderscore(c2)) break;
-		}
-	}
-
-	code->useVerticalMotionColumn = false;
-	_UICodeUpdateSelection(code);
+#define _UI_MOVE_CARET_BY_WORD(code) { \
+	int offset = code->lines[code->selection[3].line].offset + code->selection[3].offset; \
+	char *prev = Utf8GetPreviousChar(code->content, code->content + offset); \
+	int c1 = Utf8GetCodePoint(prev, code->contentBytes - (prev - code->content), NULL); \
+	int c2 = Utf8GetCodePoint(code->content + offset, code->contentBytes - offset, NULL); \
+	if (_UICharIsAlphaOrDigitOrUnderscore(c1) != _UICharIsAlphaOrDigitOrUnderscore(c2)) break; \
 }
+
 #else
+#define _UI_MOVE_CARET_BACKWARD(code) code->selection[3].offset--
+#define _UI_MOVE_CARET_FORWARD(code) code->selection[3].offset++
+
+#define _UI_MOVE_CARET_BY_WORD(code) { \
+	char c1 = code->content[code->lines[code->selection[3].line].offset + code->selection[3].offset - 1]; \
+	char c2 = code->content[code->lines[code->selection[3].line].offset + code->selection[3].offset]; \
+	if (_UICharIsAlphaOrDigitOrUnderscore(c1) != _UICharIsAlphaOrDigitOrUnderscore(c2)) break; \
+}
+
+#endif
+
 void UICodeMoveCaret(UICode *code, bool backward, bool word) {
 	while (true) {
 		if (backward) {
@@ -3247,29 +3238,24 @@ void UICodeMoveCaret(UICode *code, bool backward, bool word) {
 					code->selection[3].line--;
 					code->selection[3].offset = code->lines[code->selection[3].line].bytes;
 				} else break;
-			} else code->selection[3].offset--;
+			} else _UI_MOVE_CARET_BACKWARD(code);
 		} else {
 			if (code->selection[3].offset + 1 > code->lines[code->selection[3].line].bytes) {
 				if (code->selection[3].line + 1 < code->lineCount) {
 					code->selection[3].line++;
 					code->selection[3].offset = 0;
 				} else break;
-			} else code->selection[3].offset++;
+			} else _UI_MOVE_CARET_FORWARD(code);
 		}
 
 		if (!word) break;
 
-		if (code->selection[3].offset != 0 && code->selection[3].offset != code->lines[code->selection[3].line].bytes) {
-			char c1 = code->content[code->lines[code->selection[3].line].offset + code->selection[3].offset - 1];
-			char c2 = code->content[code->lines[code->selection[3].line].offset + code->selection[3].offset];
-			if (_UICharIsAlphaOrDigitOrUnderscore(c1) != _UICharIsAlphaOrDigitOrUnderscore(c2)) break;
-		}
+		if (code->selection[3].offset != 0 && code->selection[3].offset != code->lines[code->selection[3].line].bytes) _UI_MOVE_CARET_BY_WORD(code);
 	}
 
 	code->useVerticalMotionColumn = false;
 	_UICodeUpdateSelection(code);
 }
-#endif
 
 void UICodeFocusLine(UICode *code, int index) {
 	code->focused = index - 1;
