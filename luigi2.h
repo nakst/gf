@@ -1312,7 +1312,7 @@ char *UIStringCopy(const char *in, ptrdiff_t inBytes) {
 int _UIByteToColumn(const char *string, int byte, int bytes, int tabSize) {
 	int ti = 0, i = 0;
 
-	while (i < byte) {
+	while (i < byte && i < bytes) {
 		ti++;
 		_UI_SKIP_TAB(ti, string + i, bytes - i, tabSize);
 		_UI_ADVANCE_CHAR(i, string + i, byte);
