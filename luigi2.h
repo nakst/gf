@@ -942,8 +942,47 @@ ptrdiff_t Utf8StringLength(const char *cString, ptrdiff_t bytes) {
 	return length;
 }
 
-#endif // UI_UNICODE
+#define _UI_ADVANCE_CHAR(index, text, count) \
+	index += Utf8GetCharBytes(text, count - index)
 
+#define _UI_SKIP_TAB(ti, text, bytesLeft, tabSize) do { \
+	int c = Utf8GetCodePoint(text, bytesLeft, NULL); \
+	if (c == '\t') while (ti % tabSize) ti++; \
+} while (0)
+
+#define _UI_MOVE_CARET_BACKWARD(caret, text, offset, offset2) do { \
+	char *prev = Utf8GetPreviousChar(text, text + offset); \
+	caret = prev - text - offset2; \
+} while (0)
+
+#define _UI_MOVE_CARET_FORWARD(caret, text, bytes, offset) do { \
+	caret += Utf8GetCharBytes(text + caret, bytes - offset); \
+} while (0)
+
+#define _UI_MOVE_CARET_BY_WORD(text, bytes, offset) { \
+	char *prev = Utf8GetPreviousChar(text, text + offset); \
+	int c1 = Utf8GetCodePoint(prev, bytes - (prev - text), NULL); \
+	int c2 = Utf8GetCodePoint(text + offset, bytes - offset, NULL); \
+	if (_UICharIsAlphaOrDigitOrUnderscore(c1) != _UICharIsAlphaOrDigitOrUnderscore(c2)) break; \
+}
+
+#else
+
+#define _UI_ADVANCE_CHAR(index, code, count) index++
+
+#define _UI_SKIP_TAB(ti, text, bytesLeft, tabSize) \
+	if (*text == '\t') while (ti % tabSize) ti++
+
+#define _UI_MOVE_CARET_BACKWARD(caret, text, offset, offset2) caret--
+#define _UI_MOVE_CARET_FORWARD(caret, text, bytes, offset) caret++
+
+#define _UI_MOVE_CARET_BY_WORD(text, bytes, offset) { \
+	char c1 = text[offset - 1]; \
+	char c2 = text[offset]; \
+	if (_UICharIsAlphaOrDigitOrUnderscore(c1) != _UICharIsAlphaOrDigitOrUnderscore(c2)) break; \
+}
+
+#endif // UI_UNICODE
 
 #ifdef UI_IMPLEMENTATION
 
@@ -2698,41 +2737,29 @@ bool _UICharIsAlphaOrDigitOrUnderscore(int c) {
 	return _UICharIsAlpha(c) || _UICharIsDigit(c) || c == '_';
 }
 
-#ifdef UI_UNICODE
-#define _UI_ADVANCE_BYTE(byte, code, bytes) \
-	byte += Utf8GetCharBytes(&code->content[byte + code->lines[line].offset], bytes - byte)
-#else
-#define _UI_ADVANCE_BYTE(byte, code, bytes) byte++
-#endif
 int _UICodeColumnToByte(UICode *code, int line, int column) {
 	int byte = 0, ti = 0;
 	int bytes = code->lines[line].bytes;
 
 	while (byte < bytes) {
 		ti++;
-		if (code->content[byte + code->lines[line].offset] == '\t') while (ti % code->tabSize) ti++;
+		_UI_SKIP_TAB(ti, &code->content[byte + code->lines[line].offset], bytes - byte, code->tabSize);
 		if (column < ti) break;
 
-		_UI_ADVANCE_BYTE(byte, code, bytes);
+		_UI_ADVANCE_CHAR(byte, &code->content[byte + code->lines[line].offset], bytes);
 	}
 
 	return byte;
 }
 
-#ifdef UI_UNICODE
-#define _UI_ADVANCE_COLUMN(columnIndex, code, byte) \
-	columnIndex += Utf8GetCharBytes(&code->content[columnIndex + code->lines[line].offset], code->lines[line].bytes - columnIndex)
-
-#else
-#define _UI_ADVANCE_COLUMN(columnIndex, code, byte) \
-	columnIndex++
-#endif
 int _UICodeByteToColumn(UICode *code, int line, int byte) {
 	int ti = 0, i = 0;
+	int bytes = code->lines[line].bytes;
 
 	while (i < byte) {
 		ti++;
-		_UI_ADVANCE_COLUMN(i, code, byte);
+		_UI_SKIP_TAB(ti, &code->content[i + code->lines[line].offset], bytes - i, code->tabSize);
+		_UI_ADVANCE_CHAR(i, &code->content[i + code->lines[line].offset], byte);
 	}
 
 	return ti;
@@ -2816,7 +2843,7 @@ int UIDrawStringHighlighted(UIPainter *painter, UIRectangle lineBounds, const ch
 #endif
 
 		last <<= 8;
-		last |= (char) c;
+		last |= c & 0xFF;
 
 		if (tokenType == UI_CODE_TOKEN_TYPE_PREPROCESSOR) {
 			if (bytes && c == '/' && (*string == '/' || *string == '*')) {
@@ -2875,7 +2902,7 @@ int UIDrawStringHighlighted(UIPainter *painter, UIRectangle lineBounds, const ch
 
 		if (c == '\t') {
 			x += ui.activeFont->glyphWidth, ti++;
-			while (ti % tabSize) x += ui.activeFont->glyphWidth, ti++;
+			while (ti % tabSize) x += ui.activeFont->glyphWidth, ti++, j++;
 		} else {
 			UIDrawGlyph(painter, x, y, c, colors[tokenType]);
 			x += ui.activeFont->glyphWidth, ti++;
@@ -3197,38 +3224,6 @@ int _UICodeMessage(UIElement *element, UIMessage message, int di, void *dp) {
 	return 0;
 }
 
-#ifdef UI_UNICODE
-#define _UI_CODE_MOVE_CARET_BACKWARD(code) do { \
-	int offset = code->lines[code->selection[3].line].offset + code->selection[3].offset; \
-	char *prev = Utf8GetPreviousChar(code->content, code->content + offset); \
-	code->selection[3].offset = prev - code->content - code->lines[code->selection[3].line].offset; \
-} while (0)
-
-#define _UI_CODE_MOVE_CARET_FORWARD(code) do { \
-	int offset = code->lines[code->selection[3].line].offset + code->selection[3].offset; \
-	code->selection[3].offset += Utf8GetCharBytes(code->content + offset, code->contentBytes - offset); \
-} while (0)
-
-#define _UI_CODE_MOVE_CARET_BY_WORD(code) { \
-	int offset = code->lines[code->selection[3].line].offset + code->selection[3].offset; \
-	char *prev = Utf8GetPreviousChar(code->content, code->content + offset); \
-	int c1 = Utf8GetCodePoint(prev, code->contentBytes - (prev - code->content), NULL); \
-	int c2 = Utf8GetCodePoint(code->content + offset, code->contentBytes - offset, NULL); \
-	if (_UICharIsAlphaOrDigitOrUnderscore(c1) != _UICharIsAlphaOrDigitOrUnderscore(c2)) break; \
-}
-
-#else
-#define _UI_CODE_MOVE_CARET_BACKWARD(code) code->selection[3].offset--
-#define _UI_CODE_MOVE_CARET_FORWARD(code) code->selection[3].offset++
-
-#define _UI_CODE_MOVE_CARET_BY_WORD(code) { \
-	char c1 = code->content[code->lines[code->selection[3].line].offset + code->selection[3].offset - 1]; \
-	char c2 = code->content[code->lines[code->selection[3].line].offset + code->selection[3].offset]; \
-	if (_UICharIsAlphaOrDigitOrUnderscore(c1) != _UICharIsAlphaOrDigitOrUnderscore(c2)) break; \
-}
-
-#endif
-
 void UICodeMoveCaret(UICode *code, bool backward, bool word) {
 	while (true) {
 		if (backward) {
@@ -3237,19 +3232,21 @@ void UICodeMoveCaret(UICode *code, bool backward, bool word) {
 					code->selection[3].line--;
 					code->selection[3].offset = code->lines[code->selection[3].line].bytes;
 				} else break;
-			} else _UI_CODE_MOVE_CARET_BACKWARD(code);
+			} else _UI_MOVE_CARET_BACKWARD(code->selection[3].offset, code->content, code->lines[code->selection[3].line].offset + code->selection[3].offset, code->lines[code->selection[3].line].offset);
 		} else {
 			if (code->selection[3].offset + 1 > code->lines[code->selection[3].line].bytes) {
 				if (code->selection[3].line + 1 < code->lineCount) {
 					code->selection[3].line++;
 					code->selection[3].offset = 0;
 				} else break;
-			} else _UI_CODE_MOVE_CARET_FORWARD(code);
+			} else _UI_MOVE_CARET_FORWARD(code->selection[3].offset, code->content, code->contentBytes, code->lines[code->selection[3].line].offset + code->selection[3].offset);
 		}
 
 		if (!word) break;
 
-		if (code->selection[3].offset != 0 && code->selection[3].offset != code->lines[code->selection[3].line].bytes) _UI_CODE_MOVE_CARET_BY_WORD(code);
+		if (code->selection[3].offset != 0 && code->selection[3].offset != code->lines[code->selection[3].line].bytes) {
+			_UI_MOVE_CARET_BY_WORD(code->content, code->contentBytes, code->lines[code->selection[3].line].offset + code->selection[3].offset);
+		}
 	}
 
 	code->useVerticalMotionColumn = false;
@@ -3653,15 +3650,25 @@ int _UITextboxByteToColumn(const char *string, int byte, ptrdiff_t bytes) {
 
 	while (i < byte) {
 		ti++;
-		if (string[i] == '\t') while (ti & 3) ti++;
-#ifdef UI_UNICODE
-		i += Utf8GetCharBytes(string + i, bytes - i);
-#else
-		i++;
-#endif
+		_UI_SKIP_TAB(ti, string + i, byte - i, 4);
+		_UI_ADVANCE_CHAR(i, string + i, byte);
 	}
 
 	return ti;
+}
+
+int _UITextboxColumnToByte(const char *string, int column, ptrdiff_t bytes) {
+	int byte = 0, ti = 0;
+
+	while (byte < bytes) {
+		ti++;
+		_UI_SKIP_TAB(ti, string + byte, bytes - byte, 4);
+		if (column < ti) break;
+
+		_UI_ADVANCE_CHAR(byte, string + byte, bytes);
+	}
+
+	return byte;
 }
 
 char *UITextboxToCString(UITextbox *textbox) {
@@ -3700,47 +3707,12 @@ void UITextboxClear(UITextbox *textbox, bool sendChangedMessage) {
 	UITextboxReplace(textbox, "", 0, sendChangedMessage);
 }
 
-#ifdef UI_UNICODE
-
-#define _UI_TEXTBOX_MOVE_CARET_BACKWARD(textbox) do { \
-	char *prev = Utf8GetPreviousChar(textbox->string, textbox->string + textbox->carets[0]); \
-	textbox->carets[0] = prev - textbox->string; \
-} while (0)
-
-#define _UI_TEXTBOX_MOVE_CARET_FORWARD(textbox) do { \
-	textbox->carets[0] += Utf8GetCharBytes(textbox->string + textbox->carets[0], textbox->bytes - textbox->carets[0]); \
-} while (0)
-
-#define _UI_TEXTBOX_MOVE_CARET_WORD(textbox) do { \
-	char *prev = Utf8GetPreviousChar(textbox->string, textbox->string + textbox->carets[0]); \
-	int c1 = Utf8GetCodePoint(prev, textbox->bytes - (prev - textbox->string), NULL); \
-	int c2 = Utf8GetCodePoint(textbox->string + textbox->carets[0], textbox->bytes - textbox->carets[0], NULL); \
-	if (_UICharIsAlphaOrDigitOrUnderscore(c1) != _UICharIsAlphaOrDigitOrUnderscore(c2)) { \
-		return; \
-	} \
-} while (0)
-
-#else
-
-#define _UI_TEXTBOX_MOVE_CARET_BACKWARD(textbox) textbox->carets[0]--;
-#define _UI_TEXTBOX_MOVE_CARET_FORWARD(textbox) textbox->carets[0]++;
-
-#define _UI_TEXTBOX_MOVE_CARET_WORD(textbox) do { \
-	char c1 = textbox->string[textbox->carets[0] - 1]; \
-	char c2 = textbox->string[textbox->carets[0]]; \
-	if (_UICharIsAlphaOrDigitOrUnderscore(c1) != _UICharIsAlphaOrDigitOrUnderscore(c2)) { \
-		return; \
-	} \
-} while (0)
-
-#endif
-
 void UITextboxMoveCaret(UITextbox *textbox, bool backward, bool word) {
 	while (true) {
 		if (textbox->carets[0] > 0 && backward) {
-			_UI_TEXTBOX_MOVE_CARET_BACKWARD(textbox);
+			_UI_MOVE_CARET_BACKWARD(textbox->carets[0], textbox->string, textbox->carets[0], 0);
 		} else if (textbox->carets[0] < textbox->bytes && !backward) {
-			_UI_TEXTBOX_MOVE_CARET_FORWARD(textbox);
+			_UI_MOVE_CARET_FORWARD(textbox->carets[0], textbox->string, textbox->bytes, textbox->carets[0]);
 		} else {
 			return;
 		}
@@ -3748,7 +3720,7 @@ void UITextboxMoveCaret(UITextbox *textbox, bool backward, bool word) {
 		if (!word) {
 			return;
 		} else if (textbox->carets[0] != textbox->bytes && textbox->carets[0] != 0) {
-			_UI_TEXTBOX_MOVE_CARET_WORD(textbox);
+			_UI_MOVE_CARET_BY_WORD(textbox->string, textbox->bytes, textbox->carets[0]);
 		}
 	}
 
@@ -3834,7 +3806,7 @@ int _UITextboxMessage(UIElement *element, UIMessage message, int di, void *dp) {
 	} else if (message == UI_MSG_LEFT_DOWN) {
 		int column = (element->window->cursorX - element->bounds.l + textbox->scroll - UI_SIZE_TEXTBOX_MARGIN * element->window->scale
 				+ ui.activeFont->glyphWidth / 2) / ui.activeFont->glyphWidth;
-		textbox->carets[0] = textbox->carets[1] = column >= textbox->bytes ? textbox->bytes : column <= 0 ? 0 : column;
+		textbox->carets[0] = textbox->carets[1] = column <= 0 ? 0 : _UITextboxColumnToByte(textbox->string, column, textbox->bytes);
 		UIElementFocus(element);
 	} else if (message == UI_MSG_UPDATE) {
 		UIElementRepaint(element, NULL);
