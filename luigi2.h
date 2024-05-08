@@ -971,14 +971,14 @@ ptrdiff_t Utf8StringLength(const char *cString, ptrdiff_t bytes) {
 #define _UI_ADVANCE_CHAR(index, code, count) index++
 
 #define _UI_SKIP_TAB(ti, text, bytesLeft, tabSize) \
-	if (*text == '\t') while (ti % tabSize) ti++
+	if (*(text) == '\t') while (ti % tabSize) ti++
 
 #define _UI_MOVE_CARET_BACKWARD(caret, text, offset, offset2) caret--
 #define _UI_MOVE_CARET_FORWARD(caret, text, bytes, offset) caret++
 
 #define _UI_MOVE_CARET_BY_WORD(text, bytes, offset) { \
-	char c1 = text[offset - 1]; \
-	char c2 = text[offset]; \
+	char c1 = (text)[offset - 1]; \
+	char c2 = (text)[offset]; \
 	if (_UICharIsAlphaOrDigitOrUnderscore(c1) != _UICharIsAlphaOrDigitOrUnderscore(c2)) break; \
 }
 
