@@ -1309,6 +1309,32 @@ char *UIStringCopy(const char *in, ptrdiff_t inBytes) {
 	return buffer;
 }
 
+int _UIByteToColumn(const char *string, int byte, int bytes, int tabSize) {
+	int ti = 0, i = 0;
+
+	while (i < byte) {
+		ti++;
+		_UI_SKIP_TAB(ti, string + i, bytes - i, tabSize);
+		_UI_ADVANCE_CHAR(i, string + i, byte);
+	}
+
+	return ti;
+}
+
+int _UIColumnToByte(const char *string, int column, int bytes, int tabSize) {
+	int byte = 0, ti = 0;
+
+	while (byte < bytes) {
+		ti++;
+		_UI_SKIP_TAB(ti, string + byte, bytes - byte, tabSize);
+		if (column < ti) break;
+
+		_UI_ADVANCE_CHAR(byte, string + byte, bytes);
+	}
+
+	return byte;
+}
+
 /////////////////////////////////////////
 // Animations.
 /////////////////////////////////////////
@@ -2737,32 +2763,12 @@ bool _UICharIsAlphaOrDigitOrUnderscore(int c) {
 	return _UICharIsAlpha(c) || _UICharIsDigit(c) || c == '_';
 }
 
-int _UICodeColumnToByte(UICode *code, int line, int column) {
-	int byte = 0, ti = 0;
-	int bytes = code->lines[line].bytes;
-
-	while (byte < bytes) {
-		ti++;
-		_UI_SKIP_TAB(ti, &code->content[byte + code->lines[line].offset], bytes - byte, code->tabSize);
-		if (column < ti) break;
-
-		_UI_ADVANCE_CHAR(byte, &code->content[byte + code->lines[line].offset], bytes);
-	}
-
-	return byte;
+int _UICodeByteToColumn(UICode *code, int line, int byte) {
+	return _UIByteToColumn(&code->content[code->lines[line].offset], byte, code->lines[line].bytes, code->tabSize);
 }
 
-int _UICodeByteToColumn(UICode *code, int line, int byte) {
-	int ti = 0, i = 0;
-	int bytes = code->lines[line].bytes;
-
-	while (i < byte) {
-		ti++;
-		_UI_SKIP_TAB(ti, &code->content[i + code->lines[line].offset], bytes - i, code->tabSize);
-		_UI_ADVANCE_CHAR(i, &code->content[i + code->lines[line].offset], byte);
-	}
-
-	return ti;
+int _UICodeColumnToByte(UICode *code, int line, int column) {
+	return _UIColumnToByte(&code->content[code->lines[line].offset], column, code->lines[line].bytes, code->tabSize);
 }
 
 void UICodePositionToByte(UICode *code, int x, int y, int *line, int *byte) {
@@ -3646,29 +3652,11 @@ UITable *UITableCreate(UIElement *parent, uint32_t flags, const char *columns) {
 /////////////////////////////////////////
 
 int _UITextboxByteToColumn(const char *string, int byte, ptrdiff_t bytes) {
-	int ti = 0, i = 0;
-
-	while (i < byte) {
-		ti++;
-		_UI_SKIP_TAB(ti, string + i, byte - i, 4);
-		_UI_ADVANCE_CHAR(i, string + i, byte);
-	}
-
-	return ti;
+	return _UIByteToColumn(string, byte, bytes, 4);
 }
 
 int _UITextboxColumnToByte(const char *string, int column, ptrdiff_t bytes) {
-	int byte = 0, ti = 0;
-
-	while (byte < bytes) {
-		ti++;
-		_UI_SKIP_TAB(ti, string + byte, bytes - byte, 4);
-		if (column < ti) break;
-
-		_UI_ADVANCE_CHAR(byte, string + byte, bytes);
-	}
-
-	return byte;
+	return _UIColumnToByte(string, column, bytes, 4);
 }
 
 char *UITextboxToCString(UITextbox *textbox) {
