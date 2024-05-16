@@ -2255,6 +2255,13 @@ void StackSetFrame(UIElement *element, int index) {
 int TableStackMessage(UIElement *element, UIMessage message, int di, void *dp) {
 	if (message == UI_MSG_TABLE_GET_ITEM) {
 		UITableGetItem *m = (UITableGetItem *) dp;
+		
+		// if the index is not validated here, it will cause an assertion to
+		// fail when subscripting `stack`, crashing the program.
+		if ((size_t)m->index >= stack.length) {
+			return 0;
+		}
+		
 		m->isSelected = m->index == stackSelected;
 		StackEntry *entry = &stack[m->index];
 
