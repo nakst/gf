@@ -1329,6 +1329,7 @@ void SettingsLoad(bool earlyPass) {
 					}
 				} else if (0 == strcmp(state.key, "path")) {
 					gdbPath = state.value;
+                                        gdbArgv[0] = state.value;
 				} else if (0 == strcmp(state.key, "log_all_output") && atoi(state.value)) {
 					for (int i = 0; i < interfaceWindows.Length(); i++) {
 						InterfaceWindow *window = &interfaceWindows[i];
