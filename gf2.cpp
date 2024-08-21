@@ -170,9 +170,9 @@ char localConfigDirectory[PATH_MAX];
 char localConfigPath[PATH_MAX];
 const char *executablePath;
 const char *executableArguments;
-bool argsFromCmd = false;
-bool executablePathFromCmd = false;
 bool executableAskDirectory = true;
+bool executablePathFromCmd = false;
+bool executableArgumentsFromCmd = false;
 Array<InterfaceWindow> interfaceWindows;
 Array<InterfaceCommand> interfaceCommands;
 Array<InterfaceDataViewer> interfaceDataViewers;
@@ -1379,7 +1379,7 @@ void SettingsLoad(bool earlyPass) {
 				} else if (0 == strcmp(state.key, "ask_directory")) {
 					executableAskDirectory = atoi(state.value);
 				} else if (0 == strcmp(state.key, "args_from_cmd")) {
-					argsFromCmd = atoi(state.value);
+					executableArgumentsFromCmd = atoi(state.value);
 				} else if (0 == strcmp(state.key, "executable_path_from_cmd")) {
 					executablePathFromCmd = atoi(state.value);
 				}
@@ -1802,7 +1802,7 @@ int GfMain(int argc, char **argv) {
 		executablePath = gdbArgv[1];
 	}
 
-	if (argsFromCmd && gdbArgc >= 3) {
+	if (executableArgumentsFromCmd && gdbArgc >= 3) {
 		size_t n = 0;
 		char *buffer = (char *) malloc(PATH_MAX + 1);
 		for (int i = 2; i < gdbArgc; ++i) {
@@ -1812,7 +1812,9 @@ int GfMain(int argc, char **argv) {
 			}
 			buffer[n++] = ' ';
 		}
-		buffer[--n] = '\0';
+		if (n > 0) {
+			buffer[--n] = '\0';
+		}
 		executableArguments = buffer;
 	}
 
