@@ -170,6 +170,8 @@ char localConfigDirectory[PATH_MAX];
 char localConfigPath[PATH_MAX];
 const char *executablePath;
 const char *executableArguments;
+bool argsFromCmd = false;
+bool executablePathFromCmd = false;
 bool executableAskDirectory = true;
 Array<InterfaceWindow> interfaceWindows;
 Array<InterfaceCommand> interfaceCommands;
@@ -1376,6 +1378,10 @@ void SettingsLoad(bool earlyPass) {
 					executableArguments = state.value;
 				} else if (0 == strcmp(state.key, "ask_directory")) {
 					executableAskDirectory = atoi(state.value);
+				} else if (0 == strcmp(state.key, "args_from_cmd")) {
+					argsFromCmd = true;
+				} else if (0 == strcmp(state.key, "executable_path_from_cmd")) {
+					executablePathFromCmd = true;
 				}
 			} else if (earlyPass && *state.section && *state.key && *state.value) {
 				for (int i = 0; i < interfaceWindows.Length(); i++) {
@@ -1791,6 +1797,24 @@ int GfMain(int argc, char **argv) {
 		}
 	}
 #endif
+
+	if (executablePathFromCmd && gdbArgc >= 2) {
+		executablePath = gdbArgv[1];
+	}
+
+	if (argsFromCmd && gdbArgc >= 3) {
+		size_t n = 0;
+		char *buffer = (char *) malloc(PATH_MAX + 1);
+		for (int i = 2; i < gdbArgc; ++i) {
+			const char *p = gdbArgv[i];
+			while (p != NULL && *p != '\0') {
+				buffer[n++] = *p++;
+			}
+			buffer[n++] = ' ';
+		}
+		buffer[--n] = '\0';
+		executableArguments = buffer;
+	}
 
 	fontCode = UIFontCreate(fontPath, fontSizeCode);
 	UIFontActivate(UIFontCreate(fontPath, fontSizeInterface));
