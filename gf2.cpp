@@ -1379,9 +1379,9 @@ void SettingsLoad(bool earlyPass) {
 				} else if (0 == strcmp(state.key, "ask_directory")) {
 					executableAskDirectory = atoi(state.value);
 				} else if (0 == strcmp(state.key, "args_from_cmd")) {
-					argsFromCmd = true;
+					argsFromCmd = atoi(state.value);
 				} else if (0 == strcmp(state.key, "executable_path_from_cmd")) {
-					executablePathFromCmd = true;
+					executablePathFromCmd = atoi(state.value);
 				}
 			} else if (earlyPass && *state.section && *state.key && *state.value) {
 				for (int i = 0; i < interfaceWindows.Length(); i++) {
