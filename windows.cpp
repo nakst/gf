@@ -2832,6 +2832,7 @@ UIElement *LogWindowCreate(UIElement *parent) {
 
 struct Thread {
 	char frame[127];
+	char name[16];
 	bool active;
 	int id;
 };
@@ -2847,10 +2848,10 @@ int ThreadTableMessage(UIElement *element, UIMessage message, int di, void *dp) 
 		UITableGetItem *m = (UITableGetItem *) dp;
 		m->isSelected = window->threads[m->index].active;
 
-		if (m->column == 0) {
-			return StringFormat(m->buffer, m->bufferBytes, "%d", window->threads[m->index].id);
-		} else if (m->column == 1) {
-			return StringFormat(m->buffer, m->bufferBytes, "%s", window->threads[m->index].frame);
+		switch (m->column) {
+		case 0: return StringFormat(m->buffer, m->bufferBytes, "%d", window->threads[m->index].id);
+		case 1: return StringFormat(m->buffer, m->bufferBytes, "%s", window->threads[m->index].name);
+		case 2: return StringFormat(m->buffer, m->bufferBytes, "%s", window->threads[m->index].frame);
 		}
 	} else if (message == UI_MSG_LEFT_DOWN) {
 		int index = UITableHitTest((UITable *) element, element->window->cursorX, element->window->cursorY);
@@ -2866,7 +2867,7 @@ int ThreadTableMessage(UIElement *element, UIMessage message, int di, void *dp) 
 }
 
 UIElement *ThreadWindowCreate(UIElement *parent) {
-	UITable *table = UITableCreate(parent, 0, "ID\tFrame");
+	UITable *table = UITableCreate(parent, 0, "ID\tName\tFrame");
 	table->e.cp = (ThreadWindow *) calloc(1, sizeof(ThreadWindow));
 	table->e.messageUser = ThreadTableMessage;
 	return &table->e;
@@ -2891,16 +2892,23 @@ void ThreadWindowUpdate(const char *, UIElement *_table) {
 		Thread thread = {};
 		if (position[1] == '*') thread.active = true;
 		thread.id = atoi(position + 2);
+
 		position = strchr(position + 1, '"');
 		if (!position) break;
-		position = strchr(position + 1, '"');
-		if (!position) break;
-		position++;
-		char *end = strchr(position, '\n');
+		char *end = strchr(++position, '"');
+		if (!end) break;
+		if (end - position >= (ptrdiff_t)sizeof(thread.name))
+			end = position + sizeof(thread.name) - 1;
+		memcpy(thread.name, position, end - position);
+		thread.name[end - position] = 0;
+
+		position = strchr(end + 1, '0');
+		end = strchr(position, '\n');
 		if (end - position >= (ptrdiff_t) sizeof(thread.frame))
 			end = position + sizeof(thread.frame) - 1;
 		memcpy(thread.frame, position, end - position);
 		thread.frame[end - position] = 0;
+
 		window->threads.Add(thread);
 	}
 
