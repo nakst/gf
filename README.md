@@ -119,6 +119,13 @@ font_size_interface=17
 font_size_code=20
 ```
 
+For simpler use cases you can provide `scale_global`. For example,
+
+```ini
+[ui]
+scale_global=1.5
+```
+
 To change the font, FreeType must have been available when you compiled gf. You can enable subpixel font rendering by recompiling with `extra_flags=-DUI_FREETYPE_SUBPIXEL ./build.sh`.
     
 You can also configure the interface layout, with the `layout` parameter. Use `h(position,left,right)` to create a horizontal split, `v(position,left,right)` to create a vertical split, and `t(...)` to create a tab pane. This value should not contain any whitespace. Please note this value is not validated, so make sure it is formatted correctly!
