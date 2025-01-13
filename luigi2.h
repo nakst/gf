@@ -5529,7 +5529,16 @@ UIWindow *UIWindowCreate(UIWindow *owner, uint32_t flags, const char *cTitle, in
 	int width = (flags & UI_WINDOW_MENU) ? 1 : _width ? _width : 800;
 	int height = (flags & UI_WINDOW_MENU) ? 1 : _height ? _height : 600;
 
-	window->window = XCreateSimpleWindow(ui.display, DefaultRootWindow(ui.display), 0, 0, width, height, 1, 0, 0);
+	if (flags & UI_WINDOW_MENU) {
+		XSetWindowAttributes attributes = {};
+		attributes.override_redirect = flags & UI_WINDOW_MENU;
+
+		window->window = XCreateWindow(ui.display, DefaultRootWindow(ui.display), 0, 0, width, height, 0, 0,
+			InputOutput, CopyFromParent, CWOverrideRedirect, &attributes);
+	} else {
+		window->window = XCreateSimpleWindow(ui.display, DefaultRootWindow(ui.display), 0, 0, width, height, 0, 0, 0);
+	}
+
 	if (cTitle) XStoreName(ui.display, window->window, cTitle);
 	XSelectInput(ui.display, window->window, SubstructureNotifyMask | ExposureMask | PointerMotionMask
 		| ButtonPressMask | ButtonReleaseMask | KeyPressMask | KeyReleaseMask | StructureNotifyMask
