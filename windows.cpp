@@ -2902,7 +2902,9 @@ void ThreadWindowUpdate(const char *, UIElement *_table) {
 		memcpy(thread.name, position, end - position);
 		thread.name[end - position] = 0;
 
-		position = strchr(end + 1, '0');
+		position = end + 1;
+		while (*position == ' ') position++;
+
 		end = strchr(position, '\n');
 		if (end - position >= (ptrdiff_t) sizeof(thread.frame))
 			end = position + sizeof(thread.frame) - 1;
