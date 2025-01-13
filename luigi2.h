@@ -5531,7 +5531,7 @@ UIWindow *UIWindowCreate(UIWindow *owner, uint32_t flags, const char *cTitle, in
 
 	if (flags & UI_WINDOW_MENU) {
 		XSetWindowAttributes attributes = {};
-		attributes.override_redirect = flags & UI_WINDOW_MENU;
+		attributes.override_redirect = True;
 
 		window->window = XCreateWindow(ui.display, DefaultRootWindow(ui.display), 0, 0, width, height, 0, 0,
 			InputOutput, CopyFromParent, CWOverrideRedirect, &attributes);
