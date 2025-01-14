@@ -1553,6 +1553,8 @@ void InterfaceAddBuiltinWindowsAndCommands() {
 			{ .code = UI_KEYCODE_LETTER('N'), .ctrl = true, .shift = false, .invoke = CommandNextCommand } });
 	interfaceCommands.Add({ .label = nullptr,
 			{ .code = UI_KEYCODE_LETTER('L'), .ctrl = true, .shift = false, .invoke = CommandClearOutput } });
+	interfaceCommands.Add({ .label = nullptr,
+			{ .code = UI_KEYCODE_LETTER('U'), .ctrl = true, .shift = false, .invoke = [](void*){ UITextboxClear(textboxInput, false); } } });
 
 	msgReceivedData = ReceiveMessageRegister(MsgReceivedData);
 	msgReceivedControl = ReceiveMessageRegister(MsgReceivedControl);
