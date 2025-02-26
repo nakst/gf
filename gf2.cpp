@@ -245,6 +245,7 @@ bool stackChanged;
 
 const char *pythonCode = R"(py
 
+import gdb.types
 def _gf_hook_string(basic_type):
     hook_string = str(basic_type)
     template_start = hook_string.find('<')
@@ -1553,6 +1554,8 @@ void InterfaceAddBuiltinWindowsAndCommands() {
 			{ .code = UI_KEYCODE_LETTER('N'), .ctrl = true, .shift = false, .invoke = CommandNextCommand } });
 	interfaceCommands.Add({ .label = nullptr,
 			{ .code = UI_KEYCODE_LETTER('L'), .ctrl = true, .shift = false, .invoke = CommandClearOutput } });
+	interfaceCommands.Add({ .label = nullptr,
+			{ .code = UI_KEYCODE_LETTER('U'), .ctrl = true, .shift = false, .invoke = [](void*){ UITextboxClear(textboxInput, false); } } });
 
 	msgReceivedData = ReceiveMessageRegister(MsgReceivedData);
 	msgReceivedControl = ReceiveMessageRegister(MsgReceivedControl);
