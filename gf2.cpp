@@ -1762,7 +1762,7 @@ void GenerateLayoutString(UIElement *e, Array<char> *sb)
 			sb->Add('h');
 		}
 		sb->Add('(');
-		int n = snprintf(buf, sizeof(buf), "%d", (int)(((UISplitPane*)e)->weight*100));
+		int n = snprintf(buf, sizeof(buf), "%d", (int)(((UISplitPane*)e)->weight*100 + 0.5));
 		sb->AddMany(buf, n);
 		sb->Add(',');
 		GenerateLayoutString(e->children[1], sb);
