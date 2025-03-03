@@ -121,7 +121,7 @@ font_size_code=20
 
 To change the font, FreeType must have been available when you compiled gf. You can enable subpixel font rendering by recompiling with `extra_flags=-DUI_FREETYPE_SUBPIXEL ./build.sh`.
     
-You can also configure the interface layout, with the `layout` parameter. Use `h(position,left,right)` to create a horizontal split, `v(position,left,right)` to create a vertical split, and `t(...)` to create a tab pane. This value should not contain any whitespace. Please note this value is not validated, so make sure it is formatted correctly!
+You can also configure the interface layout, with the `layout` parameter. Use `h(position,top,bottom)` to create a horizontal split, `v(position,left,right)` to create a vertical split, and `t(...)` to create a tab pane. This value should not contain any whitespace. Please note this value is not validated, so make sure it is formatted correctly!
 
 ```ini
 layout=h(75,v(75,Source,Console),v(50,t(Watch,Breakpoints,Commands,Struct,Exe),t(Stack,Files,Registers,Data,Thread))))
