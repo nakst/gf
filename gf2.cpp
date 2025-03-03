@@ -181,6 +181,8 @@ const char *fontPath;
 int fontSizeCode = 13;
 int fontSizeInterface = 11;
 float uiScale = 1;
+int uiWidth = 800;
+int uiHeight = 600;
 bool selectableSource;
 bool restoreWatchWindow;
 struct WatchWindow *firstWatchWindow;
@@ -1278,6 +1280,10 @@ void SettingsLoad(bool earlyPass) {
 					fontSizeInterface = atoi(state.value);
 				} else if (0 == strcmp(state.key, "scale")) {
 					uiScale = atof(state.value);
+				} else if (0 == strcmp(state.key, "width")) {
+					uiWidth = atoi(state.value);
+				} else if (0 == strcmp(state.key, "height")) {
+					uiHeight = atoi(state.value);
 				} else if (0 == strcmp(state.key, "layout")) {
 					layoutString = state.value;
 				} else if (0 == strcmp(state.key, "maximize")) {
@@ -1855,7 +1861,7 @@ int GfMain(int argc, char **argv) {
 	fontCode = UIFontCreate(fontPath, fontSizeCode);
 	UIFontActivate(UIFontCreate(fontPath, fontSizeInterface));
 
-	windowMain = UIWindowCreate(0, maximize ? UI_WINDOW_MAXIMIZE : 0, "gf2", 0, 0);
+	windowMain = UIWindowCreate(0, maximize ? UI_WINDOW_MAXIMIZE : 0, "gf2", uiWidth, uiHeight);
 	windowMain->scale = uiScale;
 	windowMain->e.messageUser = WindowMessage;
 
