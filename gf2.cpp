@@ -180,7 +180,7 @@ char *layoutString = (char *) "v(75,h(80,Source,v(50,t(Exe,Breakpoints,Commands,
 const char *fontPath;
 int fontSizeCode = 13;
 int fontSizeInterface = 11;
-float uiScale = 1;
+float uiScale = 1, uiScaleGlobal = 1;
 bool selectableSource;
 bool restoreWatchWindow;
 struct WatchWindow *firstWatchWindow;
@@ -1280,6 +1280,8 @@ void SettingsLoad(bool earlyPass) {
 					uiScale = atof(state.value);
 				} else if (0 == strcmp(state.key, "layout")) {
 					layoutString = state.value;
+				} else if (0 == strcmp(state.key, "scale_global")) {
+					uiScaleGlobal = atof(state.value);
 				} else if (0 == strcmp(state.key, "maximize")) {
 					maximize = atoi(state.value);
 				} else if (0 == strcmp(state.key, "restore_watch_window")) {
@@ -1852,11 +1854,11 @@ int GfMain(int argc, char **argv) {
 	}
 #endif
 
-	fontCode = UIFontCreate(fontPath, fontSizeCode);
-	UIFontActivate(UIFontCreate(fontPath, fontSizeInterface));
+	fontCode = UIFontCreate(fontPath, fontSizeCode * uiScaleGlobal);
+	UIFontActivate(UIFontCreate(fontPath, fontSizeInterface * uiScaleGlobal));
 
 	windowMain = UIWindowCreate(0, maximize ? UI_WINDOW_MAXIMIZE : 0, "gf2", 0, 0);
-	windowMain->scale = uiScale;
+	windowMain->scale = uiScale * uiScaleGlobal;
 	windowMain->e.messageUser = WindowMessage;
 
 	for (int i = 0; i < interfaceCommands.Length(); i++) {
