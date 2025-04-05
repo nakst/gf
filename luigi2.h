@@ -5534,7 +5534,7 @@ UIWindow *UIWindowCreate(UIWindow *owner, uint32_t flags, const char *cTitle, in
 
 	window->window = XCreateWindow(ui.display, DefaultRootWindow(ui.display), 0, 0, width, height, 1, 0,
 		InputOutput, CopyFromParent, CWOverrideRedirect, &attributes);
-	XSetWindowBorderWidth(ui.display, DefaultRootWindow(ui.display), 0);
+	XSetWindowBorderWidth(ui.display, window->window, 0);
 	if (cTitle) XStoreName(ui.display, window->window, cTitle);
 	XSelectInput(ui.display, window->window, SubstructureNotifyMask | ExposureMask | PointerMotionMask
 		| ButtonPressMask | ButtonReleaseMask | KeyPressMask | KeyReleaseMask | StructureNotifyMask
