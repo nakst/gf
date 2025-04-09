@@ -553,9 +553,17 @@ void SourceWindowUpdate(const char *data, UIElement *element) {
 						// Don't evaluate function calls.
 						break;
 					}
-				} else if (i > 1 && i < bytes - 1 && text[i] == '=' 
-						&& text[i - 1] != '>' && text[i - 1] != '<' && text[i - 1] != '=' && text[i + 1] != '=') {
+				} else if (i > 2 && i < bytes - 1 && text[i] == '=' 
+						&& !(text[i - 1] == '>' && text[i - 2] != '>') // allow >= but not >>=
+						&& !(text[i - 1] == '<' && text[i - 2] != '<') // allow <= but not <<=
+						&& text[i - 1] != '=' && text[i + 1] != '=') { // allow ==
 					// Don't evaluate assignments.
+					break;
+				} else if (i > 1 && text[i] == '+' && text[i - 1] == '+') {
+					// Don't evaluate increments.
+					break;
+				} else if (i > 1 && text[i] == '-' && text[i - 1] == '-') {
+					// Don't evaluate decrements.
 					break;
 				} else if (text[i] == ')' && depth) {
 					depth--;
@@ -565,11 +573,11 @@ void SourceWindowUpdate(const char *data, UIElement *element) {
 					text[i] = ')';
 
 					if (!result) {
-					} else if (0 == strcmp(result, "= true")) {
+					} else if (0 == strcmp(result, "= true") || 0 == strcmp(result, "= 1")) {
 						ifConditionEvaluation = 2;
 						ifConditionFrom = expressionStart, ifConditionTo = i;
 						ifConditionLine = currentLine;
-					} else if (0 == strcmp(result, "= false")) {
+					} else if (0 == strcmp(result, "= false") || 0 == strcmp(result, "= 0")) {
 						ifConditionEvaluation = 1;
 						ifConditionFrom = expressionStart, ifConditionTo = i;
 						ifConditionLine = currentLine;
