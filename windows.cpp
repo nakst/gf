@@ -519,6 +519,7 @@ void SourceWindowUpdate(const char *data, UIElement *element) {
 
 		autoPrintExpressionLine = currentLine;
 
+#if 0
 		// Try to evaluate simple if conditions.
 
 		ifConditionEvaluation = 0;
@@ -587,6 +588,7 @@ void SourceWindowUpdate(const char *data, UIElement *element) {
 				}
 			}
 		}
+#endif
 	}
 
 	UIElementRefresh(element);
