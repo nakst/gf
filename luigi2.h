@@ -5532,9 +5532,15 @@ UIWindow *UIWindowCreate(UIWindow *owner, uint32_t flags, const char *cTitle, in
 	XSetWindowAttributes attributes = {};
 	attributes.override_redirect = flags & UI_WINDOW_MENU;
 
-	window->window = XCreateWindow(ui.display, DefaultRootWindow(ui.display), 0, 0, width, height, 1, 0,
-		InputOutput, CopyFromParent, CWOverrideRedirect, &attributes);
-	XSetWindowBorderWidth(ui.display, window->window, 0);
+	char *xdg_current_desktop = getenv("XDG_CURRENT_DESKTOP");
+	if (xdg_current_desktop && strcmp(xdg_current_desktop, "Hyprland") == 0) {
+		window->window = XCreateWindow(ui.display, DefaultRootWindow(ui.display), 0, 0, width, height, 1, 0,
+			InputOutput, CopyFromParent, CWOverrideRedirect, &attributes);
+		XSetWindowBorderWidth(ui.display, window->window, 0);
+	} else {
+		window->window = XCreateWindow(ui.display, DefaultRootWindow(ui.display), 0, 0, width, height, 0, 0,
+			InputOutput, CopyFromParent, CWOverrideRedirect, &attributes);
+	}
 	if (cTitle) XStoreName(ui.display, window->window, cTitle);
 	XSelectInput(ui.display, window->window, SubstructureNotifyMask | ExposureMask | PointerMotionMask
 		| ButtonPressMask | ButtonReleaseMask | KeyPressMask | KeyReleaseMask | StructureNotifyMask
