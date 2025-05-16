@@ -31,7 +31,7 @@ bool DisplaySetPosition(const char *file, int line, bool useGDBToGetFullPath) {
 	if (file && file[0] == '~') {
 		StringFormat(buffer, sizeof(buffer), "%s/%s", getenv("HOME"), 1 + file);
 		file = buffer;
-	} else if (file && file[0] != '/' && useGDBToGetFullPath) {
+	} else if (file && useGDBToGetFullPath) {
 		EvaluateCommand("info source");
 		const char *f = strstr(evaluateResult, "Located in ");
 
