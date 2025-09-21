@@ -162,6 +162,7 @@ struct ReceiveMessageType {
 FILE *commandLog;
 char emptyString;
 bool programRunning = true;
+bool vimServerEnabled = true;
 const char *vimServerName = "GVIM";
 const char *logPipePath;
 const char *controlPipePath;
@@ -1368,8 +1369,12 @@ void SettingsLoad(bool earlyPass) {
 					if (strcmp(state.key, themeItems[i])) continue;
 					((uint32_t *) &ui.theme)[i] = strtoul(state.value, nullptr, 16);
 				}
-			} else if (0 == strcmp(state.section, "vim") && earlyPass && 0 == strcmp(state.key, "server_name")) {
-				vimServerName = state.value;
+			} else if (0 == strcmp(state.section, "vim") && earlyPass) {
+				if (0 == strcmp(state.key, "enabled")) {
+					vimServerEnabled = atoi(state.value);
+				} else if (0 == strcmp(state.key, "server_name")) {
+					vimServerName = state.value;
+				}
 			} else if (0 == strcmp(state.section, "pipe") && earlyPass && 0 == strcmp(state.key, "log")) {
 				logPipePath = state.value;
 				mkfifo(logPipePath, 6 + 6 * 8 + 6 * 64);
@@ -1538,8 +1543,10 @@ void InterfaceAddBuiltinWindowsAndCommands() {
 			{ .code = UI_KEYCODE_FKEY(8), .invoke = CommandPause } });
 	interfaceCommands.Add({ .label = "Toggle breakpoint\tF9",
 			{ .code = UI_KEYCODE_FKEY(9), .invoke = CommandToggleBreakpoint } });
-	interfaceCommands.Add({ .label = "Sync with gvim\tF2",
+	if (vimServerEnabled) {
+		interfaceCommands.Add({ .label = "Sync with gvim\tF2",
 			{ .code = UI_KEYCODE_FKEY(2), .invoke = CommandSyncWithGvim } });
+	}
 	interfaceCommands.Add({ .label = "Ask GDB for PWD\tCtrl+Shift+P",
 			{ .code = UI_KEYCODE_LETTER('P'), .ctrl = true, .shift = true, .invoke = CommandSendToGDB, .cp = (void *) "gf-get-pwd" } });
 	interfaceCommands.Add({ .label = "Toggle disassembly\tCtrl+D",
@@ -1882,7 +1889,9 @@ int GfMain(int argc, char **argv) {
 	pthread_cond_init(&evaluateEvent, nullptr);
 	pthread_mutex_init(&evaluateMutex, nullptr);
 	DebuggerStartThread();
-	CommandSyncWithGvim(nullptr);
+	if (vimServerEnabled) {
+		CommandSyncWithGvim(nullptr);
+	}
 	return 0;
 }
 
