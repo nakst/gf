@@ -15,6 +15,6 @@ jobs:
     steps:
     - uses: actions/checkout@v2
     - name: install-dependencies
-      run: sudo apt-get install --no-install-recommends -y gdb
+      run: sudo apt-get install --no-install-recommends -y gdb libx11-dev
     - name: build
       run: ./build.sh
