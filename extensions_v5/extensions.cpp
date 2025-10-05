@@ -739,7 +739,7 @@ void ProfLoadProfileData(void *_window) {
 		window->updateRegion = painter.clip;
 	}
 
-	ProfProfilingEntry *rawEntries = (ProfProfilingEntry *) calloc(sizeof(ProfProfilingEntry), rawEntryCount);
+	ProfProfilingEntry *rawEntries = (ProfProfilingEntry *) calloc(rawEntryCount, sizeof(ProfProfilingEntry));
 
 	char path[PATH_MAX];
 	realpath(".profile.gf", path);
