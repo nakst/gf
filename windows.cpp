@@ -1354,7 +1354,7 @@ void WatchInsertFieldRows(WatchWindow *w, Watch *watch, int position, bool ensur
 	array.Free();
 }
 
-void WatchAddExpression(WatchWindow *w, char *string = nullptr) {
+void WatchAddExpression(WatchWindow *w, char *string = nullptr, bool selectNextRow = true) {
 	if (!string && w->textbox && !w->textbox->bytes) {
 		WatchDestroyTextbox(w);
 		return;
@@ -1373,7 +1373,7 @@ void WatchAddExpression(WatchWindow *w, char *string = nullptr) {
 	WatchDeleteExpression(w); // Deletes textbox.
 	w->rows.Insert(watch, w->selectedRow);
 	w->baseExpressions.Add(watch);
-	w->selectedRow++;
+	if (selectNextRow) w->selectedRow++;
 
 	WatchEvaluate("gf_typeof", watch);
 
@@ -1706,6 +1706,45 @@ void WatchCreateTextboxForRow(WatchWindow *w, bool addExistingText) {
 
 WatchWindow *WatchGetFocused() {
 	return windowMain->focused->messageClass == WatchWindowMessage ? (WatchWindow *) windowMain->focused->cp : NULL;
+}
+
+void WatchRewrite(const char *expression) {
+	WatchWindow *w = WatchGetFocused();
+	if (!w) return;
+	if (w->mode != WATCH_NORMAL || w->textbox || w->selectedRow == w->rows.Length()) return;
+	Watch *watch = w->rows[w->selectedRow];
+	if (watch->parent) return;
+	bool wasOpen = watch->open;
+	
+	char buffer[256];
+	uintptr_t pos = StringFormat(buffer, sizeof(buffer), "python x='");
+	uintptr_t j = 0;
+	
+	while (pos < sizeof(buffer) - 2 && watch->key[j]) {
+		if (watch->key[j] == '\'') {
+			buffer[pos++] = '\\';
+		}
+		
+		buffer[pos++] = watch->key[j++];
+	}
+
+	buffer[pos++] = '\'';
+	buffer[pos++] = 0;
+	EvaluateCommand(buffer);
+	
+	StringFormat(buffer, sizeof(buffer), "python %s", expression);
+	EvaluateCommand(buffer);
+
+	char *end = strchr(evaluateResult, '\n');
+	if (!end) return;
+	*end = 0;
+	WatchAddExpression(w, strdup(evaluateResult), false);
+
+	if (wasOpen) {
+		UIKeyTyped m = { 0 };
+		m.code = UI_KEYCODE_RIGHT;
+		WatchWindowMessage(w->element, UI_MSG_KEY_TYPED, 0, &m);
+	}
 }
 
 void CommandWatchAddEntryForAddress(void *cp) {
