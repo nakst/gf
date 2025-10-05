@@ -238,6 +238,29 @@ LOG("Hello, world!\n");
 
 `gf-inspect-line` toggles inspect line mode. By default, this is bound to the backtick key.
 
+### gf-rewrite-watch
+
+`gf-rewrite-watch` will rewrite the currently selected watch expression using Python. It's useful when bound to a keyboard shortcut. You can use it to do things like quickly browse through data structures.
+
+The argument is some Python code. Whatever it prints out will become the new watch expression. The original expression is passed as a string in the variable `x`.
+
+For example,
+```
+gf-rewrite-watch print('('+x+')[0]')
+```
+will rewrite the currently selected watch expression to display the first item in an array.
+
+To bind this to a keyboard shortcut, we put the command in the `[shortcuts]` section. For example,
+```ini
+[shortcuts]
+Alt+1=gf-rewrite-watch print('('+x+')[0]')
+```
+
+A more complicated example: going to the next item in an array.
+```
+gf-rewrite-watch print(x.split('[')[0]+'['+str(int(x.split(']')[0].split('[')[1])-1)+']'+x.split(']')[1])
+```
+
 ## Watch window hooks
 
 You can customize the behaviour of the watch window when displaying specific types using Python. When the watch window wants to display the fields of a value, it will look a hook function at `gf_hooks[type_of_value]`. The hook function should take two arguments, `item` and `field`. If the hook function exists, it will be called in one of two ways:
