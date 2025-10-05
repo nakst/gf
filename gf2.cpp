@@ -99,7 +99,7 @@ struct MapShort {
 		if (used + 1 > capacity / 2) {
 			MapShort grow = {};
 			grow.capacity = capacity ? (capacity + 1) * 2 - 1 : 15;
-			*(void **) &grow.array = calloc(sizeof(array[0]), grow.capacity);
+			*(void **) &grow.array = calloc(grow.capacity, sizeof(array[0]));
 			for (uintptr_t i = 0; i < capacity; i++) if (array[i].key) grow.Put(array[i].key, array[i].value);
 			free(array); *this = grow;
 		}
