@@ -348,6 +348,7 @@ UIElement *InterfaceWindowSwitchToAndFocus(const char *name);
 void WatchAddExpression2(char *string);
 int WatchWindowMessage(UIElement *element, UIMessage message, int di, void *dp);
 void CommandInspectLine(void *);
+void WatchRewrite(const char *expression);
 void CopyLayoutToClipboard(void *cp);
 
 //////////////////////////////////////////////////////
@@ -1023,6 +1024,8 @@ bool CommandParseInternal(const char *command, bool synchronous) {
 		}
 	} else if (0 == strcmp(command, "gf-inspect-line")) {
 		CommandInspectLine(nullptr);
+	} else if (strlen(command) > 17 && 0 == memcmp(command, "gf-rewrite-watch ", 17)) {
+		WatchRewrite(command + 17);
 	} else if (0 == strcmp(command, "target remote :1234") && confirmCommandConnect
 			&& 0 == strcmp("Cancel", UIDialogShow(windowMain, 0, "Connect to remote target?\n%f%B%C", "Connect", "Cancel"))) {
 	} else if (0 == strcmp(command, "kill") && confirmCommandKill
