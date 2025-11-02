@@ -623,6 +623,7 @@ typedef struct UICode {
 	int verticalMotionColumn;
 	bool useVerticalMotionColumn;
 	bool moveScrollToCaretNextLayout;
+	bool centerExecutionPointer = true;
 } UICode;
 
 typedef struct UIGauge {
@@ -2991,12 +2992,14 @@ int _UICodeMessage(UIElement *element, UIMessage message, int di, void *dp) {
 			int prevPos = code->vScroll->position;
 			int newPos = (code->focused + 0.5) * lineHeight - viewHeight / 2;
 
-			if (newPos-prevPos > viewHeight/2 - padding) {
-				newPos = newPos - (viewHeight/2 - padding);
-			} else if (newPos-prevPos < -(viewHeight/2 - padding)) {
-				newPos = newPos +(viewHeight/2 - padding);
-			} else {
-				newPos = prevPos;
+			if (!code->centerExecutionPointer) {
+				if (newPos-prevPos > viewHeight/2 - padding) {
+					newPos = newPos - (viewHeight/2 - padding);
+				} else if (newPos-prevPos < -(viewHeight/2 - padding)) {
+					newPos = newPos +(viewHeight/2 - padding);
+				} else {
+					newPos = prevPos;
+				}
 			}
 
 			code->vScroll->position = newPos;
@@ -5790,7 +5793,7 @@ void UIMenuShow(UIMenu *menu) {
 			break;
 		}
 	}
-		
+
 	int width, height;
 	_UIMenuPrepare(menu, &width, &height);
 

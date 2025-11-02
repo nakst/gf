@@ -398,6 +398,7 @@ UIElement *SourceWindowCreate(UIElement *parent) {
 	displayCode = UICodeCreate(parent, selectableSource ? UI_CODE_SELECTABLE : 0);
 	displayCode->font = fontCode;
 	displayCode->e.messageUser = DisplayCodeMessage;
+	displayCode->centerExecutionPointer = centerExecutionPointer;
 	return &displayCode->e;
 }
 
