@@ -186,6 +186,7 @@ int uiWidth = 800;
 int uiHeight = 600;
 bool selectableSource;
 bool restoreWatchWindow;
+bool centerExecutionPointer = true;
 struct WatchWindow *firstWatchWindow;
 bool maximize;
 bool confirmCommandConnect = true, confirmCommandKill = true;
@@ -1296,6 +1297,8 @@ void SettingsLoad(bool earlyPass) {
 					restoreWatchWindow = atoi(state.value);
 				} else if (0 == strcmp(state.key, "selectable_source")) {
 					selectableSource = atoi(state.value);
+				} else if (0 == strcmp(state.key, "center_execution_pointer")) {
+					centerExecutionPointer = atoi(state.value);
 				}
 			} else if (0 == strcmp(state.section, "gdb") && !earlyPass) {
 				if (0 == strcmp(state.key, "argument")) {

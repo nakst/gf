@@ -623,6 +623,7 @@ typedef struct UICode {
 	int verticalMotionColumn;
 	bool useVerticalMotionColumn;
 	bool moveScrollToCaretNextLayout;
+	bool centerExecutionPointer = true;
 } UICode;
 
 typedef struct UIGauge {
@@ -2984,7 +2985,24 @@ int _UICodeMessage(UIElement *element, UIMessage message, int di, void *dp) {
 			code->moveScrollToCaretNextLayout = code->moveScrollToFocusNextLayout = false;
 			// TODO Horizontal scrolling.
 		} else if (code->moveScrollToFocusNextLayout) {
-			code->vScroll->position = (code->focused + 0.5) * UIMeasureStringHeight() - UI_RECT_HEIGHT(code->e.bounds) / 2;
+			int lineHeight = UIMeasureStringHeight();
+			int viewHeight = UI_RECT_HEIGHT(code->e.bounds);
+
+			int padding = lineHeight*5;
+			int prevPos = code->vScroll->position;
+			int newPos = (code->focused + 0.5) * lineHeight - viewHeight / 2;
+
+			if (!code->centerExecutionPointer) {
+				if (newPos-prevPos > viewHeight/2 - padding) {
+					newPos = newPos - (viewHeight/2 - padding);
+				} else if (newPos-prevPos < -(viewHeight/2 - padding)) {
+					newPos = newPos +(viewHeight/2 - padding);
+				} else {
+					newPos = prevPos;
+				}
+			}
+
+			code->vScroll->position = newPos;
 		}
 
 		if (!(code->e.flags & UI_CODE_NO_MARGIN)) hSpace -= UI_SIZE_CODE_MARGIN + UI_SIZE_CODE_MARGIN_GAP;
@@ -5775,7 +5793,7 @@ void UIMenuShow(UIMenu *menu) {
 			break;
 		}
 	}
-		
+
 	int width, height;
 	_UIMenuPrepare(menu, &width, &height);
 
