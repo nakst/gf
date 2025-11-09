@@ -623,7 +623,7 @@ typedef struct UICode {
 	int verticalMotionColumn;
 	bool useVerticalMotionColumn;
 	bool moveScrollToCaretNextLayout;
-	bool centerExecutionPointer = true;
+	bool centerExecutionPointer;
 } UICode;
 
 typedef struct UIGauge {
