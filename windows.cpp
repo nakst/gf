@@ -69,6 +69,8 @@ bool DisplaySetPosition(const char *file, int line, bool useGDBToGetFullPath) {
 		StringFormat(currentFile, 4096, "%s", file);
 		realpath(currentFile, currentFileFull);
 
+		XStoreName(ui.display, windowMain->window, currentFileFull);
+
 		size_t bytes;
 		char *buffer2 = LoadFile(file, &bytes);
 
