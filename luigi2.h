@@ -5617,6 +5617,7 @@ char *_UIClipboardReadTextStart(UIWindow *window, size_t *bytes) {
 	Window clipboardOwner = XGetSelectionOwner(ui.display, ui.clipboardID);
 
 	if (clipboardOwner == None) {
+		*bytes = 0;
 		return NULL;
 	}
 
