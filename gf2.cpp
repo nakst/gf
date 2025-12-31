@@ -973,7 +973,17 @@ bool CommandParseInternal(const char *command, bool synchronous) {
 		} else {
 			return CommandParseInternal("gf-step", synchronous);
 		}
-	} else if (0 == strcmp(command, "gf-restart-gdb")) {
+	} else if (0 == strcmp(command, "gf-restart-gdb") || 0 == strcmp(command, "gf-load-last-coredump")) {
+		if (0 == strcmp(command, "gf-load-last-coredump")) {
+			gdbPath = "coredumpctl";
+			gdbArgc = 3;
+			gdbArgv = (char **) realloc(gdbArgv, sizeof(char *) * (gdbArgc + 1));
+			gdbArgv[0] = (char *) "coredumpctl";
+			gdbArgv[1] = (char *) "-1";
+			gdbArgv[2] = (char *) "gdb";
+			gdbArgv[3] = NULL;
+		}
+
 		firstUpdate = true;
 		kill(gdbPID, SIGKILL);
 		pthread_cancel(gdbThread); // TODO Is there a nicer way to do this?
@@ -1525,6 +1535,8 @@ void InterfaceAddBuiltinWindowsAndCommands() {
 			{ .code = UI_KEYCODE_FKEY(3), .invoke = CommandSendToGDB, .cp = (void *) "kill" } });
 	interfaceCommands.Add({ .label = "Restart GDB\tCtrl+R",
 			{ .code = UI_KEYCODE_LETTER('R'), .ctrl = true, .invoke = CommandSendToGDB, .cp = (void *) "gf-restart-gdb" } });
+	interfaceCommands.Add({ .label = "Load Last Coredump\tCtrl+Shift+R",
+			{ .code = UI_KEYCODE_LETTER('R'), .ctrl = true, .shift = true, .invoke = CommandSendToGDB, .cp = (void *) "gf-load-last-coredump" } });
 	interfaceCommands.Add({ .label = "Connect\tF4",
 			{ .code = UI_KEYCODE_FKEY(4), .invoke = CommandSendToGDB, .cp = (void *) "target remote :1234" } });
 	interfaceCommands.Add({ .label = "Continue\tF5",
