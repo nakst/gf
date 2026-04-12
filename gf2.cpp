@@ -351,6 +351,7 @@ int WatchWindowMessage(UIElement *element, UIMessage message, int di, void *dp);
 void CommandInspectLine(void *);
 void WatchRewrite(const char *expression);
 void CopyLayoutToClipboard(void *cp);
+void SaveLayout(void *cp);
 
 //////////////////////////////////////////////////////
 // Utilities:
@@ -1576,6 +1577,7 @@ void InterfaceAddBuiltinWindowsAndCommands() {
 	interfaceCommands.Add({ .label = "Inspect line",
 			{ .code = UI_KEYCODE_BACKTICK, .invoke = CommandInspectLine } });
 	interfaceCommands.Add({ .label = "Copy Layout to Clipboard", { .invoke = CopyLayoutToClipboard } });
+	interfaceCommands.Add({ .label = "Save Layout", { .invoke = SaveLayout } });
 	interfaceCommands.Add({ .label = nullptr,
 			{ .code = UI_KEYCODE_LETTER('E'), .ctrl = true, .invoke = CommandWatchAddEntryForAddress } });
 	interfaceCommands.Add({ .label = nullptr,
@@ -1819,6 +1821,76 @@ void GenerateLayoutString(UIElement *e, Array<char> *sb)
 	}
 }
 
+void SaveLayout(void *cp)
+{
+    static Array<char> sb;
+    sb.length = 0;
+    GenerateLayoutString(switcherMain->e.children[0]->children[0], &sb);
+    sb.Add('\0');
+
+    // Read existing config file
+    size_t configSize = 0;
+    char *existingConfig = LoadFile(globalConfigPath, &configSize);
+
+    char path[PATH_MAX];
+    StringFormat(path, sizeof(path), "%s/.config/gf2_config.ini", getenv("HOME"));
+
+    FILE *fptr = fopen(path, "w");
+    if (!fptr) {
+        fprintf(stderr, "Could not save layout to config file\n");
+        free(existingConfig);
+        return;
+    }
+
+    bool foundLayoutLine = false;
+    bool inUISection = false;
+
+    if (existingConfig) {
+        char *line = existingConfig;
+        char *end = existingConfig + configSize;
+
+        while (line < end) {
+            char *lineEnd = strchr(line, '\n');
+            if (!lineEnd) lineEnd = end;
+
+            size_t lineLen = lineEnd - line;
+            if (lineLen >= 4 && strncmp(line, "[ui]", 4) == 0) {
+                inUISection = true;
+                fprintf(fptr, "%.*s\n", (int)lineLen, line);
+            } else if (lineLen > 0 && line[0] == '[') {
+                if (inUISection && !foundLayoutLine) {
+                    fprintf(fptr, "layout=%s\n", sb.array);
+                    foundLayoutLine = true;
+                }
+                inUISection = false;
+                fprintf(fptr, "%.*s\n", (int)lineLen, line);
+            } else if (inUISection && lineLen >= 7 && strncmp(line, "layout=", 7) == 0) {
+                fprintf(fptr, "layout=%s\n", sb.array);
+                foundLayoutLine = true;
+            } else {
+                fprintf(fptr, "%.*s\n", (int)lineLen, line);
+            }
+
+            line = lineEnd;
+            if (line < end && *line == '\n') line++;
+        }
+
+        if (inUISection && !foundLayoutLine) {
+            fprintf(fptr, "layout=%s\n", sb.array);
+            foundLayoutLine = true;
+        }
+
+        free(existingConfig);
+    }
+
+    if (!foundLayoutLine) {
+        fprintf(fptr, "[ui]\n");
+        fprintf(fptr, "layout=%s\n", sb.array);
+    }
+
+    fclose(fptr);
+}
+
 void CopyLayoutToClipboard(void *cp)
 {
 	static Array<char> sb; // String Builder
@@ -1838,7 +1910,7 @@ void CopyLayoutToClipboard(void *cp)
 int GfMain(int argc, char **argv) {
 	if (argc == 2 && (0 == strcmp(argv[1], "-?") || 0 == strcmp(argv[1], "-h") || 0 == strcmp(argv[1], "--help"))) {
 		fprintf(stderr, "Usage: %s [GDB args]\n\n"
-			        "GDB args: Pass any GDB arguments here, they will be forwarded to GDB.\n\n"
+                    "GDB args: Pass any GDB arguments here, they will be forwarded to GDB.\n\n"
 				"For more information, view the README at https://github.com/nakst/gf/blob/master/README.md.\n", argv[0]);
 		return 1;
 	}
@@ -1934,7 +2006,7 @@ int main(int argc, char **argv) {
 				fprintf(f, "%s\n", firstWatchWindow->baseExpressions[i]->key);
 			}
 
-		        fclose(f);
+                fclose(f);
 		} else {
 			fprintf(stderr, "Warning: Could not save the contents of the watch window; '%s' was not accessible.\n", globalConfigPath);
 		}
