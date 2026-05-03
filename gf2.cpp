@@ -1575,7 +1575,8 @@ void InterfaceAddBuiltinWindowsAndCommands() {
 			.shortcut = { .invoke = CommandAddWatch } });
 	interfaceCommands.Add({ .label = "Inspect line",
 			.shortcut = { .code = UI_KEYCODE_BACKTICK, .invoke = CommandInspectLine } });
-	interfaceCommands.Add({ .label = "Copy Layout to Clipboard", { .invoke = CopyLayoutToClipboard } });
+	interfaceCommands.Add({ .label = "Copy Layout to Clipboard", 
+			.shortcut = { .invoke = CopyLayoutToClipboard } });
 	interfaceCommands.Add({ .label = nullptr,
 			.shortcut = { .code = UI_KEYCODE_LETTER('E'), .ctrl = true, .invoke = CommandWatchAddEntryForAddress } });
 	interfaceCommands.Add({ .label = nullptr,
