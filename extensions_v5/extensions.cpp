@@ -2074,10 +2074,10 @@ void WaveformAddDialog(void *) {
 
 __attribute__((constructor)) 
 void ExtensionsRegister() {
-	interfaceWindows.Add({ "Prof", ProfWindowCreate, ProfWindowUpdate, .alwaysUpdate = true });
-	interfaceWindows.Add({ "Memory", MemoryWindowCreate, MemoryWindowUpdate });
-	interfaceWindows.Add({ "View", ViewWindowCreate, ViewWindowUpdate });
+	interfaceWindows.Add({ .name = "Prof", .create = ProfWindowCreate, .update = ProfWindowUpdate, .alwaysUpdate = true });
+	interfaceWindows.Add({ .name = "Memory", .create = MemoryWindowCreate, .update = MemoryWindowUpdate });
+	interfaceWindows.Add({ .name = "View", .create = ViewWindowCreate, .update = ViewWindowUpdate });
 	interfaceDataViewers.Add({ "Add waveform...", WaveformAddDialog });
 	interfaceCommands.Add({ .label = nullptr, 
-			{ .code = UI_KEYCODE_LETTER('V'), .ctrl = true, .shift = true, .invoke = ViewWindowView } });
+			.shortcut = { .code = UI_KEYCODE_LETTER('V'), .ctrl = true, .shift = true, .invoke = ViewWindowView } });
 }
