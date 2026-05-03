@@ -1528,68 +1528,68 @@ void InterfaceAddBuiltinWindowsAndCommands() {
 	interfaceDataViewers.Add({ "Add bitmap...", BitmapAddDialog });
 
 	interfaceCommands.Add({ .label = "Run\tShift+F5",
-			{ .code = UI_KEYCODE_FKEY(5), .shift = true, .invoke = CommandSendToGDB, .cp = (void *) "r" } });
+			.shortcut = { .code = UI_KEYCODE_FKEY(5), .shift = true, .invoke = CommandSendToGDB, .cp = (void *) "r" } });
 	interfaceCommands.Add({ .label = "Run paused\tCtrl+F5",
-			{ .code = UI_KEYCODE_FKEY(5), .ctrl = true, .invoke = CommandSendToGDB, .cp = (void *) "start" } });
+			.shortcut = { .code = UI_KEYCODE_FKEY(5), .ctrl = true, .invoke = CommandSendToGDB, .cp = (void *) "start" } });
 	interfaceCommands.Add({ .label = "Kill\tF3",
-			{ .code = UI_KEYCODE_FKEY(3), .invoke = CommandSendToGDB, .cp = (void *) "kill" } });
+			.shortcut = { .code = UI_KEYCODE_FKEY(3), .invoke = CommandSendToGDB, .cp = (void *) "kill" } });
 	interfaceCommands.Add({ .label = "Restart GDB\tCtrl+R",
-			{ .code = UI_KEYCODE_LETTER('R'), .ctrl = true, .invoke = CommandSendToGDB, .cp = (void *) "gf-restart-gdb" } });
+			.shortcut = { .code = UI_KEYCODE_LETTER('R'), .ctrl = true, .invoke = CommandSendToGDB, .cp = (void *) "gf-restart-gdb" } });
 	interfaceCommands.Add({ .label = "Load Last Coredump\tCtrl+Shift+R",
-			{ .code = UI_KEYCODE_LETTER('R'), .ctrl = true, .shift = true, .invoke = CommandSendToGDB, .cp = (void *) "gf-load-last-coredump" } });
+			.shortcut = { .code = UI_KEYCODE_LETTER('R'), .ctrl = true, .shift = true, .invoke = CommandSendToGDB, .cp = (void *) "gf-load-last-coredump" } });
 	interfaceCommands.Add({ .label = "Connect\tF4",
-			{ .code = UI_KEYCODE_FKEY(4), .invoke = CommandSendToGDB, .cp = (void *) "target remote :1234" } });
+			.shortcut = { .code = UI_KEYCODE_FKEY(4), .invoke = CommandSendToGDB, .cp = (void *) "target remote :1234" } });
 	interfaceCommands.Add({ .label = "Continue\tF5",
-			{ .code = UI_KEYCODE_FKEY(5), .invoke = CommandSendToGDB, .cp = (void *) "c" } });
+			.shortcut = { .code = UI_KEYCODE_FKEY(5), .invoke = CommandSendToGDB, .cp = (void *) "c" } });
 	interfaceCommands.Add({ .label = "Step over\tF10",
-			{ .code = UI_KEYCODE_FKEY(10), .invoke = CommandSendToGDB, .cp = (void *) "gf-next" } });
+			.shortcut = { .code = UI_KEYCODE_FKEY(10), .invoke = CommandSendToGDB, .cp = (void *) "gf-next" } });
 	interfaceCommands.Add({ .label = "Step out of block\tShift+F10",
-			{ .code = UI_KEYCODE_FKEY(10), .shift = true, .invoke = CommandSendToGDB, .cp = (void *) "gf-step-out-of-block" } });
+			.shortcut = { .code = UI_KEYCODE_FKEY(10), .shift = true, .invoke = CommandSendToGDB, .cp = (void *) "gf-step-out-of-block" } });
 	interfaceCommands.Add({ .label = "Step in\tF11",
-			{ .code = UI_KEYCODE_FKEY(11), .invoke = CommandSendToGDB, .cp = (void *) "gf-step" } });
+			.shortcut = { .code = UI_KEYCODE_FKEY(11), .invoke = CommandSendToGDB, .cp = (void *) "gf-step" } });
 	interfaceCommands.Add({ .label = "Step into outer\tShift+F8",
-			{ .code = UI_KEYCODE_FKEY(8), .shift = true, .invoke = CommandSendToGDB, .cp = (void *) "gf-step-into-outer" } });
+			.shortcut = { .code = UI_KEYCODE_FKEY(8), .shift = true, .invoke = CommandSendToGDB, .cp = (void *) "gf-step-into-outer" } });
 	interfaceCommands.Add({ .label = "Step out\tShift+F11",
-			{ .code = UI_KEYCODE_FKEY(11), .shift = true, .invoke = CommandSendToGDB, .cp = (void *) "finish" } });
+			.shortcut = { .code = UI_KEYCODE_FKEY(11), .shift = true, .invoke = CommandSendToGDB, .cp = (void *) "finish" } });
 	interfaceCommands.Add({ .label = "Reverse continue\tCtrl+Shift+F5",
-			{ .code = UI_KEYCODE_FKEY(5), .ctrl = true, .shift = true, .invoke = CommandSendToGDB, .cp = (void *) "reverse-continue" } });
+			.shortcut = { .code = UI_KEYCODE_FKEY(5), .ctrl = true, .shift = true, .invoke = CommandSendToGDB, .cp = (void *) "reverse-continue" } });
 	interfaceCommands.Add({ .label = "Reverse step over\tCtrl+Shift+F10",
-			{ .code = UI_KEYCODE_FKEY(10), .ctrl = true, .shift = true, .invoke = CommandSendToGDB, .cp = (void *) "reverse-next" } });
+			.shortcut = { .code = UI_KEYCODE_FKEY(10), .ctrl = true, .shift = true, .invoke = CommandSendToGDB, .cp = (void *) "reverse-next" } });
 	interfaceCommands.Add({ .label = "Reverse step in\tCtrl+Shift+F11",
-			{ .code = UI_KEYCODE_FKEY(11), .ctrl = true, .shift = true, .invoke = CommandSendToGDB, .cp = (void *) "reverse-step" } });
+			.shortcut = { .code = UI_KEYCODE_FKEY(11), .ctrl = true, .shift = true, .invoke = CommandSendToGDB, .cp = (void *) "reverse-step" } });
 	interfaceCommands.Add({ .label = "Pause\tF8",
-			{ .code = UI_KEYCODE_FKEY(8), .invoke = CommandPause } });
+			.shortcut = { .code = UI_KEYCODE_FKEY(8), .invoke = CommandPause } });
 	interfaceCommands.Add({ .label = "Toggle breakpoint\tF9",
-			{ .code = UI_KEYCODE_FKEY(9), .invoke = CommandToggleBreakpoint } });
+			.shortcut = { .code = UI_KEYCODE_FKEY(9), .invoke = CommandToggleBreakpoint } });
 	if (vimServerEnabled) {
 		interfaceCommands.Add({ .label = "Sync with gvim\tF2",
-			{ .code = UI_KEYCODE_FKEY(2), .invoke = CommandSyncWithGvim } });
+				.shortcut = { .code = UI_KEYCODE_FKEY(2), .invoke = CommandSyncWithGvim } });
 	}
 	interfaceCommands.Add({ .label = "Ask GDB for PWD\tCtrl+Shift+P",
-			{ .code = UI_KEYCODE_LETTER('P'), .ctrl = true, .shift = true, .invoke = CommandSendToGDB, .cp = (void *) "gf-get-pwd" } });
+			.shortcut = { .code = UI_KEYCODE_LETTER('P'), .ctrl = true, .shift = true, .invoke = CommandSendToGDB, .cp = (void *) "gf-get-pwd" } });
 	interfaceCommands.Add({ .label = "Toggle disassembly\tCtrl+D",
-			{ .code = UI_KEYCODE_LETTER('D'), .ctrl = true, .invoke = CommandToggleDisassembly } });
+			.shortcut = { .code = UI_KEYCODE_LETTER('D'), .ctrl = true, .invoke = CommandToggleDisassembly } });
 	interfaceCommands.Add({ .label = "Set disassembly mode\tCtrl+M",
-			{ .code = UI_KEYCODE_LETTER('M'), .ctrl = true, .invoke = CommandSetDisassemblyMode } });
+			.shortcut = { .code = UI_KEYCODE_LETTER('M'), .ctrl = true, .invoke = CommandSetDisassemblyMode } });
 	interfaceCommands.Add({ .label = "Add watch",
-			{ .invoke = CommandAddWatch } });
+			.shortcut = { .invoke = CommandAddWatch } });
 	interfaceCommands.Add({ .label = "Inspect line",
-			{ .code = UI_KEYCODE_BACKTICK, .invoke = CommandInspectLine } });
+			.shortcut = { .code = UI_KEYCODE_BACKTICK, .invoke = CommandInspectLine } });
 	interfaceCommands.Add({ .label = "Copy Layout to Clipboard", { .invoke = CopyLayoutToClipboard } });
 	interfaceCommands.Add({ .label = nullptr,
-			{ .code = UI_KEYCODE_LETTER('E'), .ctrl = true, .invoke = CommandWatchAddEntryForAddress } });
+			.shortcut = { .code = UI_KEYCODE_LETTER('E'), .ctrl = true, .invoke = CommandWatchAddEntryForAddress } });
 	interfaceCommands.Add({ .label = nullptr,
-			{ .code = UI_KEYCODE_LETTER('G'), .ctrl = true, .invoke = CommandWatchViewSourceAtAddress } });
+			.shortcut = { .code = UI_KEYCODE_LETTER('G'), .ctrl = true, .invoke = CommandWatchViewSourceAtAddress } });
 	interfaceCommands.Add({ .label = nullptr,
-			{ .code = UI_KEYCODE_LETTER('B'), .ctrl = true, .invoke = CommandToggleFillDataTab } });
+			.shortcut = { .code = UI_KEYCODE_LETTER('B'), .ctrl = true, .invoke = CommandToggleFillDataTab } });
 	interfaceCommands.Add({ .label = nullptr,
-			{ .code = UI_KEYCODE_LETTER('P'), .ctrl = true, .shift = false, .invoke = CommandPreviousCommand } });
+			.shortcut = { .code = UI_KEYCODE_LETTER('P'), .ctrl = true, .shift = false, .invoke = CommandPreviousCommand } });
 	interfaceCommands.Add({ .label = nullptr,
-			{ .code = UI_KEYCODE_LETTER('N'), .ctrl = true, .shift = false, .invoke = CommandNextCommand } });
+			.shortcut = { .code = UI_KEYCODE_LETTER('N'), .ctrl = true, .shift = false, .invoke = CommandNextCommand } });
 	interfaceCommands.Add({ .label = nullptr,
-			{ .code = UI_KEYCODE_LETTER('L'), .ctrl = true, .shift = false, .invoke = CommandClearOutput } });
+			.shortcut = { .code = UI_KEYCODE_LETTER('L'), .ctrl = true, .shift = false, .invoke = CommandClearOutput } });
 	interfaceCommands.Add({ .label = nullptr,
-			{ .code = UI_KEYCODE_LETTER('U'), .ctrl = true, .shift = false, .invoke = [](void*){ UITextboxClear(textboxInput, false); } } });
+			.shortcut = { .code = UI_KEYCODE_LETTER('U'), .ctrl = true, .shift = false, .invoke = [](void*){ UITextboxClear(textboxInput, false); } } });
 
 	msgReceivedData = ReceiveMessageRegister(MsgReceivedData);
 	msgReceivedControl = ReceiveMessageRegister(MsgReceivedControl);
