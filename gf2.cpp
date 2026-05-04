@@ -162,8 +162,10 @@ struct ReceiveMessageType {
 FILE *commandLog;
 char emptyString;
 bool programRunning = true;
-bool vimServerEnabled = true;
-const char *vimServerName = "GVIM";
+bool gvimServerEnabled = true;
+bool nvimServerEnabled = false;
+const char *gvimServerName = "GVIM";
+const char *nvimServer = "/tmp/nvim.pipe";
 const char *logPipePath;
 const char *controlPipePath;
 Array<INIState> presetCommands;
@@ -1070,39 +1072,43 @@ void CommandPause(void *) {
 	kill(gdbPID, SIGINT);
 }
 
-void CommandSyncWithGvim(void *) {
-	char buffer[1024];
-	StringFormat(buffer, sizeof(buffer), "vim --servername %s --remote-expr \"execute(\\\"ls\\\")\" | grep %%", vimServerName);
-	FILE *file = popen(buffer, "r");
-	if (!file) return;
-	buffer[fread(buffer, 1, 1023, file)] = 0;
-	pclose(file);
-	char *name = strchr(buffer, '"');
-	if (!name) return;
-	char *nameEnd = strchr(++name, '"');
-	if (!nameEnd) return;
-	*nameEnd = 0;
-	char *line = nameEnd + 1;
-	while (!isdigit(*line) && *line) line++;
-	if (!line) return;
-	int lineNumber = atoi(line);
-	char buffer2[PATH_MAX];
+void RightTrim(char *str) {
+    char *end = str + strlen(str) - 1;
+    while (str < end && isspace(*end)) end--;
+    *(end + 1) = '\0';
+}
 
-	if (name[0] != '/' && name[0] != '~') {
-		char buffer[1024];
-		StringFormat(buffer, sizeof(buffer), "vim --servername %s --remote-expr \"execute(\\\"pwd\\\")\" | grep '/'", vimServerName);
-		FILE *file = popen(buffer, "r");
-		if (!file) return;
-		buffer[fread(buffer, 1, 1023, file)] = 0;
-		pclose(file);
-		if (!strchr(buffer, '\n')) return;
-		*strchr(buffer, '\n') = 0;
-		StringFormat(buffer2, sizeof(buffer2), "%s/%s", buffer, name);
-	} else {
-		strcpy(buffer2, name);
-	}
+void SyncWithVim(const char *serverCmd, const char *serverArg) {
+    FILE *pipe;
+    char cmd[256];
 
-	DisplaySetPosition(buffer2, lineNumber, false);
+    StringFormat(cmd, sizeof(cmd), "%s %s --remote-expr \"expand('%%:p')\"", serverCmd, serverArg);
+    pipe = popen(cmd, "r");
+    if (!pipe) return;
+    char file[256];
+    file[fread(file, 1, sizeof(file)-1, pipe)] = 0;
+    pclose(pipe);
+
+    if (!strlen(file)) return;
+    RightTrim(file);
+
+    StringFormat(cmd, sizeof(cmd), "%s %s --remote-expr \"line('.')\"", serverCmd, serverArg);
+    pipe = popen(cmd, "r");
+    if (!pipe) return;
+    char buf[256];
+    buf[fread(buf, 1, sizeof(buf)-1, pipe)] = 0;
+    pclose(pipe);
+
+    int lineNumber = atoi(buf);
+	DisplaySetPosition(file, lineNumber, false);
+}
+
+void CommandSyncWithVim(void *) {
+    if (gvimServerEnabled && nvimServerEnabled) {
+        fprintf(stderr, "Warning: Both nvim and gvim sync are enabled");
+    }
+	if (gvimServerEnabled) SyncWithVim("vim --servername", gvimServerName);
+    else if (nvimServerEnabled) SyncWithVim("nvim --headless --server", nvimServer);
 }
 
 void CommandToggleBreakpoint(void *_line) {
@@ -1385,11 +1391,17 @@ void SettingsLoad(bool earlyPass) {
 					if (strcmp(state.key, themeItems[i])) continue;
 					((uint32_t *) &ui.theme)[i] = strtoul(state.value, nullptr, 16);
 				}
-			} else if (0 == strcmp(state.section, "vim") && earlyPass) {
+			} else if (0 == strcmp(state.section, "gvim") && earlyPass) {
 				if (0 == strcmp(state.key, "enabled")) {
-					vimServerEnabled = atoi(state.value);
+					gvimServerEnabled = atoi(state.value);
 				} else if (0 == strcmp(state.key, "server_name")) {
-					vimServerName = state.value;
+					gvimServerName = state.value;
+				}
+			} else if (0 == strcmp(state.section, "nvim") && earlyPass) {
+				if (0 == strcmp(state.key, "enabled")) {
+					nvimServerEnabled = atoi(state.value);
+				} else if (0 == strcmp(state.key, "server")) {
+					nvimServer = state.value;
 				}
 			} else if (0 == strcmp(state.section, "pipe") && earlyPass && 0 == strcmp(state.key, "log")) {
 				logPipePath = state.value;
@@ -1561,9 +1573,9 @@ void InterfaceAddBuiltinWindowsAndCommands() {
 			.shortcut = { .code = UI_KEYCODE_FKEY(8), .invoke = CommandPause } });
 	interfaceCommands.Add({ .label = "Toggle breakpoint\tF9",
 			.shortcut = { .code = UI_KEYCODE_FKEY(9), .invoke = CommandToggleBreakpoint } });
-	if (vimServerEnabled) {
-		interfaceCommands.Add({ .label = "Sync with gvim\tF2",
-				.shortcut = { .code = UI_KEYCODE_FKEY(2), .invoke = CommandSyncWithGvim } });
+	if (gvimServerEnabled || nvimServerEnabled) {
+		interfaceCommands.Add({ .label = "Sync with vim (gvim and/or nvim depeding on settings)\tF2",
+				.shortcut = { .code = UI_KEYCODE_FKEY(2), .invoke = CommandSyncWithVim } });
 	}
 	interfaceCommands.Add({ .label = "Ask GDB for PWD\tCtrl+Shift+P",
 			.shortcut = { .code = UI_KEYCODE_LETTER('P'), .ctrl = true, .shift = true, .invoke = CommandSendToGDB, .cp = (void *) "gf-get-pwd" } });
@@ -1908,8 +1920,8 @@ int GfMain(int argc, char **argv) {
 	pthread_cond_init(&evaluateEvent, nullptr);
 	pthread_mutex_init(&evaluateMutex, nullptr);
 	DebuggerStartThread();
-	if (vimServerEnabled) {
-		CommandSyncWithGvim(nullptr);
+	if (gvimServerEnabled || nvimServerEnabled) {
+		CommandSyncWithVim(nullptr);
 	}
 	return 0;
 }
