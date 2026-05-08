@@ -567,7 +567,7 @@ void *DebuggerThread(void *) {
 	pipe(outputPipe);
 	pipe(inputPipe);
 
-#if defined(__FreeBSD__) || defined(__OpenBSD__) || defined(__NetBSD__) || defined(__APPLE__)
+#if defined(__FreeBSD__) || defined(__OpenBSD__) || defined(__NetBSD__) || defined(GLIBC_LT_2_26) || defined(__APPLE__)
 	gdbPID = fork();
 
 	if(gdbPID == 0) {
@@ -1575,7 +1575,7 @@ void InterfaceAddBuiltinWindowsAndCommands() {
 			.shortcut = { .invoke = CommandAddWatch } });
 	interfaceCommands.Add({ .label = "Inspect line",
 			.shortcut = { .code = UI_KEYCODE_BACKTICK, .invoke = CommandInspectLine } });
-	interfaceCommands.Add({ .label = "Copy Layout to Clipboard", 
+	interfaceCommands.Add({ .label = "Copy Layout to Clipboard",
 			.shortcut = { .invoke = CopyLayoutToClipboard } });
 	interfaceCommands.Add({ .label = nullptr,
 			.shortcut = { .code = UI_KEYCODE_LETTER('E'), .ctrl = true, .invoke = CommandWatchAddEntryForAddress } });
