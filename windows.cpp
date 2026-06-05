@@ -2104,10 +2104,12 @@ int WatchWindowMessage(UIElement *element, UIMessage message, int di, void *dp) 
 		UIElementRefresh(element);
 	}
 
+    if (w->selectedRow > WatchLastRow(w)) {
+		w->selectedRow = WatchLastRow(w);
+	}
+
 	if (w->selectedRow < 0) {
 		w->selectedRow = 0;
-	} else if (w->selectedRow > WatchLastRow(w)) {
-		w->selectedRow = WatchLastRow(w);
 	}
 
 	return result;
