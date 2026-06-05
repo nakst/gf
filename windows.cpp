@@ -2023,7 +2023,7 @@ int WatchWindowMessage(UIElement *element, UIMessage message, int di, void *dp) 
 				&& (m->code == UI_KEYCODE_ENTER || m->code == UI_KEYCODE_BACKSPACE || (m->code == UI_KEYCODE_LEFT && !w->rows[w->selectedRow]->open))
 				&& !w->rows[w->selectedRow]->parent) {
 			WatchCreateTextboxForRow(w, true);
-		} else if (m->code == UI_KEYCODE_DELETE && !w->textbox
+		} else if (w->mode == WATCH_NORMAL && m->code == UI_KEYCODE_DELETE && !w->textbox
 				&& w->selectedRow != w->rows.Length() && !w->rows[w->selectedRow]->parent) {
 			WatchDeleteExpression(w);
 		} else if (m->textBytes && m->text[0] == '/' && w->selectedRow != w->rows.Length()) {
