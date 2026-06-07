@@ -1524,6 +1524,7 @@ void InterfaceAddBuiltinWindowsAndCommands() {
 	interfaceWindows.Add({ "Thread", ThreadWindowCreate, ThreadWindowUpdate });
 	interfaceWindows.Add({ "Exe", ExecutableWindowCreate, nullptr });
 	interfaceWindows.Add({ "CmdSearch", CommandSearchWindowCreate, nullptr });
+	interfaceWindows.Add({ "ASM", ASMWindowCreate, ASMWindowUpdate });
 
 	interfaceDataViewers.Add({ "Add bitmap...", BitmapAddDialog });
 
