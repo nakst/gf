@@ -3161,36 +3161,34 @@ UIElement *CommandSearchWindowCreate(UIElement *parent) {
 // ASM window:
 //////////////////////////////////////////////////////
 
-UIElement* ASMWindowCreate(UIElement *parent) 
-{
-  UICode*	uiAsmCode = UICodeCreate(parent, selectableSource ? UI_CODE_SELECTABLE : 0);
-  uiAsmCode->centerExecutionPointer = true;
+UIElement* ASMWindowCreate(UIElement *parent) {
+	UICode*	uiAsmCode = UICodeCreate(parent, selectableSource ? UI_CODE_SELECTABLE : 0);
+	uiAsmCode->centerExecutionPointer = true;
 	return &uiAsmCode->e;
 }
 
-void ASMWindowUpdate(const char *data, UIElement *element)
-{
-  EvaluateCommand("disassemble /m $pc-128,$pc+128");  // Wider range for context
+void ASMWindowUpdate(const char *data, UIElement *element) {
+	EvaluateCommand("disassemble /m $pc-128,$pc+128");
 
-  if (strstr(evaluateResult, "No registers.") || 
-    strstr(evaluateResult, "The current thread has terminated")) {
-    return;
-  }
-  else {
-	  UICode* asmCode = (UICode *) element;
-	  UICodeInsertContent(asmCode, evaluateResult, -1, true);
+	if (strstr(evaluateResult, "No registers.") || 
+		strstr(evaluateResult, "The current thread has terminated")) {
+		return;
+	}
+	else {
+		UICode* asmCode = (UICode *) element;
+		UICodeInsertContent(asmCode, evaluateResult, -1, true);
 
-    char *current = strstr(evaluateResult, "=>");
+		char *current = strstr(evaluateResult, "=>");
 
-    if (current) {
-      int line = 0;
-	    int lineHeight = UIMeasureStringHeight();
-		  int viewHeight = UI_RECT_HEIGHT(asmCode->e.bounds);
-      for (char *p = evaluateResult; p < current; p++) {
-        if (*p == '\n') line++;
-      }
-      asmCode->vScroll->position = line * lineHeight - (viewHeight / 2);
-    }
-  }
-  UIElementRefresh(element);
+		if (current) {
+			int line = 0;
+			int lineHeight = UIMeasureStringHeight();
+			int viewHeight = UI_RECT_HEIGHT(asmCode->e.bounds);
+			for (char *p = evaluateResult; p < current; p++) {
+				if (*p == '\n') line++;
+			}
+			asmCode->vScroll->position = line * lineHeight - (viewHeight / 2);
+			}
+	}
+	UIElementRefresh(element);
 }
