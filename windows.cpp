@@ -3172,11 +3172,9 @@ UIElement* ASMWindowCreate(UIElement *parent) {
 void ASMWindowUpdate(const char *data, UIElement *element) {
 	EvaluateCommand("disassemble /m $pc-128,$pc+128");
 
-	if (strstr(evaluateResult, "No registers.") || 
-		strstr(evaluateResult, "The current thread has terminated")) {
+	if (strstr(evaluateResult, "No registers.") || strstr(evaluateResult, "The current thread has terminated")) {
 		return;
-	}
-	else {
+	} else {
 		UICode* asmCode = (UICode *) element;
 		UICodeInsertContent(asmCode, evaluateResult, -1, true);
 
@@ -3186,11 +3184,14 @@ void ASMWindowUpdate(const char *data, UIElement *element) {
 			int line = 0;
 			int lineHeight = UIMeasureStringHeight();
 			int viewHeight = UI_RECT_HEIGHT(asmCode->e.bounds);
+			
 			for (char *p = evaluateResult; p < current; p++) {
 				if (*p == '\n') line++;
 			}
+			
 			asmCode->vScroll->position = line * lineHeight - (viewHeight / 2);
-			}
+		}
 	}
+	
 	UIElementRefresh(element);
 }
