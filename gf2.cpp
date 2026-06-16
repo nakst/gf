@@ -2,7 +2,6 @@
 // 	- Setting/clearing/showing breakpoints.
 // 	- Jump/run to line.
 // 	- Shift+F10: run to next instruction (for skipping past loops).
-// 	- Split source and disassembly view.
 
 // TODO Inspect line mode:
 // 	- Jump/run to selected line.
