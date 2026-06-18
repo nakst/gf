@@ -163,12 +163,25 @@ You can use any standard GDB command, or any of the commands listed in "Special 
 
 ### Vim integration
 
-You can change the server name with the `server_name` key in the `vim` section. For example,
+In the debugger, pressing F2 moves the in-debugger editor to the file+line currently opened in Vim. If using Gvim (enabled by default), you can change the server name with the `server_name` key in the `gvim` section
 
 ```ini
-[vim]
+[gvim]
 server_name=MyVimServer
 ```
+
+If using Nvim, you must disable Gvim and enable [Nvim itegration](https://neovim.io/doc/user/remote/) and set the named pipe with the `server` key
+
+```ini
+[gvim]
+enable=0
+
+[nvim]
+enable=0
+server=/tmp/nvim.pipe
+```
+
+Then to actually allow gf to connect, start Nvim with `nvim --listen /tmp/nvim.pipe`.
 
 ## Control pipe
 
