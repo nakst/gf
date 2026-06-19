@@ -36,6 +36,12 @@ extern "C" {
 #include "luigi2.h"
 }
 
+
+// Version Numbers
+#define VER_MAJOR 0
+#define VER_MINOR 9
+#define VER_PATCH 1
+
 // Data structures:
 
 template <class T>
@@ -1837,13 +1843,17 @@ void CopyLayoutToClipboard(void *cp)
 }
 
 int GfMain(int argc, char **argv) {
-	if (argc == 2 && (0 == strcmp(argv[1], "-?") || 0 == strcmp(argv[1], "-h") || 0 == strcmp(argv[1], "--help"))) {
-		fprintf(stderr, "Usage: %s [GDB args]\n\n"
-			        "GDB args: Pass any GDB arguments here, they will be forwarded to GDB.\n\n"
-				"For more information, view the README at https://github.com/nakst/gf/blob/master/README.md.\n", argv[0]);
+	if (argc == 2 && (0 == strcmp(argv[1], "-v") || 0 == strcmp(argv[1], "--version"))) {
+		fprintf(stdout, "%s %d.%d.%d\n", argv[0], VER_MAJOR, VER_MINOR, VER_PATCH);
+		return 1;	
+	} else if (argc == 2 && (0 == strcmp(argv[1], "-?") || 0 == strcmp(argv[1], "-h") || 0 == strcmp(argv[1], "--help"))) {
+		fprintf(stderr, "Usage: %s [GDB args]\n"
+				"Version: %d.%d.%d\n\n"
+				"GDB args: Pass any GDB arguments here, they will be forwarded to GDB.\n\n"
+				"For more information, view the README at https://github.com/nakst/gf/blob/master/README.md.\n",
+			argv[0], VER_MAJOR, VER_MINOR, VER_PATCH);
 		return 1;
 	}
-
 	struct sigaction sigintHandler = {};
 	sigintHandler.sa_handler = [] (int) { DebuggerClose(); exit(0); };
 	sigaction(SIGINT, &sigintHandler, nullptr);
