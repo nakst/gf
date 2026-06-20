@@ -830,7 +830,7 @@ void UIColorToRGB(float hue, float saturation, float value, uint32_t *rgb);
 
 char *UIStringCopy(const char *in, ptrdiff_t inBytes);
 
-UIFont *UIFontCreate(const char *cPath, uint32_t size);
+UIFont *UIFontCreate(const char *cPath, uint32_t index, uint32_t size);
 UIFont *UIFontActivate(UIFont *font); // Returns the previously active font.
 
 #ifdef UI_DEBUG
@@ -5173,7 +5173,7 @@ void UIDrawGlyph(UIPainter *painter, int x0, int y0, int c, uint32_t color) {
 	}
 }
 
-UIFont *UIFontCreate(const char *cPath, uint32_t size) {
+UIFont *UIFontCreate(const char *cPath, uint32_t index, uint32_t size) {
 	UIFont *font = (UIFont *) UI_CALLOC(sizeof(UIFont));
 
 #ifdef UI_FREETYPE
@@ -5184,7 +5184,7 @@ UIFont *UIFontCreate(const char *cPath, uint32_t size) {
 	font->glyphOffsetsY = (int *) UI_CALLOC(sizeof(int) * (_UNICODE_MAX_CODEPOINT + 1));
 #endif
 	if (cPath) {
-		int ret = FT_New_Face(ui.ft, cPath, 0, &font->font);
+		int ret = FT_New_Face(ui.ft, cPath, index, &font->font);
 		if (ret == 0) {
 			FT_Select_Charmap(font->font, FT_ENCODING_UNICODE);
 			if (FT_HAS_FIXED_SIZES(font->font) && font->font->num_fixed_sizes) {
@@ -5209,7 +5209,7 @@ UIFont *UIFontCreate(const char *cPath, uint32_t size) {
 			font->isFreeType = true;
 			return font;
 		} else
-			printf("Cannot load font %s : %d\n", cPath, ret);
+			printf("Cannot load font %s(%d) : %d\n", cPath, index, ret);
 	}
 #endif
 
