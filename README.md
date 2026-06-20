@@ -115,6 +115,7 @@ You can change the font, user interface scaling, window width and height in the 
 [ui]
 scale=1.5
 font_path=/usr/share/fonts/TTF/DejaVuSansMono.ttf
+font_index=0
 font_size_interface=17
 font_size_code=20
 width=800
@@ -122,6 +123,11 @@ height=600
 ```
 
 To change the font, FreeType must have been available when you compiled gf. You can enable subpixel font rendering by recompiling with `extra_flags=-DUI_FREETYPE_SUBPIXEL ./build.sh`.
+
+To select particular variation of a font from the file you have to obtain its font index. For example, this can be done using command like this:
+```bash
+fc-scan --format '%{family} | %{style} | index=%{index}\n' /usr/share/fonts/TTF/IosevkaSlab.ttc | grep 'Iosevka Slab |'
+```
 
 If you don't want the execution pointer to be always in the middle of the code window, you can disable this behaviour:
 

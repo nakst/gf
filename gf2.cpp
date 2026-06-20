@@ -178,6 +178,7 @@ Array<InterfaceDataViewer> interfaceDataViewers;
 Array<ReceiveMessageType> receiveMessageTypes;
 char *layoutString = (char *) "v(75,h(80,Source,v(50,t(Exe,Breakpoints,Commands,Struct),t(Stack,Files,Thread,CmdSearch))),h(65,Console,t(Watch,Locals,Registers,Data)))";
 const char *fontPath;
+int fontIndex = 0;
 int fontSizeCode = 13;
 int fontSizeInterface = 11;
 float uiScale = 1;
@@ -1286,6 +1287,8 @@ void SettingsLoad(bool earlyPass) {
 			} else if (0 == strcmp(state.section, "ui") && earlyPass) {
 				if (0 == strcmp(state.key, "font_path")) {
 					fontPath = state.value;
+				} else if (0 == strcmp(state.key, "font_index")) {
+					fontIndex = atoi(state.value);
 				} else if (0 == strcmp(state.key, "font_size")) {
 					fontSizeInterface = fontSizeCode = atoi(state.value);
 				} else if (0 == strcmp(state.key, "font_size_code")) {
@@ -1884,8 +1887,8 @@ int GfMain(int argc, char **argv) {
 	}
 #endif
 
-	fontCode = UIFontCreate(fontPath, fontSizeCode);
-	UIFontActivate(UIFontCreate(fontPath, fontSizeInterface));
+	fontCode = UIFontCreate(fontPath, fontIndex, fontSizeCode);
+	UIFontActivate(UIFontCreate(fontPath, fontIndex, fontSizeInterface));
 
 	windowMain = UIWindowCreate(0, maximize ? UI_WINDOW_MAXIMIZE : 0, "gf2", uiWidth, uiHeight);
 	windowMain->scale = uiScale;
