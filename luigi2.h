@@ -6933,9 +6933,23 @@ int _UICocoaRemapKey(int code) {
 @end
 
 @implementation UICocoaApplicationDelegate
-- (void)applicationWillFinishLaunching:(NSNotification *)notification {
+- (void)applicationDidFinishLaunching:(NSNotification *)notification {
+	// Create the interface only once AppKit has finished launching. Creating windows earlier (for example
+	// in applicationWillFinishLaunching:) can leave them registered but never actually displayed.
 	int code = _cocoaAppMain(_cocoaArgc, _cocoaArgv);
 	if (code) exit(code);
+
+	// When launched directly (e.g. from a terminal) the process is not automatically brought to the
+	// foreground; do it explicitly and order the window front so it appears and receives keyboard focus.
+	[NSApp activateIgnoringOtherApps:YES];
+
+	for (NSWindow *window in [NSApp windows]) {
+		[window makeKeyAndOrderFront:nil];
+	}
+}
+
+- (BOOL)applicationShouldTerminateAfterLastWindowClosed:(NSApplication *)sender {
+	return YES;
 }
 @end
 
@@ -6946,13 +6960,21 @@ int _UICocoaRemapKey(int code) {
 }
 
 - (void)windowDidResize:(NSNotification *)notification {
-	_uiWindow->width = ((UICocoaMainView *) _uiWindow->view).frame.size.width;
-	_uiWindow->height = ((UICocoaMainView *) _uiWindow->view).frame.size.height;
+	// The framebuffer is kept in physical pixels so the interface stays crisp on Retina/HiDPI displays.
+	UICocoaMainView *view = (UICocoaMainView *) _uiWindow->view;
+	CGFloat scale = view.window.backingScaleFactor ?: 1;
+	_uiWindow->width = view.frame.size.width * scale;
+	_uiWindow->height = view.frame.size.height * scale;
 	_uiWindow->bits = (uint32_t *) UI_REALLOC(_uiWindow->bits, _uiWindow->width * _uiWindow->height * 4);
 	_uiWindow->e.bounds = UI_RECT_2S(_uiWindow->width, _uiWindow->height);
 	_uiWindow->e.clip = UI_RECT_2S(_uiWindow->width, _uiWindow->height);
 	UIElementRelayout(&_uiWindow->e);
 	_UIUpdate();
+}
+
+- (void)windowDidChangeBackingProperties:(NSNotification *)notification {
+	// Reallocate the framebuffer when the window moves to a display with a different scale factor.
+	[self windowDidResize:notification];
 }
 @end
 
@@ -6972,16 +6994,20 @@ int _UICocoaRemapKey(int code) {
 }
 
 - (void)drawRect:(NSRect)dirtyRect {
+	// The framebuffer is in physical pixels; draw it into the view's bounds (points) so the graphics
+	// context scales it 1:1 to the backing store, keeping the result sharp on Retina/HiDPI displays.
 	const unsigned char *data = (const unsigned char *) _uiWindow->bits;
-	NSDrawBitmap(NSMakeRect(0, 0, _uiWindow->width, _uiWindow->height), _uiWindow->width, _uiWindow->height,
+	NSDrawBitmap(self.bounds, _uiWindow->width, _uiWindow->height,
 			8 /* bits per channel */, 4 /* channels per pixel */,
 			32 /* bits per pixel */, 4 * _uiWindow->width /* bytes per row */, NO /* planar */, YES /* has alpha */,
 			NSDeviceRGBColorSpace /* color space */, &data /* data */);
 }
 
 - (void)eventCommon:(NSEvent *)event {
+	// Cursor coordinates are reported in points but the interface works in physical pixels, so scale them.
+	CGFloat scale = self.window.backingScaleFactor ?: 1;
 	NSPoint cursor = [self convertPoint:[event locationInWindow] fromView:nil];
-	_uiWindow->cursorX = cursor.x, _uiWindow->cursorY = _uiWindow->height - cursor.y - 1;
+	_uiWindow->cursorX = cursor.x * scale, _uiWindow->cursorY = _uiWindow->height - cursor.y * scale - 1;
 	_uiWindow->ctrl = event.modifierFlags & NSEventModifierFlagCommand;
 	_uiWindow->shift = event.modifierFlags & NSEventModifierFlagShift;
 	_uiWindow->alt = event.modifierFlags & NSEventModifierFlagOption;
@@ -7078,16 +7104,19 @@ UIWindow *UIWindowCreate(UIWindow *owner, uint32_t flags, const char *cTitle, in
 	UICocoaWindowDelegate *delegate = [UICocoaWindowDelegate alloc];
 	[delegate setUiWindow:window];
 	nsWindow.delegate = delegate;
-	UICocoaMainView *view = [UICocoaMainView alloc];
+	UICocoaMainView *view = [[UICocoaMainView alloc] initWithFrame:frame];
 	window->window = nsWindow;
 	window->view = view;
-	window->width = frame.size.width;
-	window->height = frame.size.height;
+	// Allocate the framebuffer in physical pixels and scale the interface to match, so everything stays
+	// sharp and correctly sized on Retina/HiDPI displays.
+	CGFloat backingScale = nsWindow.backingScaleFactor ?: 1;
+	if (!owner) window->scale = backingScale;
+	window->width = frame.size.width * backingScale;
+	window->height = frame.size.height * backingScale;
 	window->bits = (uint32_t *) UI_REALLOC(window->bits, window->width * window->height * 4);
 	window->e.bounds = UI_RECT_2S(window->width, window->height);
 	window->e.clip = UI_RECT_2S(window->width, window->height);
 	[view setUiWindow:window];
-	[view initWithFrame:frame];
 	nsWindow.contentView = view;
 	[view addTrackingArea:[[NSTrackingArea alloc] initWithRect:frame
 		options:NSTrackingMouseMoved|NSTrackingActiveInKeyWindow|NSTrackingInVisibleRect owner:view userInfo:nil]];
@@ -7100,12 +7129,18 @@ UIWindow *UIWindowCreate(UIWindow *owner, uint32_t flags, const char *cTitle, in
 }
 
 void _UIClipboardWriteText(UIWindow *window, char *text) {
-	// TODO Clipboard support.
+	NSPasteboard *pasteboard = [NSPasteboard generalPasteboard];
+	[pasteboard clearContents];
+	[pasteboard setString:@(text ?: "") forType:NSPasteboardTypeString];
+	UI_FREE(text); // This function takes ownership of the string (see the other platform layers).
 }
 
 char *_UIClipboardReadTextStart(UIWindow *window, size_t *bytes) {
-	// TODO Clipboard support.
-	return NULL;
+	NSString *string = [[NSPasteboard generalPasteboard] stringForType:NSPasteboardTypeString];
+	if (!string) { *bytes = 0; return NULL; }
+	char *result = _UIUTF8StringFromNSString(string);
+	*bytes = strlen(result);
+	return result;
 }
 
 void _UIClipboardReadTextEnd(UIWindow *window, char *text) {
@@ -7143,20 +7178,30 @@ void _UIWindowGetScreenPosition(UIWindow *window, int *x, int *y) {
 }
 
 UIMenu *UIMenuCreate(UIElement *parent, uint32_t flags) {
-	// TODO Fix the vertical position.
+	// Convert the anchor from the interface's pixel space (origin top-left) into screen points (origin
+	// bottom-left), which is what -popUpMenuPositioningItem:atLocation:inView: expects.
+	UIWindow *uiWindow = parent->window;
+	UICocoaMainView *view = (UICocoaMainView *) uiWindow->view;
+	CGFloat scale = view.window.backingScaleFactor ?: 1;
+	CGFloat viewHeight = view.frame.size.height;
+
+	int anchorX, anchorY;
 
 	if (parent->parent) {
-		UIRectangle screenBounds = UIElementScreenBounds(parent);
-		ui.menuX = screenBounds.l;
-		ui.menuY = screenBounds.b;
+		anchorX = parent->bounds.l;
+		anchorY = (flags & UI_MENU_PLACE_ABOVE) ? parent->bounds.t : parent->bounds.b;
 	} else {
-		_UIWindowGetScreenPosition(parent->window, &ui.menuX, &ui.menuY);
-		ui.menuX += parent->window->cursorX;
-		ui.menuY += parent->window->cursorY;
+		anchorX = uiWindow->cursorX;
+		anchorY = uiWindow->cursorY;
 	}
 
+	NSPoint windowPoint = NSMakePoint(anchorX / scale, viewHeight - anchorY / scale);
+	NSPoint screenPoint = [uiWindow->window convertPointToScreen:windowPoint];
+	ui.menuX = (int) screenPoint.x;
+	ui.menuY = (int) screenPoint.y;
+
 	ui.menuIndex = 0;
-	ui.menuWindow = parent->window;
+	ui.menuWindow = uiWindow;
 
 	NSMenu *menu = [[NSMenu alloc] init];
 	[menu setAutoenablesItems:NO];
@@ -7184,27 +7229,58 @@ void UIMenuShow(UIMenu *menu) {
 }
 
 void UIWindowPack(UIWindow *window, int _width) {
+	// Element sizes are in physical pixels; -setContentSize: expects points.
+	CGFloat scale = ((NSWindow *) window->window).backingScaleFactor ?: 1;
 	int width = _width ? _width : UIElementMessage(window->e.children[0], UI_MSG_GET_WIDTH, 0, 0);
 	int height = UIElementMessage(window->e.children[0], UI_MSG_GET_HEIGHT, width, 0);
-	[window->window setContentSize:NSMakeSize(width, height)];
+	[window->window setContentSize:NSMakeSize(width / scale, height / scale)];
 }
 
 bool _UIMessageLoopSingle(int *result) {
-	// TODO Modal dialog support.
-	return false;
+	// Pump a single event from the application's queue. This lets the nested loops used by modal dialogs
+	// (UIDialogShow) run while NSApplicationMain owns the main loop.
+	NSEvent *event = [NSApp nextEventMatchingMask:NSEventMaskAny untilDate:[NSDate distantFuture]
+			inMode:NSDefaultRunLoopMode dequeue:YES];
+	if (event) [NSApp sendEvent:event];
+	return true;
 }
 
 void UIWindowPostMessage(UIWindow *window, UIMessage _message, void *dp) {
+	// This is called from other threads (e.g. the debugger thread). Dispatch the work to the main thread.
+	// Note: -performSelectorOnMainThread:withObject:waitUntilDone:NO retains its argument, which crashes
+	// here because the payload is a plain C allocation rather than an Objective-C object. Use a libdispatch
+	// block instead, capturing only C pointers so nothing is sent an objc_retain message.
 	_UIPostedMessage *message = (_UIPostedMessage *) UI_MALLOC(sizeof(_UIPostedMessage));
 	message->message = _message;
 	message->dp = dp;
-	[(UICocoaMainView*)window->view performSelectorOnMainThread:@selector(handlePostedMessage:) withObject:(id)message waitUntilDone:NO];
+	UIWindow *uiWindow = window;
+	dispatch_async(dispatch_get_main_queue(), ^{
+		// Deliver the posted message to the window's message handler, matching every other backend
+		// (see the X11/Windows/Essence implementations). _UIWindowInputEvent only dispatches input
+		// (mouse/keyboard) events and silently drops user messages (>= UI_MSG_USER), which would stop
+		// gdb output, source/stack updates and control-pipe commands from ever reaching the application.
+		UIElementMessage(&uiWindow->e, message->message, 0, message->dp);
+		_UIUpdate();
+		UI_FREE(message);
+	});
 }
 
 int UICocoaMain(int argc, char **argv, int (*appMain)(int, char **)) {
 	_cocoaArgc = argc, _cocoaArgv = argv, _cocoaAppMain = appMain;
 	NSApplication *application = [NSApplication sharedApplication];
+	[application setActivationPolicy:NSApplicationActivationPolicyRegular];
 	application.delegate = [[UICocoaApplicationDelegate alloc] init];
+
+	// Provide a minimal menu bar so standard shortcuts such as Command+Q work.
+	NSMenu *menuBar = [[NSMenu alloc] init];
+	NSMenuItem *appMenuItem = [[NSMenuItem alloc] init];
+	[menuBar addItem:appMenuItem];
+	[application setMainMenu:menuBar];
+	NSMenu *appMenu = [[NSMenu alloc] init];
+	NSString *appName = [[NSProcessInfo processInfo] processName];
+	[appMenu addItemWithTitle:[@"Quit " stringByAppendingString:appName] action:@selector(terminate:) keyEquivalent:@"q"];
+	[appMenuItem setSubmenu:appMenu];
+
 	return NSApplicationMain(argc, (const char **) argv);
 }
 

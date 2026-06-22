@@ -28,7 +28,12 @@ And compile the application.
 
 # openbsd
 ./build_openbsd.sh
+
+# macos (experimental)
+./build_macos.sh
 ```
+
+On macOS the build produces an application bundle, `gf2.app`. You can launch it with `open gf2.app` or run the executable directly with `./gf2.app/Contents/MacOS/gf2`. The macOS port is still experimental, but core functionality works: HiDPI/Retina rendering, the system clipboard, modal dialogs, context menus and Command+Q. Note that on macOS the `Ctrl`-based shortcuts described below are triggered with the `Command` key.
 
 Please read the rest of this file to learn about using and configuring `gf`. If you're new to GDB, see [this article](https://handmade.network/forums/articles/t/2883-gdb).
 

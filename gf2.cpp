@@ -574,6 +574,12 @@ void *DebuggerThread(void *) {
 		dup2(inputPipe[0],  0);
 		dup2(outputPipe[1], 1);
 		dup2(outputPipe[1], 2);
+		// Close every other inherited descriptor. fork() copies the entire descriptor table, so without
+		// this the long-lived gdb process can hold open the write end of an unrelated pipe (e.g. one
+		// created by a popen() running concurrently on another thread, such as the startup Vim sync). That
+		// pipe would then never report EOF, hanging the reader forever. On macOS this manifested as the
+		// main thread blocking before the run loop started, so the window was created but never displayed.
+		for (int fd = 3, maxFd = (int) sysconf(_SC_OPEN_MAX); fd < maxFd; fd++) close(fd);
 		execvp(gdbPath, gdbArgv);
 		fprintf(stderr, "Error: Couldn't execute gdb.\n");
 		exit(EXIT_FAILURE);
@@ -1888,7 +1894,9 @@ int GfMain(int argc, char **argv) {
 	UIFontActivate(UIFontCreate(fontPath, fontSizeInterface));
 
 	windowMain = UIWindowCreate(0, maximize ? UI_WINDOW_MAXIMIZE : 0, "gf2", uiWidth, uiHeight);
-	windowMain->scale = uiScale;
+	// Multiply rather than assign so the platform's base scale (e.g. the Retina backing scale set by the
+	// Cocoa backend) is preserved. On other platforms the base scale is 1, so this is unchanged.
+	windowMain->scale *= uiScale;
 	windowMain->e.messageUser = WindowMessage;
 
 	for (int i = 0; i < interfaceCommands.Length(); i++) {
