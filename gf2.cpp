@@ -1571,8 +1571,8 @@ void InterfaceAddBuiltinWindowsAndCommands() {
 			.shortcut = { .code = UI_KEYCODE_LETTER('D'), .ctrl = true, .invoke = CommandToggleDisassembly } });
 	interfaceCommands.Add({ .label = "Set disassembly mode\tCtrl+M",
 			.shortcut = { .code = UI_KEYCODE_LETTER('M'), .ctrl = true, .invoke = CommandSetDisassemblyMode } });
-	interfaceCommands.Add({ .label = "Add watch",
-			.shortcut = { .invoke = CommandAddWatch } });
+	interfaceCommands.Add({ .label = "Add watch \tCtrl+W",
+			.shortcut = { .code = UI_KEYCODE_LETTER('W'), .ctrl = true, .invoke = CommandAddWatch } });
 	interfaceCommands.Add({ .label = "Inspect line",
 			.shortcut = { .code = UI_KEYCODE_BACKTICK, .invoke = CommandInspectLine } });
 	interfaceCommands.Add({ .label = "Copy Layout to Clipboard", 
